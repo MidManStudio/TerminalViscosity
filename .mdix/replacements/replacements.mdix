@@ -13,5 +13,5 @@
 )
 
 @DATA(
-  target_root = "docs"
+  target_root = "."
 )
