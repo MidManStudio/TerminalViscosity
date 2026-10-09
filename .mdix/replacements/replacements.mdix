@@ -1,0 +1,17 @@
+// Brought to u by MidManStudio
+// FILE: .mdix/replacements/replacements.mdix
+//
+// Drops the reference-docs tarball (terminal-viscosity-references.tar.gz,
+// sitting next to this file) into docs/references/. Every file inside the
+// archive sits in a subfolder, so each one is path-pinned: no filename search,
+// no ambiguity, no overrides:: needed.
+
+@CONFIG(
+  version    -> "1.0.0"
+  features   -> "data"
+  debug_mode -> "off"
+)
+
+@DATA(
+  target_root = "docs"
+)
