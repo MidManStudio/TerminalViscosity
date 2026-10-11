@@ -1,0 +1,53 @@
+name: Benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      fail_pct:
+        description: "Fail if any benchmark is slower than the baseline by more than this percent. 0 = report only."
+        required: false
+        default: "0"
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "benches/**"
+      - "client/**"
+      - "scripts/bench_*.py"
+
+env:
+  CARGO_TERM_COLOR: always
+  ODIN_TAG: dev-2026-10
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: benches
+      - name: Install Odin ${{ env.ODIN_TAG }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang
+          curl -sSL "https://github.com/odin-lang/Odin/releases/download/${ODIN_TAG}/odin-linux-amd64-${ODIN_TAG}.tar.gz" | tar xz
+          odin_dir="$(find "$PWD" -maxdepth 1 -type d -name 'odin-linux-amd64-*' | head -n 1)"
+          echo "$odin_dir" >> "$GITHUB_PATH"
+      - name: Rust benchmarks
+        working-directory: benches
+        run: cargo bench
+      - name: Odin benchmark
+        run: odin run client/bench -o:speed -vet -strict-style > odin_bench.txt
+      - name: Merge results
+        run: python3 scripts/bench_summary.py --criterion benches/target/criterion --odin odin_bench.txt --out bench_results.json
+      - name: Compare with baseline
+        run: python3 scripts/bench_compare.py --baseline benches/baseline.json --current bench_results.json --fail-pct "${{ inputs.fail_pct || '0' }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: |
+            bench_results.json
+            odin_bench.txt
+            benches/target/criterion
