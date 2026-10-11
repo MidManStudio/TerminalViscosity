@@ -1,0 +1,23 @@
+# ============================================================================
+# NOTICE: Full documentation, design decisions, and fix history for this file
+# live in docs/tv_ffi.md, section "Cargo.toml"
+# ============================================================================
+
+[package]
+name = "tv_ffi"
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.75"
+publish = false
+description = "C ABI over the Terminal Viscosity simulation, linked by the Odin client"
+
+[lib]
+# staticlib is what the Odin client links. rlib lets the Rust tests call the same functions.
+crate-type = ["staticlib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+tv_proto = { path = "../tv_proto" }
+tv_sim = { path = "../tv_sim" }

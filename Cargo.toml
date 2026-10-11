@@ -1,0 +1,30 @@
+# ============================================================================
+# NOTICE: Full documentation, design decisions, and fix history for this file
+# live in docs/ARCHITECTURE.md, section "Cargo.toml"
+# ============================================================================
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/tv_proto",
+    "crates/tv_sim",
+    "crates/tv_ffi",
+    "crates/tv_server",
+]
+# benches/ is its own workspace so criterion never enters this lockfile.
+# See docs/ARCHITECTURE.md, section "Cargo.toml".
+exclude = ["benches"]
+
+[workspace.lints.rust]
+unsafe_code  = "deny"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+
+# Size-optimized profile for the browser build.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1

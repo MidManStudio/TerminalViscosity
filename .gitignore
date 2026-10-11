@@ -1,0 +1,21 @@
+# build output
+target/
+benches/target/
+build/
+*.o
+*.obj
+
+# bench artifacts
+bench_results.json
+
+# secrets
+.env
+.env.*
+*.pem
+*.key
+
+# editors and OS
+.DS_Store
+*.swp
+.vscode/
+.idea/

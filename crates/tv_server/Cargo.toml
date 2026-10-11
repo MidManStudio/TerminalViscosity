@@ -1,0 +1,19 @@
+# ============================================================================
+# NOTICE: Full documentation, design decisions, and fix history for this file
+# live in docs/tv_server.md, section "Cargo.toml"
+# ============================================================================
+
+[package]
+name = "tv_server"
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.75"
+publish = false
+description = "Headless server binary for Terminal Viscosity"
+
+[lints]
+workspace = true
+
+[dependencies]
+tv_proto = { path = "../tv_proto" }
+tv_sim = { path = "../tv_sim" }

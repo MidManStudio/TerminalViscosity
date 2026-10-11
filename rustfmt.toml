@@ -1,0 +1,8 @@
+# ============================================================================
+# NOTICE: Full documentation, design decisions, and fix history for this file
+# live in docs/ARCHITECTURE.md, section "rustfmt.toml"
+# ============================================================================
+
+edition = "2021"
+max_width = 100
+use_small_heuristics = "Default"

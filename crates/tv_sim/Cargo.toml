@@ -1,0 +1,18 @@
+# ============================================================================
+# NOTICE: Full documentation, design decisions, and fix history for this file
+# live in docs/tv_sim.md, section "Cargo.toml"
+# ============================================================================
+
+[package]
+name = "tv_sim"
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.75"
+publish = false
+description = "Deterministic fixed-step simulation core for Terminal Viscosity"
+
+[lints]
+workspace = true
+
+[dependencies]
+tv_proto = { path = "../tv_proto" }

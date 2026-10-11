@@ -1,0 +1,17 @@
+# ============================================================================
+# NOTICE: Full documentation, design decisions, and fix history for this file
+# live in docs/tv_proto.md, section "Cargo.toml"
+# ============================================================================
+
+[package]
+name = "tv_proto"
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.75"
+publish = false
+description = "Wire protocol and balloon art codec for Terminal Viscosity"
+
+[lints]
+workspace = true
+
+[dependencies]

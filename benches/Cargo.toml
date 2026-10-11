@@ -1,0 +1,38 @@
+# ============================================================================
+# NOTICE: Full documentation, design decisions, and fix history for this file
+# live in docs/tv_bench.md, section "Cargo.toml"
+# ============================================================================
+
+# Own workspace on purpose: criterion pulls in crates that need a newer
+# toolchain than the 1.75 floor the game crates keep. See docs/tv_bench.md.
+[workspace]
+
+[workspace.dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[package]
+name = "tv_bench"
+version = "0.0.1"
+edition = "2021"
+publish = false
+description = "Criterion benchmarks for the Terminal Viscosity crates"
+
+[dependencies]
+tv_proto = { path = "../crates/tv_proto" }
+tv_sim = { path = "../crates/tv_sim" }
+
+[dev-dependencies]
+criterion.workspace = true
+
+[lib]
+path = "src/lib.rs"
+# The library is empty. Without this, `cargo bench -- <criterion flags>` also runs libtest on it and fails.
+bench = false
+
+[[bench]]
+name = "proto_bench"
+harness = false
+
+[[bench]]
+name = "sim_bench"
+harness = false
