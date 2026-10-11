@@ -1,17 +1,34 @@
 // Brought to u by MidManStudio
 // FILE: .mdix/replacements/replacements.mdix
 //
-// Drops the reference-docs tarball (terminal-viscosity-references.tar.gz,
-// sitting next to this file) into docs/references/. Every file inside the
-// archive sits in a subfolder, so each one is path-pinned: no filename search,
-// no ambiguity, no overrides:: needed.
+// Applies terminal-viscosity-scaffold.tar.gz (sitting next to this file) to
+// the repo root. Every file in the archive sits in a subfolder, so each one
+// is path-pinned and nothing is searched for.
+//
+// The five root files live under _root/ inside the archive and are routed to
+// their real root paths below. Two reasons: dotfiles are always skipped by the
+// resolver, and a bare Cargo.toml would be searched for across the whole repo
+// and fail as ambiguous. The overrides are keyed by full _root/ path on
+// purpose. Keying by bare name would also redirect every nested Cargo.toml and
+// README.md.
 
 @CONFIG(
   version    -> "1.0.0"
-  features   -> "data"
+  features   -> "quickfuncs,data"
   debug_mode -> "off"
+)
+
+@QUICKFUNCS(
+  ~target<object>(_name, _path) { return { name = _name, path = _path } }
 )
 
 @DATA(
   target_root = "."
+
+  overrides::
+    target("_root/Cargo.toml", "Cargo.toml")
+    target("_root/Cargo.lock", "Cargo.lock")
+    target("_root/rustfmt.toml", "rustfmt.toml")
+    target("_root/README.md", "README.md")
+    target("_root/gitignore", ".gitignore")
 )
