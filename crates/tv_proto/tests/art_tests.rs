@@ -3,6 +3,7 @@
 // live in docs/tv_proto.md, section "art_tests.rs"
 // ============================================================================
 
+//! Art codec tests: round trips, the size bound, and malformed input.
 use tv_proto::art::{ArtCanvas, ART_H, ART_MAX_ENCODED_BYTES, ART_PIXELS, ART_W};
 
 fn noisy() -> ArtCanvas {
@@ -24,6 +25,7 @@ fn noisy() -> ArtCanvas {
 fn blank_canvas_compresses_to_a_few_dozen_bytes() {
     let bytes = ArtCanvas::blank(3).encode();
     assert!(bytes.len() < 200, "blank canvas took {} bytes", bytes.len());
+    assert!(ArtCanvas::blank(3).encode().len() <= 1 + 48 + 3 * 2);
     assert_eq!(ArtCanvas::decode(&bytes).unwrap(), ArtCanvas::blank(3));
 }
 
@@ -60,18 +62,24 @@ fn malformed_input_is_rejected() {
     extra.push(0);
     assert!(ArtCanvas::decode(&extra).is_err());
 
-    // RLE run past the end of the canvas
+    // RLE runs that add up to more than the canvas
     let mut bad = vec![1u8];
     bad.extend_from_slice(&[0u8; 48]);
-    for _ in 0..(ART_PIXELS / 255 + 2) {
-        bad.extend_from_slice(&[0, 255]);
+    for _ in 0..(ART_PIXELS / 40_000 + 2) {
+        bad.extend_from_slice(&[0, 0x40, 0x9C]); // run of 40,000
     }
     assert!(ArtCanvas::decode(&bad).is_err());
+
+    // RLE run of zero
+    let mut zero_run = vec![1u8];
+    zero_run.extend_from_slice(&[0u8; 48]);
+    zero_run.extend_from_slice(&[0, 0, 0]);
+    assert!(ArtCanvas::decode(&zero_run).is_err());
 
     // RLE palette index out of range
     let mut bad_idx = vec![1u8];
     bad_idx.extend_from_slice(&[0u8; 48]);
-    bad_idx.extend_from_slice(&[16, 1]);
+    bad_idx.extend_from_slice(&[16, 1, 0]);
     assert!(ArtCanvas::decode(&bad_idx).is_err());
 
     // unknown format byte

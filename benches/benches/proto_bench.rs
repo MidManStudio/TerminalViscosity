@@ -77,7 +77,7 @@ fn art(c: &mut Criterion) {
     let noisy = noisy_canvas();
     let blank_bytes = blank.encode();
     let noisy_bytes = noisy.encode();
-    let mut g = c.benchmark_group("art_64x64");
+    let mut g = c.benchmark_group("art_256x256");
     g.bench_function("encode_blank", |b| b.iter(|| black_box(&blank).encode()));
     g.bench_function("encode_noisy", |b| b.iter(|| black_box(&noisy).encode()));
     g.bench_function("decode_blank", |b| b.iter(|| ArtCanvas::decode(black_box(&blank_bytes)).unwrap()));

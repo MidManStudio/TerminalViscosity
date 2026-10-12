@@ -42,13 +42,14 @@ All numbers are little-endian. Positions travel as fixed-point millimetres and v
 **Tests:** `tests/wire_tests.rs`.
 
 ### `art.rs`
-**What it does:** `ArtCanvas`, a 64 by 64 canvas with a 16-colour palette, and its codec.
+**What it does:** `ArtCanvas`, a 256 by 256 canvas with a 16-colour palette, and its codec.
 
 **Decisions:**
-- Raw form is a format byte, 48 palette bytes, and 2048 bytes of packed 4-bit pixels, 2097 bytes at most. A run-length form is chosen automatically when it is smaller, so a blank or mostly flat canvas costs a few dozen bytes.
-- The size and palette are proposals, picked to fit the simple-shapes look and to make one-time upload per player cheap. They are constants at the top of the file.
+- Raw form is a format byte, 48 palette bytes, and 32768 bytes of packed 4-bit pixels, 32817 bytes at most. A run-length form (palette index plus a 16-bit run length) is chosen automatically when it is smaller, so a blank canvas costs 55 bytes.
+- The canvas was expanded from 64 by 64 on the owner's instruction, and nothing filters what players draw. That is deliberate. Player art is far larger than one datagram, so it must travel on a reliable stream, once per player, and never inside snapshots.
+- Size and palette are constants at the top of the file. A 256-colour palette would need one byte per pixel and is not done.
 
-**Benchmarks:** see `benches/benches/proto_bench.rs` (group `art_64x64`).
+**Benchmarks:** see `benches/benches/proto_bench.rs` (group `art_256x256`).
 
 **Tests:** `tests/art_tests.rs`.
 

@@ -3,6 +3,7 @@
 // live in docs/tv_sim.md, section "world_tests.rs"
 // ============================================================================
 
+//! World tests: determinism, balloon flight, rejected commands, and the snapshot budget.
 use tv_proto::{
     Chamber, Command, Event, Recipe, Snapshot, MAX_BALLOONS_PER_SNAPSHOT, MAX_PAYLOAD_BYTES,
 };

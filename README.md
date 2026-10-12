@@ -21,4 +21,8 @@ python3 scripts/check_headers.py
 bash scripts/build_client.sh --selftest   # needs odin on PATH
 ```
 
-Start with `docs/ARCHITECTURE.md`, then `docs/OPEN_DECISIONS.md`.
+Start with `docs/ARCHITECTURE.md`, then `docs/OPEN_DECISIONS.md`. Android is a requirement, see `docs/ANDROID.md`.
+
+## License
+
+Proprietary. Copyright (c) 2026 MidManStudio. All rights reserved. See `LICENSE`.

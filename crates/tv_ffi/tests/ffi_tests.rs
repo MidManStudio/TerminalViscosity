@@ -3,6 +3,7 @@
 // live in docs/tv_ffi.md, section "ffi_tests.rs"
 // ============================================================================
 
+//! C ABI tests: a full cycle through the exported functions and a header drift check.
 #![allow(unsafe_code)]
 
 use tv_ffi::*;

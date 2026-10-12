@@ -3,14 +3,18 @@
 // live in docs/tv_proto.md, section "art.rs"
 // ============================================================================
 
-//! Balloon art: a small palette canvas that is cheap to send once per player.
+//! Balloon art: a palette canvas players draw on, sent once per player over a reliable channel.
+//!
+//! At 256 by 256 pixels a canvas is far larger than one datagram, so it is not
+//! sent in snapshots. Players are free to draw whatever they like and nothing
+//! here filters content.
 
 use crate::codec::{DecodeError, Reader, Writer};
 
 /// Canvas width in pixels.
-pub const ART_W: usize = 64;
+pub const ART_W: usize = 256;
 /// Canvas height in pixels.
-pub const ART_H: usize = 64;
+pub const ART_H: usize = 256;
 /// Palette entries. Pixels store a 4-bit palette index.
 pub const PALETTE_LEN: usize = 16;
 /// Pixel count.
@@ -78,11 +82,11 @@ impl ArtCanvas {
         while i < ART_PIXELS {
             let idx = self.pixels[i];
             let mut run = 1usize;
-            while i + run < ART_PIXELS && self.pixels[i + run] == idx && run < 255 {
+            while i + run < ART_PIXELS && self.pixels[i + run] == idx && run < u16::MAX as usize {
                 run += 1;
             }
             w.u8(idx);
-            w.u8(run as u8);
+            w.u16(run as u16);
             i += run;
         }
         w.finish()
@@ -120,7 +124,7 @@ impl ArtCanvas {
             FORMAT_RLE => {
                 while pixels.len() < ART_PIXELS {
                     let idx = r.u8()?;
-                    let run = r.u8()? as usize;
+                    let run = r.u16()? as usize;
                     if idx as usize >= PALETTE_LEN {
                         return Err(DecodeError::BadValue("palette index"));
                     }

@@ -3,6 +3,7 @@
 // live in docs/tv_proto.md, section "wire_tests.rs"
 // ============================================================================
 
+//! Wire protocol tests: round trips, the datagram size budget, and hostile input.
 use tv_proto::wire::{
     decode_events, encode_events, BalloonState, Chamber, Command, Event, Recipe, Snapshot,
     BALLOON_STATE_BYTES, SNAPSHOT_HEADER_BYTES,

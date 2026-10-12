@@ -45,7 +45,7 @@ Each crate and package keeps its own documentation file in its own `docs/` folde
 
 - The game crates keep a Rust 1.75 floor and use no external dependencies. That is checked in CI on 1.75 and on stable.
 - `benches/` needs a recent stable toolchain because of Criterion. It is its own workspace so it never enters the root lockfile.
-- `chemistry_core` from unity-chem-sim needs Rust 1.83 or newer, according to its own documentation. When its adapter is added it will follow the same isolation pattern as `benches/`.
+- `chemistry_core` from unity-chem-sim declares a Rust 1.83 floor. The cause is twenty `const` uses of `f32::from_bits` and `to_bits` inside its vendored mid-math, not an external dependency. See `docs/OPEN_DECISIONS.md`. Until that is patched, its adapter follows the same isolation pattern as `benches/`.
 - The Odin version is pinned in CI.
 
 ## Modules
@@ -57,7 +57,7 @@ Each crate and package keeps its own documentation file in its own `docs/` folde
 - `resolver = "2"`, members listed explicitly, and `benches` excluded because it is a separate workspace.
 - Lint table as in the Rust guidelines: `unsafe_code = "deny"`, `missing_docs = "warn"`, and `undocumented_unsafe_blocks = "warn"`. Every crate opts in with `[lints] workspace = true`. Only `tv_ffi` lifts the unsafe lint, in one line at its crate root.
 - A `wasm-release` profile is defined for the browser build, with size optimization and fat LTO.
-- No `[workspace.package]` table and no license field, because no license decision has been made.
+- No `[workspace.package]` table. The project is proprietary, see `LICENSE` at the repository root, and every crate sets `publish = false`.
 
 ### `rustfmt.toml`
 **What it does:** Formatter settings. Edition 2021 and a 100 column limit. 100 is already the rustfmt default, and the file pins it so the limit is visible.
