@@ -1,11 +1,11 @@
 // Brought to u by MidManStudio
 // FILE: .mdix/replacements/replacements.mdix
 //
-// Applies terminal-viscosity-scaffold.tar.gz (sitting next to this file) to
-// the repo root. Every file in the archive sits in a subfolder, so each one
-// is path-pinned and nothing is searched for.
+// Applies the scaffold archive in this folder to the repo root. Every file in
+// the archive sits in a subfolder, so each one is path-pinned and nothing is
+// searched for.
 //
-// The five root files live under _root/ inside the archive and are routed to
+// The six root files live under _root/ inside the archive and are routed to
 // their real root paths below. Two reasons: dotfiles are always skipped by the
 // resolver, and a bare Cargo.toml would be searched for across the whole repo
 // and fail as ambiguous. The overrides are keyed by full _root/ path on
@@ -30,5 +30,6 @@
     target("_root/Cargo.lock", "Cargo.lock")
     target("_root/rustfmt.toml", "rustfmt.toml")
     target("_root/README.md", "README.md")
+    target("_root/LICENSE", "LICENSE")
     target("_root/gitignore", ".gitignore")
 )
