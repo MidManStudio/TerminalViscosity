@@ -4,7 +4,7 @@
 
 Everything specific to the Android build that is not Odin or Rust source: the manifest and the C shim that starts the game. The build itself is `scripts/build_android.sh`, run by `.github/workflows/android.yml`. The target is 32-bit ARM (`armeabi-v7a`), because that is the only ABI the Galaxy A13 reports as installable. See `docs/ANDROID.md` for requirements, what was verified, and what was not.
 
-The pipeline: raylib 6.0 is built from source for Android, `tv_ffi` is built for `armv7-linux-androideabi`, Odin compiles the client to plain object files, the NDK linker joins them with the C shim and the native app glue into `libmain.so`, and `aapt`, `zipalign`, and `apksigner` produce a signed debug APK.
+The pipeline: raylib 6.0 is built from source for Android, `tv_ffi` is built for `armv7-linux-androideabi`, Odin compiles the client to plain object files, the NDK linker joins them with the C shim and raylib (whose archive already contains the native app glue) into `libmain.so`, and `aapt`, `zipalign`, and `apksigner` produce a signed debug APK.
 
 ## Modules
 

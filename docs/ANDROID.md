@@ -36,11 +36,14 @@ The 32-bit point is the one to keep in mind. Everything native has to build for 
 - Foreign import paths must be relative to the source file. Absolute paths are rejected.
 - `vendor:raylib` has no Android branch, so it would link the desktop library. That does not matter here, because Odin only compiles and the NDK does the link.
 
+## First CI run
+
+The first run of the Android workflow, on GitHub's runner with NDK r26d, passed three stages: raylib 6.0 built for armv7 (a 2.4 MB static library), `tv_ffi` built for `armv7-linux-androideabi` (a 20 MB static library), and the client compiled to 45 Odin objects. The link failed on `undefined symbol: __real_fopen`. raylib's Android backend wraps `fopen` to read assets from the APK, which needs `-Wl,--wrap=fopen` on the final link. That flag, and the rest of raylib's Android link flags, are now in the script.
+
 ## What is not verified
 
-- Building raylib 6.0 for Android with the NDK.
-- Building `tv_ffi` for `armv7-linux-androideabi`. The Rust crates have only been built and tested on 64-bit x86. They avoid pointer-sized assumptions in their data formats, but that has not been run on a 32-bit target.
-- Linking everything into `libmain.so`, and whether the Odin objects start correctly without the Odin runtime start-up.
+- Linking everything into `libmain.so` (the first attempt failed on a missing flag, now fixed and not yet re-run), and whether the Odin objects start correctly without the Odin runtime start-up.
+- The Rust crates compile for `armv7-linux-androideabi`, but their tests have only been run on 64-bit x86, not on a 32-bit target.
 - Installing and running on the phone.
 - `mid-net` on 32-bit ARM Android.
 - Whether the A13 really only installs armeabi-v7a. This comes from comments in the midnote workflow and was not checked against the device.
@@ -52,7 +55,7 @@ The 32-bit point is the one to keep in mind. Everything native has to build for 
 1. `raylib`: build raylib 6.0 from source with the NDK for `ANDROID_ARCH=arm`.
 2. `rust`: build `tv_ffi` as a static library for `armv7-linux-androideabi`.
 3. `odin`: compile the client to object files with `-target:linux_arm32 -subtarget:android -build-mode:object -o:minimal`.
-4. `link`: link the objects, `android/entry.c`, the NDK's native app glue, raylib, and the Rust library into `libmain.so`.
+4. `link`: link the objects, `android/entry.c`, raylib (which already contains the NDK's native app glue), and the Rust library into `libmain.so`.
 5. `package`: `aapt`, `zipalign`, and `apksigner` with a throwaway debug key.
 
 The first run of this workflow is expected to need fixes, mainly in stages 1, 2, and 4, which need the NDK. The midnote workflow's history shows the same pattern.

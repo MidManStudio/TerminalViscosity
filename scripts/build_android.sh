@@ -116,21 +116,27 @@ stage_odin() {
 stage_link() {
     log "link libmain.so"
     require_tools
-    local glue="$NDK/sources/android/native_app_glue/android_native_app_glue.c"
-    [ -f "$glue" ] || die "native app glue not found at $glue"
     mkdir -p "$OUT/stage/lib/$ABI"
-    "$CC" -fPIC -c "$glue" -I"$(dirname "$glue")" -o "$OUT/native_app_glue.o"
+    # The NDK's native app glue is already inside libraylib.a: raylib's Makefile
+    # compiles it into the archive, and -u ANativeActivity_onCreate pulls it in.
     "$CC" -fPIC -c android/entry.c -o "$OUT/entry.o"
-    # --no-undefined makes missing symbols fail here instead of at app start.
+    # Flags follow raylib's own Android template. --wrap=fopen is required by raylib:
+    # its Android backend redirects fopen to read from the APK's assets, and the
+    # wrapper calls __real_fopen, which only exists when the final link passes
+    # this flag. --no-undefined makes missing symbols fail here instead of when
+    # the app starts.
     "$CC" -shared -o "$OUT/stage/lib/$ABI/libmain.so" \
-        "$OUT"/obj/*.o "$OUT/entry.o" "$OUT/native_app_glue.o" \
+        "$OUT"/obj/*.o "$OUT/entry.o" \
         "$OUT/raylib/src/libraylib.a" "target/$RUST_TARGET/release/libtv_ffi.a" \
         -u ANativeActivity_onCreate \
+        -Wl,--wrap=fopen \
+        -Wl,-soname,libmain.so -Wl,--exclude-libs,libatomic.a -Wl,--build-id \
         -Wl,--no-undefined -Wl,--gc-sections \
+        -Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now -Wl,--warn-shared-textrel \
         -llog -landroid -lEGL -lGLESv2 -lOpenSLES -lm -ldl -lc
     ls -la "$OUT/stage/lib/$ABI/libmain.so"
-    echo "exported entry points:"
-    "$NM" -D --defined-only "$OUT/stage/lib/$ABI/libmain.so" | grep -E "ANativeActivity_onCreate|android_main" || die "native activity entry points missing from libmain.so"
+    echo "exported entry point:"
+    "$NM" -D --defined-only "$OUT/stage/lib/$ABI/libmain.so" | grep "ANativeActivity_onCreate" || die "ANativeActivity_onCreate is not exported from libmain.so"
 }
 
 stage_package() {

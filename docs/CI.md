@@ -45,7 +45,7 @@ Not covered yet: the browser (WebAssembly) build, any server networking, and che
 
 **Decisions:**
 - Odin only compiles. The final link is done with the NDK's clang, because Odin's own Android link modes did not fit raylib's startup, see `android/docs/android.md`.
-- The link uses `-Wl,--no-undefined`, so a missing symbol fails in CI instead of when the app starts.
+- The link flags follow raylib's own Android template. `-Wl,--wrap=fopen` is mandatory, because raylib's Android backend reads assets through a wrapped `fopen`. `-Wl,--no-undefined` makes a missing symbol fail in CI instead of when the app starts.
 - Packaging follows raylib's own Android recipe: `aapt package`, then `aapt add` for the library, `zipalign`, then `apksigner` with a throwaway debug key. No secrets are involved.
 - Settings come from environment variables (`TV_ANDROID_API`, `TV_ANDROID_TARGET_SDK`, `TV_ANDROID_BUILD_TOOLS`, `TV_ANDROID_PLATFORM`, `TV_RAYLIB_TAG`).
 
@@ -64,4 +64,6 @@ Not covered yet: the browser (WebAssembly) build, any server networking, and che
 - The shaders were first read from the working directory. The script now copies them next to the executable, and the client resolves them from there.
 
 ### `build_android.sh`
-- Not yet run end to end. The `package` stage was run locally with Ubuntu's `aapt`, `zipalign`, and `apksigner`. The `raylib`, `rust`, `link` stages need the NDK, and the first CI run is expected to report problems there.
+- First CI run: the `raylib`, `rust`, and `odin` stages passed on the real NDK (raylib 6.0 built for armv7, `tv_ffi` built for `armv7-linux-androideabi`, 45 Odin objects). The `link` stage failed with `undefined symbol: __real_fopen`, because the link line lacked `-Wl,--wrap=fopen`, which raylib's source says every final link must pass. Added, together with the other flags from raylib's Android template.
+- raylib's Makefile redefines `__ANDROID_API__` on the command line, which prints a harmless macro-redefinition warning for every file.
+- The `package` stage was run locally with Ubuntu's `aapt`, `zipalign`, and `apksigner`. It has not yet run in CI.
