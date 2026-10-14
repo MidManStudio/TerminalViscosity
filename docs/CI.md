@@ -13,6 +13,8 @@ Two GitHub Actions workflows and four scripts. The workflow files are not part o
   - `odin` installs a pinned Odin release (`ODIN_TAG` at the top of the file), type-checks the client, runs the soft-body tests, validates both shader files with glslang, builds the client and runs its self-test, then renders one headless screenshot under a virtual display and keeps it as the `lab-screenshot` artifact.
 - `.github/workflows/bench.yml` runs on demand and on pushes to `main` that touch code or benchmark files. It runs the Criterion benchmarks and the Odin benchmark, merges them with `scripts/bench_summary.py`, compares against `benches/baseline.json` with `scripts/bench_compare.py`, and uploads `bench-results`. Comparison only reports by default. The `fail_pct` input turns a regression above that percentage into a failure.
 
+- `.github/workflows/android.yml` runs on demand only. It sets up Java 17, the Android SDK with build-tools 34.0.0, NDK r26d, Rust with the `armv7-linux-androideabi` target, and Odin, runs `scripts/build_android.sh`, and uploads a signed debug APK named `terminal-viscosity-armv7-debug.apk`. The setup mirrors the working midnote Android workflow.
+
 Not covered yet: the browser (WebAssembly) build, any server networking, and chemistry adapters. See `docs/OPEN_DECISIONS.md`.
 
 ## Modules
@@ -38,6 +40,15 @@ Not covered yet: the browser (WebAssembly) build, any server networking, and che
 ### `build_client.sh`
 **What it does:** Builds the Rust static library, builds the Odin client into `build/`, copies the shaders next to it, and optionally runs `--selftest`.
 
+### `build_android.sh`
+**What it does:** Builds the Android debug APK in five stages that can be run separately: `raylib`, `rust`, `odin`, `link`, `package`. Output goes to `build/android/`.
+
+**Decisions:**
+- Odin only compiles. The final link is done with the NDK's clang, because Odin's own Android link modes did not fit raylib's startup, see `android/docs/android.md`.
+- The link uses `-Wl,--no-undefined`, so a missing symbol fails in CI instead of when the app starts.
+- Packaging follows raylib's own Android recipe: `aapt package`, then `aapt add` for the library, `zipalign`, then `apksigner` with a throwaway debug key. No secrets are involved.
+- Settings come from environment variables (`TV_ANDROID_API`, `TV_ANDROID_TARGET_SDK`, `TV_ANDROID_BUILD_TOOLS`, `TV_ANDROID_PLATFORM`, `TV_RAYLIB_TAG`).
+
 ## Fixes and Problems
 
 ### `check_headers.py`
@@ -51,3 +62,6 @@ Not covered yet: the browser (WebAssembly) build, any server networking, and che
 
 ### `build_client.sh`
 - The shaders were first read from the working directory. The script now copies them next to the executable, and the client resolves them from there.
+
+### `build_android.sh`
+- Not yet run end to end. The `package` stage was run locally with Ubuntu's `aapt`, `zipalign`, and `apksigner`. The `raylib`, `rust`, `link` stages need the NDK, and the first CI run is expected to report problems there.

@@ -11,6 +11,7 @@ import "core:strings"
 import rl "vendor:raylib"
 import "softbody"
 
+// Desktop window size. Android ignores it and uses the full screen.
 WINDOW_W :: 1280
 WINDOW_H :: 720
 GRAB_RADIUS :: 40.0
@@ -19,7 +20,10 @@ PHYSICS_DT :: f32(1.0 / 120.0) // soft-body runs at twice the sim tick for stabi
 main :: proc() {
 	max_frames := 0 // 0 means run until the window closes
 	screenshot := ""
-	args := os.args[1:]
+	args: []string
+	if len(os.args) > 1 {
+		args = os.args[1:]
+	}
 	for i := 0; i < len(args); i += 1 {
 		switch args[i] {
 		case "--selftest":
@@ -43,19 +47,31 @@ main :: proc() {
 // With max_frames > 0 it exits after that many frames, saving a screenshot to
 // `screenshot` first when a path is given. CI uses this to prove rendering works.
 run_lab :: proc(max_frames: int, screenshot: string) {
-	rl.SetConfigFlags({.MSAA_4X_HINT})
+	when ODIN_PLATFORM_SUBTARGET != .Android {
+		rl.SetConfigFlags({.MSAA_4X_HINT})
+	}
 	rl.InitWindow(WINDOW_W, WINDOW_H, "Terminal Viscosity")
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
 
+	// Lay everything out from the real screen size, so the same code fits a
+	// 1280 by 720 desktop window and a phone screen.
+	screen_w := rl.GetScreenWidth()
+	screen_h := rl.GetScreenHeight()
+
 	fx := load_heat_shader()
 	defer unload_heat_shader(&fx)
-	scene := rl.LoadRenderTexture(WINDOW_W, WINDOW_H)
+	scene := rl.LoadRenderTexture(screen_w, screen_h)
 	defer rl.UnloadRenderTexture(scene)
 
 	ring: softbody.Ring
-	softbody.ring_init(&ring, {WINDOW_W / 2, 220}, 110, 32)
-	ring.floor_y = WINDOW_H - 80
+	softbody.ring_init(
+		&ring,
+		{f32(screen_w) / 2, f32(screen_h) * 0.3},
+		f32(min(screen_w, screen_h)) * 0.153,
+		32,
+	)
+	ring.floor_y = f32(screen_h) * 0.889
 
 	grab := -1
 	accumulator: f32
@@ -81,7 +97,7 @@ run_lab :: proc(max_frames: int, screenshot: string) {
 
 		rl.BeginTextureMode(scene)
 		rl.ClearBackground({18, 22, 30, 255})
-		draw_floor(ring.floor_y)
+		draw_floor(ring.floor_y, screen_w, screen_h)
 		draw_balloon(&ring)
 		rl.EndTextureMode()
 
@@ -104,9 +120,9 @@ run_lab :: proc(max_frames: int, screenshot: string) {
 	}
 }
 
-draw_floor :: proc(y: f32) {
-	rl.DrawRectangle(0, i32(y), WINDOW_W, WINDOW_H - i32(y), {30, 36, 48, 255})
-	rl.DrawLine(0, i32(y), WINDOW_W, i32(y), {80, 90, 110, 255})
+draw_floor :: proc(y: f32, screen_w, screen_h: i32) {
+	rl.DrawRectangle(0, i32(y), screen_w, screen_h - i32(y), {30, 36, 48, 255})
+	rl.DrawLine(0, i32(y), screen_w, i32(y), {80, 90, 110, 255})
 }
 
 // Fills the ring as a triangle fan, then outlines it. raylib culls clockwise

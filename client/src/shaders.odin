@@ -8,8 +8,8 @@ package main
 import "core:strings"
 import rl "vendor:raylib"
 
-// Browser builds run on OpenGL ES, which needs the `#version 100` shaders.
-when ODIN_ARCH == .wasm32 || ODIN_ARCH == .wasm64p32 {
+// Browser and Android builds run on OpenGL ES, which needs the `#version 100` shaders.
+when ODIN_ARCH == .wasm32 || ODIN_ARCH == .wasm64p32 || ODIN_PLATFORM_SUBTARGET == .Android {
 	SHADER_DIR :: "shaders/glsl100/"
 } else {
 	SHADER_DIR :: "shaders/glsl330/"
@@ -26,8 +26,13 @@ HeatShader :: struct {
 // false and draw_scene falls back to a plain blit, so the lab still runs.
 load_heat_shader :: proc() -> HeatShader {
 	fx: HeatShader
-	// Shaders are copied next to the executable by scripts/build_client.sh.
-	path := strings.concatenate({string(rl.GetApplicationDirectory()), SHADER_DIR, "heat_distort.fs"})
+	// Desktop: shaders are copied next to the executable by scripts/build_client.sh.
+	// Android: they live in the APK's assets, which raylib opens by relative path.
+	when ODIN_PLATFORM_SUBTARGET == .Android {
+		path := strings.clone(SHADER_DIR + "heat_distort.fs")
+	} else {
+		path := strings.concatenate({string(rl.GetApplicationDirectory()), SHADER_DIR, "heat_distort.fs"})
+	}
 	defer delete(path)
 	cpath := strings.clone_to_cstring(path)
 	defer delete(cpath)

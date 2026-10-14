@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ============================================================================
+  NOTICE: Full documentation, design decisions, and fix history for this file
+  live in docs/android.md, section "AndroidManifest.xml"
+  ============================================================================
+  @MIN_SDK@ and @TARGET_SDK@ are filled in by scripts/build_android.sh.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.midmanstudio.terminalviscosity"
+    android:versionCode="1"
+    android:versionName="0.0.1">
+
+    <uses-sdk
+        android:minSdkVersion="@MIN_SDK@"
+        android:targetSdkVersion="@TARGET_SDK@" />
+
+    <uses-feature android:glEsVersion="0x00020000" android:required="true" />
+
+    <application
+        android:label="Terminal Viscosity"
+        android:hasCode="false"
+        android:extractNativeLibs="true">
+
+        <activity
+            android:name="android.app.NativeActivity"
+            android:label="Terminal Viscosity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize|uiMode">
+
+            <meta-data android:name="android.app.lib_name" android:value="main" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -21,7 +21,9 @@ TV_ERR_PANIC :: -99
 // -define:TV_LIB=... for other targets such as the browser build.
 TV_LIB :: #config(TV_LIB, "../../target/release/libtv_ffi.a")
 
-// libs a Rust staticlib needs on Linux, from `rustc --print native-static-libs`
+// libs a Rust staticlib needs on Linux, from `rustc --print native-static-libs`.
+// The Android build links through scripts/build_android.sh instead, so these are
+// not used there.
 when ODIN_OS == .Linux {
 	foreign import tv {
 		TV_LIB,

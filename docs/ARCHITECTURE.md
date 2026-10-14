@@ -34,6 +34,7 @@ Rules the code follows:
 | `crates/tv_ffi` | C ABI and `include/tv.h` |
 | `crates/tv_server` | Headless binary |
 | `benches/` | Criterion benchmarks, own Cargo workspace |
+| `android/` | Android manifest and the C shim that starts the Odin client |
 | `client/` | Odin client, soft-body package, shaders, Odin benchmark |
 | `scripts/` | Repo checks, benchmark tools, client build |
 | `docs/` | This file, CI, benchmarks, open decisions, and `references/` |

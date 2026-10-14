@@ -52,14 +52,23 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 
 **Decisions:**
 - The scene renders to an off-screen texture and is drawn through the heat shader, so post effects can cover the whole frame.
+- Layout comes from the real screen size, so the same code fits a 1280 by 720 desktop window and a phone. The balloon radius and floor are fractions of the screen height.
+- The 4x multisampling hint is skipped on Android.
+- A missing `os.args` is handled, because it is empty on Android.
 - The balloon is drawn as a triangle fan. Raylib culls clockwise triangles and the ring runs clockwise on a y-down screen, so each triangle lists the next node before the current one. This was confirmed by rendering the lab headlessly.
+
+### `android_entry.odin`
+**What it does:** Exports `tv_odin_main`, the one procedure the C shim in `android/entry.c` calls. It builds a default context and calls `main`. The file only compiles for the Android target, through the `#+build linux:android` tag, so desktop builds never see it.
+
+**Decisions:**
+- The Odin runtime start-up is not run in this build mode. Code on the Android path must not rely on package-level initializers or on `os.args`, which is empty there.
 
 ### `shaders.odin`
 **What it does:** Loads the heat-distortion shader and draws the scene through it. If the shader fails to compile, the scene is drawn without it.
 
 **Decisions:**
-- Shader files are found relative to the executable, and `scripts/build_client.sh` copies `client/shaders` next to it.
-- The browser build will need the OpenGL ES shaders, so the directory is chosen at compile time by target architecture.
+- Shader files are found relative to the executable, and `scripts/build_client.sh` copies `client/shaders` next to it. On Android they are read from the APK's assets by relative path.
+- Browser and Android builds need the OpenGL ES shaders, so the directory is chosen at compile time by target.
 
 ### `heat_distort.fs`
 **What it does:** A small screen-space ripple. There are two versions, `shaders/glsl330/` for desktop and `shaders/glsl100/` for OpenGL ES 2 and the browser.
@@ -80,11 +89,21 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 ### `main.odin`
 - Raylib's `TakeScreenshot` prepends the working directory to the path it is given, so absolute paths fail. The flag documentation says the path is relative to the working directory.
 
+### `android_entry.odin`
+**What it does:** Exports `tv_odin_main`, the one procedure the C shim in `android/entry.c` calls. It builds a default context and calls `main`. The file only compiles for the Android target, through the `#+build linux:android` tag, so desktop builds never see it.
+
+**Decisions:**
+- The Odin runtime start-up is not run in this build mode. Code on the Android path must not rely on package-level initializers or on `os.args`, which is empty there.
+
 ### `shaders.odin`
 - Shader paths were first resolved against the working directory, so the shader did not load when the client ran from another directory. Now resolved against the executable's directory.
 
 ### `tv_ffi.odin`
-- None recorded yet.
+- Odin rejects an absolute path in a foreign import ("Invalid import path"), so the Android build passes `TV_LIB` as a path relative to `client/src`.
+
+### `android_entry.odin`
+- Odin dev-2026-10 crashes inside LLVM when compiling for 32-bit ARM Android with `-o:speed` or `-o:aggressive`. `-o:minimal` and `-o:size` work. The Android build uses `-o:minimal`.
+- `-build-mode:executable` is rejected for the Android subtarget, and `-build-mode:shared` defines a `main` that does nothing, which would stop raylib from starting the game. Hence plain objects plus the C shim.
 
 ### `selftest.odin`
 - None recorded yet.

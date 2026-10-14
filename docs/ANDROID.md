@@ -21,34 +21,44 @@ The 32-bit point is the one to keep in mind. Everything native has to build for 
 
 ## What was checked
 
-- Odin dev-2026-10 lists `linux_arm32` as a target and has a `-subtarget:android` option. It needs the environment variable `ODIN_ANDROID_NDK` to be set.
-- With that variable pointing at a placeholder folder, `odin check` of the whole client for `linux_arm32` with the Android subtarget passed. The soft-body package built to real ARM EABI5 32-bit object files. Linking was not tried, because it needs the NDK.
-- raylib 6.0's Makefile supports `PLATFORM_ANDROID`. `ANDROID_ARCH=arm` selects `armv7a-linux-androideabi<API>-clang` from the NDK. It defaults to OpenGL ES 2.0, so the `glsl100` shaders in `client/shaders/` are the ones to use. Its default API level is 29.
-- raylib's Android backend defines `android_main`, which calls the program's own C `main`. Assets come through Android's asset manager. Per a source comment, it maps touch point 0 to mouse input, which is what the lab's drag interaction uses. The mouse button state mapping was not checked.
-- raylib's own Android template links `-lm -lc -lraylib -llog -landroid -lEGL -lGLESv2 -lOpenSLES -ldl` into a shared library and packages it with `aapt`.
+- Odin dev-2026-10 lists `linux_arm32` as a target and has a `-subtarget:android` option. It needs `ODIN_ANDROID_NDK` set, and `ODIN_ANDROID_SDK` for some modes.
+- The whole client, including raylib bindings and the Rust FFI bindings, compiles to 45 real ARM EABI5 object files for `armv7a-linux-androideabi`. The LLVM target triple matches the NDK's, so the float calling convention matches the NDK-built raylib.
+- Only 71 symbols are unresolved across those objects. 14 are `tv_*` functions (`libtv_ffi.a`), 32 are raylib functions (`libraylib.a`), and the rest are bionic libc and libm functions and compiler runtime helpers that the NDK's clang supplies.
+- Odin has no `main` or other conflicting entry in these objects. The one exported entry is `tv_odin_main`.
+- raylib 6.0's Makefile supports `PLATFORM_ANDROID`. `ANDROID_ARCH=arm` selects `armv7a-linux-androideabi<API>-clang` from the NDK. It defaults to OpenGL ES 2.0, so the `glsl100` shaders are the ones to use.
+- raylib's Android backend defines `android_main`, which calls the program's own C `main`. Assets come through Android's asset manager. Per a source comment, it maps touch point 0 to mouse input.
+- The packaging stage of the build script ran locally with Ubuntu's `aapt`, `zipalign`, and `apksigner` and a stand-in library. `aapt dump badging` showed the launcher `NativeActivity`, `native-code: 'armeabi-v7a'`, and minimum SDK 29. `zipalign -c` and `apksigner verify` passed.
+
+## Findings about Odin on Android
+
+- `-o:speed` and `-o:aggressive` crash the compiler inside LLVM for 32-bit ARM Android. `-o:minimal` and `-o:size` work.
+- `-build-mode:executable` is rejected for the Android subtarget. `-build-mode:shared` is accepted, but it defines a `main` that returns immediately and starts from a library init hook, which would stop raylib's `android_main` from starting the game.
+- Foreign import paths must be relative to the source file. Absolute paths are rejected.
+- `vendor:raylib` has no Android branch, so it would link the desktop library. That does not matter here, because Odin only compiles and the NDK does the link.
 
 ## What is not verified
 
-- Linking Odin objects, raylib, the native app glue, and the Rust static library into one shared library with the NDK.
+- Building raylib 6.0 for Android with the NDK.
 - Building `tv_ffi` for `armv7-linux-androideabi`. The Rust crates have only been built and tested on 64-bit x86. They avoid pointer-sized assumptions in their data formats, but that has not been run on a 32-bit target.
-- APK packaging and running on the device.
+- Linking everything into `libmain.so`, and whether the Odin objects start correctly without the Odin runtime start-up.
+- Installing and running on the phone.
 - `mid-net` on 32-bit ARM Android.
 - Whether the A13 really only installs armeabi-v7a. This comes from comments in the midnote workflow and was not checked against the device.
 
-## Plan
+## Pipeline
 
-1. A manual Android workflow modelled on midnote's: free disk, JDK 17, SDK with build-tools 34.0.0, NDK r26d, Rust with `armv7-linux-androideabi`.
-2. Build raylib 6.0 from source for `ANDROID_ARCH=arm`.
-3. Build `tv_ffi` as a static library for `armv7-linux-androideabi` with `cargo` and the NDK linker.
-4. Build the client with `-target:linux_arm32 -subtarget:android -build-mode:obj`, using a client entry that does not open a desktop window.
-5. Link everything into `libmain.so` with the NDK, add the native app glue and the Android libraries above.
-6. Package, sign with a throwaway debug keystore, verify, and upload the APK.
-7. Install on the phone and check the lab.
+`scripts/build_android.sh` runs five stages, and `.github/workflows/android.yml` runs them in CI. Both are described in `docs/CI.md`.
 
-The first run of such a workflow is expected to need fixes. The midnote workflow's history shows the same pattern.
+1. `raylib`: build raylib 6.0 from source with the NDK for `ANDROID_ARCH=arm`.
+2. `rust`: build `tv_ffi` as a static library for `armv7-linux-androideabi`.
+3. `odin`: compile the client to object files with `-target:linux_arm32 -subtarget:android -build-mode:object -o:minimal`.
+4. `link`: link the objects, `android/entry.c`, the NDK's native app glue, raylib, and the Rust library into `libmain.so`.
+5. `package`: `aapt`, `zipalign`, and `apksigner` with a throwaway debug key.
 
-## Code changes the plan implies
+The first run of this workflow is expected to need fixes, mainly in stages 1, 2, and 4, which need the NDK. The midnote workflow's history shows the same pattern.
 
-- A branch in `client/src/tv_ffi.odin` for the Android foreign import, keyed on `ODIN_PLATFORM_SUBTARGET == .Android`, since the current import lists Linux desktop libraries.
-- Shader loading from the APK's assets, since the desktop path resolves files next to the executable.
-- Touch-friendly controls for the lab.
+## Known gaps in the client on Android
+
+- The lab has no touch-specific controls. It relies on raylib's mapping of the first touch to the mouse, and whether button presses are mapped as well was not checked.
+- `os.args` is empty on Android, and the Odin runtime start-up is not run, so code on the Android path must not use package-level initializers.
+- Rotation and resize are handled by the manifest, and the layout reads the screen size once at start.

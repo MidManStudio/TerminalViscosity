@@ -42,5 +42,5 @@
 
 ### Housekeeping
 
-- The Odin foreign import lists Linux libraries only. Android needs its own branch, see `docs/ANDROID.md`.
+- The Odin foreign import lists Linux desktop libraries only. The Android build does not use them, because it links with the NDK in `scripts/build_android.sh`.
 - No devcontainer.
