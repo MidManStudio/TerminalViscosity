@@ -1,0 +1,78 @@
+name: Android APK
+
+# Manual only. Builds a signed debug APK for 32-bit ARM (armeabi-v7a), the
+# only ABI the Galaxy A13 installs. Setup mirrors the working midnote workflow.
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  ODIN_TAG: dev-2026-10
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: false # the SDK is needed
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # setup-android's default package set has no build-tools, so apksigner,
+      # aapt, and zipalign are requested explicitly, plus a platform for android.jar.
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools build-tools;34.0.0 platforms;android-34"
+
+      # r26d is the version the midnote workflow already uses successfully.
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+          link-to-sdk: true
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: armv7-linux-androideabi
+
+      - name: Install Odin ${{ env.ODIN_TAG }}
+        run: |
+          curl -sSL "https://github.com/odin-lang/Odin/releases/download/${ODIN_TAG}/odin-linux-amd64-${ODIN_TAG}.tar.gz" | tar xz
+          odin_dir="$(find "$PWD" -maxdepth 1 -type d -name 'odin-linux-amd64-*' | head -n 1)"
+          echo "$odin_dir" >> "$GITHUB_PATH"
+
+      - name: Versions
+        run: |
+          odin version
+          cargo --version
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+
+      - name: Build APK
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: bash scripts/build_android.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terminal-viscosity-armv7-debug-apk
+          path: build/android/terminal-viscosity-armv7-debug.apk
