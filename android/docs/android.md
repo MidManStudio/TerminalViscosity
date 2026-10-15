@@ -20,10 +20,11 @@ The pipeline: raylib 6.0 is built from source for Android, `tv_ffi` is built for
 - `@MIN_SDK@` and `@TARGET_SDK@` are placeholders that the build script fills in. The defaults are 29 and 34.
 
 ### `entry.c`
-**What it does:** Defines the C `main` that raylib's `android_main` calls, and forwards to `tv_odin_main`, which the Odin client exports from `client/src/android_entry.odin`.
+**What it does:** Defines the C `main` that raylib's `android_main` calls, and forwards to `tv_odin_main`, which the Odin client exports from `client/src/android_entry.odin`. It also holds `tv_android_mouse_position`, a wrapper around raylib's `GetMousePosition`.
 
 **Decisions:**
 - Odin's `-build-mode:shared` for Android defines its own `main` that returns immediately, and starts the program from a library init hook. Either would conflict with raylib's startup. Building plain objects and supplying `main` here avoids both.
+- The mouse wrapper exists because Odin and the NDK disagree about returning a struct of two floats. Odin returns it in registers, and the NDK's ABI returns it through a hidden pointer, so a direct call from Odin makes raylib write through a garbage pointer. Compiling the call in C uses the NDK's own convention. The same applies to any raylib function returning `Vector2`, `Vector3`, `Vector4`, `Quaternion`, `Rectangle`, or `Matrix`, and `scripts/check_android_abi.py` fails the build if the Odin objects call one directly.
 
 ## CI and Workflows
 
@@ -35,4 +36,4 @@ The pipeline: raylib 6.0 is built from source for Android, `tv_ffi` is built for
 - None recorded yet. The packaging steps were run locally with the Ubuntu builds of `aapt`, `zipalign`, and `apksigner` against a stand-in library. `aapt dump badging` reported the launcher activity, `armeabi-v7a`, and minimum SDK 29, and `zipalign` and `apksigner` verified the result.
 
 ### `entry.c`
-- None recorded yet. It has not been linked or run, because the NDK is not available outside CI.
+- The first installed build crashed immediately on launch. A comparison of Odin's calling-convention lowering with the NDK compiler's for all 33 raylib functions the client calls found exactly one difference, `GetMousePosition`, which the client calls every frame. The wrapper in this file is the fix. It is the leading explanation and has not yet been confirmed on the device.

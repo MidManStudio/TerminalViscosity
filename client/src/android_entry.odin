@@ -17,3 +17,20 @@ tv_odin_main :: proc "c" () {
 	context = runtime.default_context()
 	main()
 }
+
+// The shim lives in android/entry.c and is resolved by the final link. Odin's
+// 32-bit ARM backend returns an 8-byte struct of floats in registers while the
+// NDK's ABI returns it through a hidden pointer, so raylib's GetMousePosition
+// must be called from C. Pointers are passed instead.
+foreign import shim "system:c"
+
+@(default_calling_convention = "c")
+foreign shim {
+	tv_android_mouse_position :: proc(out_x, out_y: ^f32) ---
+}
+
+platform_mouse_position :: proc() -> [2]f32 {
+	x, y: f32
+	tv_android_mouse_position(&x, &y)
+	return {x, y}
+}

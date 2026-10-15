@@ -40,6 +40,16 @@ The 32-bit point is the one to keep in mind. Everything native has to build for 
 
 The first run of the Android workflow, on GitHub's runner with NDK r26d, passed three stages: raylib 6.0 built for armv7 (a 2.4 MB static library), `tv_ffi` built for `armv7-linux-androideabi` (a 20 MB static library), and the client compiled to 45 Odin objects. The link failed on `undefined symbol: __real_fopen`. raylib's Android backend wraps `fopen` to read assets from the APK, which needs `-Wl,--wrap=fopen` on the final link. That flag, and the rest of raylib's Android link flags, are now in the script.
 
+## First install and the crash on launch
+
+The build succeeded and the APK installed on the phone, but the app crashed as soon as it opened. There is no logcat on this workflow, so the cause was narrowed down by reading the code and comparing calling conventions.
+
+- Odin compiled the client for an ARMv6 CPU (`arm1176jzf-s`) by default. The build now passes `-microarch:cortex-a7`.
+- For all 33 raylib functions the client calls, Odin's lowering was compared with what the NDK compiler produces for the same C prototypes. Exactly one differs: `GetMousePosition`, which returns an 8-byte struct of floats. The NDK's ABI passes a hidden return pointer in `r0`, and Odin returns the value in registers. raylib therefore writes through whatever `r0` held, and the client calls it every frame. That fits a crash right after start-up.
+- The fix is a C wrapper (`tv_android_mouse_position` in `android/entry.c`) and `scripts/check_android_abi.py`, which fails the build if Odin calls a raylib function with this kind of return type directly.
+
+This is the leading explanation, not a confirmed one. It still needs a run on the device.
+
 ## What is not verified
 
 - Linking everything into `libmain.so` (the first attempt failed on a missing flag, now fixed and not yet re-run), and whether the Odin objects start correctly without the Odin runtime start-up.

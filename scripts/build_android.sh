@@ -100,10 +100,13 @@ stage_odin() {
     #  -no-entry-point     android/entry.c provides `main`.
     #  -o:minimal          this Odin release crashes inside LLVM with -o:speed and
     #                      -o:aggressive on 32-bit ARM Android.
+    #  -microarch          Odin's 32-bit ARM default is an ARMv6 CPU (arm1176jzf-s).
+    #                      cortex-a7 is plain ARMv7-A, which every armeabi-v7a phone,
+    #                      including the A13's cores in 32-bit mode, can run.
     #  -define:TV_LIB      foreign import paths must be relative to the source file.
     ODIN_ANDROID_NDK="$NDK" ODIN_ANDROID_SDK="$SDK" odin build client/src \
         -target:linux_arm32 -subtarget:android -minimum-os-version:"$API" \
-        -build-mode:object -no-entry-point -reloc-mode:pic -o:minimal \
+        -build-mode:object -no-entry-point -reloc-mode:pic -o:minimal -microarch:cortex-a7 \
         -vet -strict-style \
         -define:TV_LIB="../../target/$RUST_TARGET/release/libtv_ffi.a" \
         -out:"$OUT/obj/tv_client"
@@ -111,6 +114,9 @@ stage_odin() {
     count="$(find "$OUT/obj" -name '*.o' | wc -l)"
     [ "$count" -gt 0 ] || die "Odin produced no object files"
     echo "$count object files"
+    # Odin and the NDK disagree on how a struct of floats is returned. See the script.
+    ls "$OUT/raylib/src/raylib.h" >/dev/null 2>&1 || die "raylib.h not found, run the raylib stage first"
+    python3 scripts/check_android_abi.py "$OUT/raylib/src/raylib.h" "$NM" "$OUT"/obj/*.o
 }
 
 stage_link() {

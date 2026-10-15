@@ -79,8 +79,7 @@ run_lab :: proc(max_frames: int, screenshot: string) {
 
 	for !rl.WindowShouldClose() {
 		frame := min(rl.GetFrameTime(), 0.1)
-		mouse := rl.GetMousePosition()
-		mouse_v := softbody.Vec2{mouse.x, mouse.y}
+		mouse_v := softbody.Vec2(platform_mouse_position())
 
 		if rl.IsMouseButtonPressed(.LEFT) {
 			grab = softbody.ring_nearest(&ring, mouse_v, GRAB_RADIUS)
