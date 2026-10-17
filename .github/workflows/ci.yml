@@ -89,16 +89,27 @@ jobs:
         run: odin check client/src -vet -strict-style
       - name: Soft-body tests
         run: odin test client/src/softbody -vet -strict-style
+      - name: Balloon tests
+        run: odin test client/src/balloon -vet -strict-style
       - name: Validate shaders
         run: |
           glslangValidator -S frag client/shaders/glsl330/heat_distort.fs
           glslangValidator -S frag client/shaders/glsl100/heat_distort.fs
+          glslangValidator -S vert client/shaders/glsl330/balloon.vs
+          glslangValidator -S frag client/shaders/glsl330/balloon.fs
+          glslangValidator -S vert client/shaders/glsl100/balloon.vs
+          glslangValidator -S frag client/shaders/glsl100/balloon.fs
       - name: Build client and run selftest
         run: bash scripts/build_client.sh --selftest
-      - name: Headless render
+      - name: Headless render, balloon at rest
         working-directory: build
-        run: xvfb-run -a -s "-screen 0 1280x720x24" ./tv_client --frames 240 --screenshot lab.png
+        run: xvfb-run -a -s "-screen 0 1280x720x24" ./tv_client --fixed-step --frames 240 --screenshot lab.png
+      - name: Headless render, balloon held by its tip
+        working-directory: build
+        run: xvfb-run -a -s "-screen 0 1280x720x24" ./tv_client --fixed-step --demo hang --frames 330 --screenshot lab_hang.png
       - uses: actions/upload-artifact@v4
         with:
           name: lab-screenshot
-          path: build/lab.png
+          path: |
+            build/lab.png
+            build/lab_hang.png
