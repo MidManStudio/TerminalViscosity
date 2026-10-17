@@ -16,7 +16,8 @@
 #   bash scripts/build_android.sh odin link package
 #
 # Settings (environment): TV_ANDROID_API (29), TV_ANDROID_TARGET_SDK (34),
-# TV_ANDROID_BUILD_TOOLS (34.0.0), TV_ANDROID_PLATFORM (34), TV_RAYLIB_TAG (6.0)
+# TV_ANDROID_BUILD_TOOLS (34.0.0), TV_ANDROID_PLATFORM (34), TV_RAYLIB_TAG (6.0),
+# TV_OPT (minimal), the Odin optimization level for the client
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -27,6 +28,7 @@ TARGET_SDK="${TV_ANDROID_TARGET_SDK:-34}"
 BUILD_TOOLS="${TV_ANDROID_BUILD_TOOLS:-34.0.0}"
 PLATFORM="${TV_ANDROID_PLATFORM:-34}"
 RAYLIB_TAG="${TV_RAYLIB_TAG:-6.0}"
+OPT="${TV_OPT:-minimal}"
 RUST_TARGET="armv7-linux-androideabi"
 ABI="armeabi-v7a"
 OUT="$root/build/android"
@@ -99,14 +101,17 @@ stage_odin() {
     #  -build-mode:object  Odin only compiles. Linking is done below with the NDK.
     #  -no-entry-point     android/entry.c provides `main`.
     #  -o:minimal          this Odin release crashes inside LLVM with -o:speed and
-    #                      -o:aggressive on 32-bit ARM Android.
+    #                      -o:aggressive on 32-bit ARM Android. minimal is the level
+    #                      known to run on the phone. TV_OPT=size also compiles and is
+    #                      about five times faster for the balloon physics, but it has
+    #                      not been tried on a device.
     #  -microarch          Odin's 32-bit ARM default is an ARMv6 CPU (arm1176jzf-s).
     #                      cortex-a7 is plain ARMv7-A, which every armeabi-v7a phone,
     #                      including the A13's cores in 32-bit mode, can run.
     #  -define:TV_LIB      foreign import paths must be relative to the source file.
     ODIN_ANDROID_NDK="$NDK" ODIN_ANDROID_SDK="$SDK" odin build client/src \
         -target:linux_arm32 -subtarget:android -minimum-os-version:"$API" \
-        -build-mode:object -no-entry-point -reloc-mode:pic -o:minimal -microarch:cortex-a7 \
+        -build-mode:object -no-entry-point -reloc-mode:pic -o:"$OPT" -microarch:cortex-a7 \
         -vet -strict-style \
         -define:TV_LIB="../../target/$RUST_TARGET/release/libtv_ffi.a" \
         -out:"$OUT/obj/tv_client"

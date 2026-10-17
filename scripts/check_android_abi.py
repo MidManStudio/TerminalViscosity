@@ -11,8 +11,12 @@ NDK's ABI returns them through a hidden pointer. Calling such a function from
 Odin makes the C side write through a garbage pointer and crash. Those calls
 must go through a C wrapper in android/entry.c.
 
+rlgl.h, which sits next to raylib.h, is checked too: the lower-level rlgl
+functions are called from Odin as well, and a few of them return a Matrix.
+
 Usage: python3 scripts/check_android_abi.py <raylib.h> <llvm-nm> <object files...>
 """
+import os
 import re
 import subprocess
 import sys
@@ -55,9 +59,12 @@ def main() -> int:
         return 2
     header, nm, objects = sys.argv[1], sys.argv[2], sys.argv[3:]
     protos = prototypes(header)
+    rlgl = os.path.join(os.path.dirname(header), "rlgl.h")
+    if os.path.exists(rlgl):
+        protos.update(prototypes(rlgl))
     used = sorted(s for s in referenced_symbols(nm, objects) if s in protos)
     bad = [s for s in used if protos[s] in FLOAT_STRUCTS]
-    print(f"checked {len(used)} raylib functions called from Odin")
+    print(f"checked {len(used)} raylib and rlgl functions called from Odin")
     if bad:
         print("these return a float-only struct and need a C wrapper in android/entry.c:")
         for s in bad:

@@ -23,5 +23,6 @@ void main()
         sin(uv.y * 40.0 + time * 6.0),
         cos(uv.x * 40.0 + time * 5.0)
     ) * 0.0015 * strength;
-    gl_FragColor = texture2D(texture0, uv + wobble) * colDiffuse * fragColor;
+    vec3 scene = texture2D(texture0, uv + wobble).rgb;
+    gl_FragColor = vec4(scene, 1.0) * colDiffuse * fragColor;
 }

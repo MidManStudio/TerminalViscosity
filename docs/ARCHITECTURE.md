@@ -18,7 +18,7 @@ The dependency direction is `tv_ffi` and `tv_server` on `tv_sim`, and `tv_sim` o
 
 Multiplayer-first here means the simulation boundary is shaped like a network protocol from the start: commands go in, snapshots and events come out, and nothing else crosses. Sockets come later. A local single-player session runs the same code in the same process, and a dedicated server runs it behind a transport.
 
-The client does not sync soft-body nodes. It receives high-level balloon state and runs the jiggle itself. Detonations arrive as one event each.
+The client does not sync soft-body vertices. It receives high-level balloon state and runs the jiggle itself. Detonations arrive as one event each.
 
 Rules the code follows:
 - Only the server's simulation is authoritative. Clients never decide a detonation.
@@ -35,7 +35,7 @@ Rules the code follows:
 | `crates/tv_server` | Headless binary |
 | `benches/` | Criterion benchmarks, own Cargo workspace |
 | `android/` | Android manifest and the C shim that starts the Odin client |
-| `client/` | Odin client, soft-body package, shaders, Odin benchmark |
+| `client/` | Odin client with scenes, the 3D balloon and 2D ring soft-body packages, shaders, Odin benchmark |
 | `scripts/` | Repo checks, benchmark tools, client build |
 | `docs/` | This file, CI, benchmarks, open decisions, and `references/` |
 | `.mdix/replacements/` | mdix-scaffold replacement manifest and archives |

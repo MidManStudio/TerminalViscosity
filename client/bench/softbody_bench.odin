@@ -3,8 +3,9 @@
 // live in docs/client.md, section "softbody_bench.odin"
 // ============================================================================
 
-// Headless benchmark for the soft-body ring. Prints one line per case in the
-// form `BENCH <name> <ns_per_step>`, which scripts/bench_summary.py reads.
+// Headless benchmark entry point. It runs the soft-body ring benchmark here and
+// the 3D balloon benchmark from balloon_bench.odin, and prints one line per
+// case in the form `BENCH <name> <ns_per_step>`, which scripts/bench_summary.py reads.
 package main
 
 import "core:fmt"
@@ -42,8 +43,13 @@ bench_ring :: proc(count: int) -> f64 {
 	return samples[SAMPLES / 2]
 }
 
-main :: proc() {
+bench_softbody :: proc() {
 	for count in ([]int{16, 24, 48, 64}) {
 		fmt.printf("BENCH softbody_step_%d %.1f\n", count, bench_ring(count))
 	}
+}
+
+main :: proc() {
+	bench_softbody()
+	bench_balloon_all()
 }

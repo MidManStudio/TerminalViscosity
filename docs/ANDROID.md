@@ -72,6 +72,9 @@ The first run of this workflow is expected to need fixes, mainly in stages 1, 2,
 
 ## Known gaps in the client on Android
 
-- The lab has no touch-specific controls. It relies on raylib's mapping of the first touch to the mouse, and whether button presses are mapped as well was not checked.
+- The lab has no touch-specific controls. It relies on raylib's mapping of the first touch to the mouse, and whether button presses are mapped as well was not checked. The 3D lab was written so a single pointer does everything: pressing on the balloon grabs it, pressing elsewhere turns the camera. Zooming is by mouse wheel only, so there is no zoom on a phone yet.
+- The balloon physics costs about 0.5 ms per frame with `-o:minimal` on a desktop core. A phone core is several times slower. The lab overlay prints the real figure, which a screenshot will show. Lowering `frequency` in `balloon.default_config` is the first remedy, and `TV_OPT=size` for the build is the second.
+- The 3D draw calls (`BeginMode3D`, `DrawMesh`, `UploadMesh`, `UpdateMeshBuffer`) pass structs larger than 16 bytes by value. Odin and clang were compared and describe them identically. The first sight of them running on the phone is still the real test.
+- The lab renders with OpenGL ES 2.0 shaders, which compiled and rendered correctly only on a desktop software renderer. A different GPU driver could still reject something.
 - `os.args` is empty on Android, and the Odin runtime start-up is not run, so code on the Android path must not use package-level initializers.
 - Rotation and resize are handled by the manifest, and the layout reads the screen size once at start.

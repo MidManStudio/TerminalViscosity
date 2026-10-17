@@ -6,11 +6,12 @@
 package main
 
 import "core:fmt"
+import "balloon"
 import "softbody"
 
 // Runs without a window: checks the ABI against the Rust library, plays one
-// balloon through the simulation, and steps the soft-body ring. Returns a
-// process exit code.
+// balloon through the simulation, steps the soft-body ring, and drops and
+// hangs the 3D balloon. Returns a process exit code.
 selftest :: proc() -> int {
 	failures := 0
 	check :: proc(failures: ^int, ok: bool, what: string) {
@@ -65,6 +66,8 @@ selftest :: proc() -> int {
 	area := softbody.ring_area(&r) / r.rest_area
 	check(&failures, area > 0.85 && area < 1.15, "soft-body ring settles near rest area")
 
+	selftest_balloon(&failures)
+
 	fmt.printf("state_hash=%#016x\n", tv_world_state_hash(w))
 	if failures == 0 {
 		fmt.println("selftest passed")
@@ -72,4 +75,41 @@ selftest :: proc() -> int {
 	}
 	fmt.printf("selftest FAILED (%d)\n", failures)
 	return 1
+}
+
+// Drops the 3D balloon on the floor, then lifts it by the tip, and checks the
+// shapes it takes: flattened at rest, a teardrop when hanging, volume kept.
+selftest_balloon :: proc(failures: ^int) {
+	check :: proc(failures: ^int, ok: bool, what: string) {
+		if ok {
+			fmt.printf("ok    %s\n", what)
+		} else {
+			fmt.printf("FAIL  %s\n", what)
+			failures^ += 1
+		}
+	}
+
+	b := new(balloon.Balloon)
+	defer free(b)
+	balloon.init(b, balloon.default_config())
+	balloon.reset(b, {0, 2.5, 0})
+	for _ in 0 ..< 240 {
+		balloon.step(b, 1.0 / 60.0)
+	}
+	lo, hi := balloon.bounds(b)
+	ratio := balloon.volume(b) / b.target_volume
+	check(failures, balloon.is_finite(b), "3D balloon stays finite after a drop")
+	check(failures, ratio > 0.97 && ratio < 1.03, "3D balloon keeps its volume after landing")
+	check(failures, lo.y > -0.001 && lo.y < 0.02 && balloon.max_speed(b) < 0.3, "3D balloon rests on the floor")
+
+	for _ in 0 ..< 300 {
+		balloon.pin(b, balloon.TIP, {0, 4.6, 0})
+		balloon.step(b, 1.0 / 60.0)
+	}
+	lo, hi = balloon.bounds(b)
+	width := max(hi.x - lo.x, hi.z - lo.z)
+	ratio = balloon.volume(b) / b.target_volume
+	check(failures, ratio > 0.97 && ratio < 1.03, "3D balloon keeps its volume while held by the tip")
+	check(failures, (hi.y - lo.y) / width > 1.4, "3D balloon held by the tip is a tall teardrop")
+	check(failures, b.pos[balloon.TIP].y == hi.y, "the tip is the highest point")
 }

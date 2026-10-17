@@ -31,6 +31,14 @@
 - Players, hit detection, and the arena do not exist in the simulation yet.
 - Tick rate is 60 Hz. The snapshot rate is not chosen.
 
+### Balloon body
+
+- **Mesh detail.** The balloon is a geodesic sphere of frequency 6 (362 vertices). Frequency 8 (642) is smoother and costs about 1.7 times as much. The right value depends on how the physics runs on the phone, which is not measured yet.
+- **The knot.** It is a separate small mesh placed on the tip vertex, because the balloon's own mesh is too coarse to show one. A finer neck would let the balloon's own mesh carry it.
+- **Compartments and membranes.** The editing menu will need inner walls that only break on impact. The balloon is currently one closed shell with one volume constraint. Inner chambers would add more volume constraints and shared membranes.
+- **Painting.** The art canvas needs a way to map flat pixels onto the balloon. The mesh has no texture coordinates yet, apart from the knot weight in the first one.
+- **Optimization level on Android.** `-o:minimal` is the safe level, `-o:size` is much faster and compiles, and neither `-o:speed` nor `-o:aggressive` compiles for 32-bit ARM with this Odin release. Whether `-o:size` runs correctly on the phone is untested.
+
 ### Art
 
 - Whether 16 colours is enough, or a 256-colour palette should replace it.

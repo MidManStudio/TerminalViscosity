@@ -9,17 +9,25 @@ import "core:os"
 import "core:strconv"
 import "core:strings"
 import rl "vendor:raylib"
-import "softbody"
 
 // Desktop window size. Android ignores it and uses the full screen.
 WINDOW_W :: 1280
 WINDOW_H :: 720
-GRAB_RADIUS :: 40.0
-PHYSICS_DT :: f32(1.0 / 120.0) // soft-body runs at twice the sim tick for stability
+
+Options :: struct {
+	max_frames: int, // 0 means run until the window closes
+	screenshot: string,
+	width:      i32,
+	height:     i32,
+	fixed_step: bool, // every frame advances the game by exactly 1/60 s
+	demo:       Demo_Mode,
+}
 
 main :: proc() {
-	max_frames := 0 // 0 means run until the window closes
-	screenshot := ""
+	opts := Options {
+		width  = WINDOW_W,
+		height = WINDOW_H,
+	}
 	args: []string
 	if len(os.args) > 1 {
 		args = os.args[1:]
@@ -31,114 +39,93 @@ main :: proc() {
 		case "--frames":
 			if i + 1 < len(args) {
 				i += 1
-				max_frames, _ = strconv.parse_int(args[i])
+				opts.max_frames, _ = strconv.parse_int(args[i])
 			}
 		case "--screenshot":
 			if i + 1 < len(args) {
 				i += 1
-				screenshot = args[i]
+				opts.screenshot = args[i]
+			}
+		case "--size":
+			// Window size as WIDTHxHEIGHT, handy for trying a phone's wide screen on a desktop.
+			if i + 1 < len(args) {
+				i += 1
+				parts := strings.split(args[i], "x", context.temp_allocator)
+				if len(parts) == 2 {
+					w, _ := strconv.parse_int(parts[0])
+					h, _ := strconv.parse_int(parts[1])
+					if w > 0 && h > 0 {
+						opts.width, opts.height = i32(w), i32(h)
+					}
+				}
+			}
+		case "--fixed-step":
+			opts.fixed_step = true
+		case "--demo":
+			if i + 1 < len(args) {
+				i += 1
+				switch args[i] {
+				case "hang":
+					opts.demo = .Hang
+				case "swing":
+					opts.demo = .Swing
+				}
 			}
 		}
 	}
-	run_lab(max_frames, screenshot)
+	run(opts)
 }
 
-// Crafting-lab prototype: a jiggling balloon you can grab and drag with the mouse.
-// With max_frames > 0 it exits after that many frames, saving a screenshot to
-// `screenshot` first when a path is given. CI uses this to prove rendering works.
-run_lab :: proc(max_frames: int, screenshot: string) {
+// Opens the window and runs the scenes. With max_frames > 0 it exits after
+// that many frames, saving a screenshot first when a path is given. CI uses
+// this to prove rendering works.
+run :: proc(opts: Options) {
 	when ODIN_PLATFORM_SUBTARGET != .Android {
 		rl.SetConfigFlags({.MSAA_4X_HINT})
 	}
-	rl.InitWindow(WINDOW_W, WINDOW_H, "Terminal Viscosity")
+	rl.InitWindow(opts.width, opts.height, "Terminal Viscosity")
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
 
 	// Lay everything out from the real screen size, so the same code fits a
-	// 1280 by 720 desktop window and a phone screen.
-	screen_w := rl.GetScreenWidth()
-	screen_h := rl.GetScreenHeight()
+	// desktop window and a phone screen.
+	game := Game {
+		screen_w = rl.GetScreenWidth(),
+		screen_h = rl.GetScreenHeight(),
+		demo     = opts.demo,
+	}
+	game.fx = load_heat_shader()
+	defer unload_heat_shader(&game.fx)
+	game.target = rl.LoadRenderTexture(game.screen_w, game.screen_h)
+	defer rl.UnloadRenderTexture(game.target)
 
-	fx := load_heat_shader()
-	defer unload_heat_shader(&fx)
-	scene := rl.LoadRenderTexture(screen_w, screen_h)
-	defer rl.UnloadRenderTexture(scene)
-
-	ring: softbody.Ring
-	softbody.ring_init(
-		&ring,
-		{f32(screen_w) / 2, f32(screen_h) * 0.3},
-		f32(min(screen_w, screen_h)) * 0.153,
-		32,
-	)
-	ring.floor_y = f32(screen_h) * 0.889
-
-	grab := -1
-	accumulator: f32
-	frame_count := 0
+	game_enter(&game, .Balloon_Lab)
+	defer game_leave(&game)
 
 	for !rl.WindowShouldClose() {
-		frame := min(rl.GetFrameTime(), 0.1)
-		mouse_v := softbody.Vec2(platform_mouse_position())
+		dt := PHYSICS_DT if opts.fixed_step else min(rl.GetFrameTime(), 0.1)
+		scene := scene_procs(game.scene)
+		scene.update(&game, game.state, dt)
 
-		if rl.IsMouseButtonPressed(.LEFT) {
-			grab = softbody.ring_nearest(&ring, mouse_v, GRAB_RADIUS)
-		}
-		if rl.IsMouseButtonReleased(.LEFT) {
-			grab = -1
-		}
-
-		accumulator += frame
-		for accumulator >= PHYSICS_DT {
-			softbody.ring_step(&ring, PHYSICS_DT, grab, mouse_v)
-			accumulator -= PHYSICS_DT
-		}
-
-		rl.BeginTextureMode(scene)
-		rl.ClearBackground({18, 22, 30, 255})
-		draw_floor(ring.floor_y, screen_w, screen_h)
-		draw_balloon(&ring)
+		rl.BeginTextureMode(game.target)
+		scene.draw(&game, game.state)
 		rl.EndTextureMode()
 
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.BLACK)
-		draw_scene(&fx, scene)
-		rl.DrawText("drag the balloon with the mouse", 20, 20, 20, rl.RAYWHITE)
-		rl.DrawFPS(20, 48)
+		draw_scene(&game.fx, game.target)
+		scene.draw_ui(&game, game.state)
 		rl.EndDrawing()
 
-		frame_count += 1
-		if max_frames > 0 && frame_count >= max_frames {
-			if screenshot != "" {
-				path := strings.clone_to_cstring(screenshot)
+		game.frame += 1
+		game_finish_switch(&game)
+		if opts.max_frames > 0 && game.frame >= opts.max_frames {
+			if opts.screenshot != "" {
+				path := strings.clone_to_cstring(opts.screenshot)
 				defer delete(path)
 				rl.TakeScreenshot(path)
 			}
 			break
 		}
-	}
-}
-
-draw_floor :: proc(y: f32, screen_w, screen_h: i32) {
-	rl.DrawRectangle(0, i32(y), screen_w, screen_h - i32(y), {30, 36, 48, 255})
-	rl.DrawLine(0, i32(y), screen_w, i32(y), {80, 90, 110, 255})
-}
-
-// Fills the ring as a triangle fan, then outlines it. raylib culls clockwise
-// triangles, and the ring runs clockwise on screen, so each triangle lists the
-// next node before the current one.
-draw_balloon :: proc(ring: ^softbody.Ring) {
-	c := softbody.ring_center(ring)
-	center := rl.Vector2{c.x, c.y}
-	fill := rl.Color{120, 200, 255, 200}
-	for i in 0 ..< ring.count {
-		a := ring.pos[i]
-		b := ring.pos[(i + 1) % ring.count]
-		rl.DrawTriangle(center, {b.x, b.y}, {a.x, a.y}, fill)
-	}
-	for i in 0 ..< ring.count {
-		a := ring.pos[i]
-		b := ring.pos[(i + 1) % ring.count]
-		rl.DrawLineEx({a.x, a.y}, {b.x, b.y}, 3, rl.WHITE)
 	}
 }
