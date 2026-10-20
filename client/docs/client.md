@@ -4,13 +4,14 @@
 
 The Odin client: window, input, rendering, scenes, and the crafting-lab prototype. It links the Rust simulation through the C ABI in `tv_ffi`. Raylib comes from the `vendor:raylib` package that ships with the Odin compiler (raylib 6.0 in the release used here).
 
-The game is arranged in scenes, as in Unity. There is one scene so far, the lab: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The balloon editing menu, the arena, networking, and balloon painting are not started.
+The game is arranged in scenes, as in Unity. There is one scene so far, the lab: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The lab overlay also shows the result of a start-up check of the local database, which reads and writes DixScript through its C library. The balloon editing menu, the arena, networking, and balloon painting are not started.
 
 Commands, run from the repository root with `cargo` and `odin` on the path:
 
 - `bash scripts/build_client.sh` builds the Rust library and the client into `build/`.
 - `build/tv_client --selftest` runs without a window and checks the ABI, the simulation, and the 3D balloon.
 - `odin test client/src/balloon` runs the balloon tests, and `odin test client/src/softbody` runs the older 2D ring tests.
+- `odin test client/src/store` runs the local-database tests. Three of them need a DixScript library and skip themselves without one. `TV_MDIX_FAKE_LIB` points at the stand-in built with `cc -shared -fPIC -o libfake_mdix.so client/src/store/testdata/fake_mdix_ffi.c`, and `TV_MDIX_LIB` points at the real DixScript library.
 - `odin run client/bench -o:speed` runs the soft-body and balloon benchmarks.
 - From `build/`, `./tv_client --fixed-step --frames 240 --screenshot lab.png` runs the lab for a fixed number of frames and saves a screenshot. The screenshot path is relative to the working directory. Under a virtual display this works in CI: `xvfb-run -a ./tv_client ...`.
 - `--demo hang` and `--demo swing` script the pointer: after 90 frames the tip is grabbed and lifted, and `swing` then sways it side to side. `--fixed-step` advances the game by exactly 1/60 s per frame, so a given frame count always shows the same picture. `--size 1600x720` opens a window of that size, which is handy for trying a phone's wide screen.
@@ -91,7 +92,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - All the raylib calls here pass the same register layout from Odin as from C on 32-bit ARM, which was checked by comparing Odin's compiled declarations with clang's for every raylib and rlgl function the client calls.
 
 ### `scene.odin`
-**What it does:** The scene system. `Scene` is five procedures, `load`, `update`, `draw`, `draw_ui`, and `unload`. `Game` holds what every scene shares: the screen size, the heat-shader pass, the off-screen render target, the current scene and its state, and the scripted demo mode. `game_switch` asks for another scene, and the switch happens at the end of the frame.
+**What it does:** The scene system. `Scene` is five procedures, `load`, `update`, `draw`, `draw_ui`, and `unload`. `Game` holds what every scene shares: the screen size, the heat-shader pass and how strongly it wobbles, the off-screen render target, the current scene and its state, the scripted demo mode, and the local database with the result of its check. `game_switch` asks for another scene, and the switch happens at the end of the frame.
 
 **Decisions:**
 - A scene allocates its own state in `load` and returns it as a pointer, and the manager only hands it back. That keeps scenes independent of one another.
@@ -108,6 +109,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - The floor uses plain rlgl vertices rather than `DrawPlane`, which takes structs of floats by value.
 - The shadow is drawn without depth testing right after the floor, so it sits exactly on the floor without flickering against it.
 - The overlay shows the milliseconds the physics took, so the cost on a phone can be read off a screenshot.
+- It also shows the result of the database check, green when it passed and orange when not. The line is broken to fit the screen, because a loader error that names a path is longer than a phone is wide.
 - The scripted demo grabs the tip at frame 90 and lifts it over 45 frames. `swing` sways it after frame 170.
 
 ### `balloon.vs`
@@ -126,6 +128,43 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 **What it does:** Times one 60 Hz step of the balloon, all substeps included, while the tip is held and swung, so the pin, the constraints, and the damping all run. Cases are mesh frequency 4 with 6 substeps, 6 with 8, and 8 with 8, plus a frame for frequency 6 that also builds the render normals. It prints `BENCH balloon_step_f6_s8 <ns>` style lines.
 
 **Decisions:** On the development machine a frequency 6 step with 8 substeps takes about 0.18 ms compiled with `-o:speed`, and about 0.5 ms with `-o:minimal`, the level the Android build uses. A phone core is several times slower, so the lab overlay shows the real cost.
+
+### `mdix_dyn.odin`
+**What it does:** Package `store`, the game's local database, and its door to DixScript. `Mdix` holds the 13 DixScript C functions the game calls. `mdix_open` loads the library by file name at run time and looks each function up by name, and `db_get_int` and `db_get_string` read values with their ownership handled.
+
+**Decisions:**
+- The library is loaded at run time and not linked at build time. A linked library that is missing or wrong stops the app from starting with no message, and there is no log on the phone. A loaded one fails into a sentence: the loader's own error text, or the name of the function that is missing. Both are shown on screen.
+- Only whole numbers and strings cross the boundary. Booleans and floating point numbers passed by value are where C calling conventions on 32-bit ARM differ most, so the game stores a flag as a number.
+- The official `mdix-odin` wrapper was read and its signatures were used, but its `foreign import` is a build-time link, so the game keeps its own small table of functions instead.
+- The library is never unloaded. Rust libraries that start threads or hold thread-local data do not unload cleanly, and the game needs it until it exits.
+- Package `store` has no raylib dependency, so it is tested without a window.
+
+**Tests:** `store_test.odin`.
+
+### `store.odin`
+**What it does:** `run_check` proves the database works inside the running game: it loads the library, asks its version, parses a small document, reads values from it, reads the saved profile, builds a new one, saves it, reads it back, and counts the launch. The result is one line of text for the overlay. `File_IO` is how it reads and writes files, so tests can pass memory.
+
+**Decisions:**
+- Nothing in the check can stop the game from starting. A failure becomes a line of text and a status.
+- Before each risky step, the check writes the step's name to a small file. If the library takes the whole app down, the next launch reads that name, skips the library once and says where it stopped, and then tries again the launch after. A failure the code handled counts as `retry`, not as a crash.
+- The saved profile is a DixScript document built by the library and read back by it, so the check covers the same path as every later save.
+- If the saved profile cannot be read, the check starts a new one and says so, instead of failing.
+- This is a spike. The profile holds only the launch count and the library version so far. Settings, discovered recipes, and saved balloons come after the lab model.
+
+**Tests:** `store_test.odin`.
+
+### `store_test.odin`
+**What it does:** Without any library: a missing library is a message and the step file is left at `retry`; a step file that names a real step makes the check skip the library once and then proceed; and `done`, `retry`, and an empty step file are not treated as a crash. With the stand-in library: three launches count up and persist through the file interface, the step file ends at `done`, and an unreadable profile starts over. With the real library: two launches pass the same check. The library tests skip themselves when their environment variable is not set.
+
+### `fake_mdix_ffi.c`
+**What it does:** A stand-in for DixScript's C library, about 130 lines, with just the functions the store calls. It understands documents of the form `@DATA( key = 5, name = "text" )` and writes the same form back.
+
+**Decisions:** It exists so the loader, the ownership of strings, and the file round trip can be tested on any machine, including CI, without the real library. It is not a copy of DixScript's behavior.
+
+### `file_io.odin`
+**What it does:** Gives the store raylib's file functions, and says where the DixScript library is. On Android raylib writes a name into the app's private storage and reads it back from there, after looking in the APK's assets. On a desktop the name is relative to the working directory. The library is loaded by name on Android, from the folder the APK installs native libraries into, and from next to the executable on a desktop.
+
+**Decisions:** One pair of read and write functions serves both platforms, so no path has to be found in C. DixScript's own file functions are not used, because the Rust library cannot see files inside the APK.
 
 ### `tv_ffi.odin`
 **What it does:** Odin declarations for `tv.h`, with compile-time `#assert`s on struct sizes.
@@ -146,6 +185,8 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - The 4x multisampling hint is skipped on Android.
 - A missing `os.args` is handled, because it is empty on Android.
 - `--fixed-step`, `--demo`, and `--size` exist so headless runs are repeatable and can show a held balloon. They are for CI and screenshots, and the phone never passes them.
+- The database check runs before any scene starts, and its result sits in `Game` for the overlay.
+- The heat-wobble strength starts at 0 and lives in `Game`. The wobble belongs to blasts, so it is off until something asks for it.
 
 ### `android_entry.odin`
 **What it does:** Exports `tv_odin_main`, the one procedure the C shim in `android/entry.c` calls. It builds a default context and calls `main`. The file only compiles for the Android target, through the `#+build linux:android` tag, so desktop builds never see it.
@@ -163,6 +204,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 **Decisions:**
 - Shader files are found relative to the executable, and `scripts/build_client.sh` copies `client/shaders` next to it. On Android they are read from the APK's assets by relative path.
 - Browser and Android builds need the OpenGL ES shaders, so the directory is chosen at compile time by target.
+- `draw_scene` takes the wobble strength as an argument.
 - The scene is copied to the screen with blending off. A translucent balloon leaves an alpha below 1 in the scene texture, and blending that onto black would darken the picture. This holds with and without the heat shader.
 
 ### `heat_distort.fs`
@@ -205,6 +247,9 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - Shader paths were first resolved against the working directory, so the shader did not load when the client ran from another directory. Now resolved against the executable's directory.
 - The scene texture's alpha channel is below 1 where the translucent balloon was drawn. Copying it to the window with blending on darkened those pixels. Caught when the OpenGL ES shaders ran with the heat shader unavailable, where the picture was visibly dimmer.
 
+### `scene_lab.odin` (overlay and wobble)
+- The heat-distortion pass ran at full strength all the time, which made the background move even when nothing had exploded. It is now off by default.
+
 ### `main.odin`
 - Raylib's `TakeScreenshot` prepends the working directory to the path it is given, so absolute paths fail. The flag documentation says the path is relative to the working directory.
 
@@ -217,6 +262,21 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - Odin dev-2026-10 crashes inside LLVM when compiling for 32-bit ARM Android with `-o:speed` or `-o:aggressive`. `-o:minimal` and `-o:size` work. The Android build uses `-o:minimal` unless `TV_OPT` says otherwise.
 - `-build-mode:executable` is rejected for the Android subtarget, and `-build-mode:shared` defines a `main` that does nothing, which would stop raylib from starting the game. Hence plain objects plus the C shim.
 - Every raylib and rlgl function the 3D client calls on Android (50 of them) was compared with how clang compiles the C prototype for 32-bit ARM. 43 are identical, including `BeginMode3D`, `DrawMesh`, `UploadMesh`, `UpdateMeshBuffer`, `UnloadMesh`, and the rlgl calls that take doubles. The other 7 differ only in names for the same layout: arrays of floats versus integers of the same size, `i1` versus `i8` for a returned bool, and extra attributes on a hidden return pointer. All 7 were already in use by the working 2D build.
+
+### `mdix_dyn.odin`
+- None recorded yet. The library calls were checked on the desktop only against the stand-in library, and the real library is tested in CI. Neither has run on the phone.
+
+### `store.odin`
+- None recorded yet.
+
+### `store_test.odin`
+- None recorded yet.
+
+### `fake_mdix_ffi.c`
+- None recorded yet.
+
+### `file_io.odin`
+- raylib's `SaveFileText` takes its text as a pointer to bytes and not as a C string, which the Odin binding spells `[^]byte`. A cast is needed, and the text it is given must end in a zero byte.
 
 ### `selftest.odin`
 - None recorded yet.

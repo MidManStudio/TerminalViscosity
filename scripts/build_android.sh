@@ -11,13 +11,14 @@
 #   ANDROID_HOME      Android SDK with platform-tools, build-tools and a platform
 #   java and keytool  JDK 17
 #
-# Stages (run all by default, or name some): raylib rust odin link package
+# Stages (run all by default, or name some): raylib rust odin link mdix package
 #   bash scripts/build_android.sh
-#   bash scripts/build_android.sh odin link package
+#   bash scripts/build_android.sh odin link mdix package
 #
 # Settings (environment): TV_ANDROID_API (29), TV_ANDROID_TARGET_SDK (34),
 # TV_ANDROID_BUILD_TOOLS (34.0.0), TV_ANDROID_PLATFORM (34), TV_RAYLIB_TAG (6.0),
-# TV_OPT (minimal), the Odin optimization level for the client
+# TV_OPT (minimal), the Odin optimization level for the client,
+# TV_MDIX_COMMIT and TV_MDIX_SHA256, which pin the DixScript library the APK carries
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -29,6 +30,13 @@ BUILD_TOOLS="${TV_ANDROID_BUILD_TOOLS:-34.0.0}"
 PLATFORM="${TV_ANDROID_PLATFORM:-34}"
 RAYLIB_TAG="${TV_RAYLIB_TAG:-6.0}"
 OPT="${TV_OPT:-minimal}"
+# DixScript's own CI publishes a prebuilt libmdix_ffi.so for armeabi-v7a in its
+# repository. The APK carries that exact file, found by commit and checked by
+# checksum, so no Rust is compiled for it here. To move to a newer DixScript,
+# change both values together.
+MDIX_COMMIT="${TV_MDIX_COMMIT:-35ae2d23a62a0ad6b97ca0016fda0ef01c8e0584}"
+MDIX_SHA256="${TV_MDIX_SHA256:-68814f5a23db4291273bed36a8b41f7015d948211d759776e2e3ba7929a4f2b0}"
+MDIX_URL="https://raw.githubusercontent.com/Mid-D-Man/DixScript-Rust/$MDIX_COMMIT/com.midmanstudio.mdix/Runtime/Plugins/Android/armeabi-v7a/libmdix_ffi.so"
 RUST_TARGET="armv7-linux-androideabi"
 ABI="armeabi-v7a"
 OUT="$root/build/android"
@@ -150,6 +158,34 @@ stage_link() {
     "$NM" -D --defined-only "$OUT/stage/lib/$ABI/libmain.so" | grep "ANativeActivity_onCreate" || die "ANativeActivity_onCreate is not exported from libmain.so"
 }
 
+stage_mdix() {
+    log "libmdix_ffi.so from DixScript commit ${MDIX_COMMIT:0:10}"
+    command -v curl >/dev/null 2>&1 || die "curl not found"
+    command -v sha256sum >/dev/null 2>&1 || die "sha256sum not found"
+    local dest="$OUT/stage/lib/$ABI/libmdix_ffi.so"
+    mkdir -p "$OUT/stage/lib/$ABI"
+    curl -sSfL -o "$dest" "$MDIX_URL" || die "could not download $MDIX_URL"
+    local got
+    got="$(sha256sum "$dest" | cut -d' ' -f1)"
+    [ "$got" = "$MDIX_SHA256" ] || die "libmdix_ffi.so checksum is $got, expected $MDIX_SHA256"
+    # The game loads the library by name at start-up, so check it is the right
+    # kind of file and has the entry points the game looks up.
+    require_tools
+    local readelf="$TOOLCHAIN/bin/llvm-readelf" nm="$TOOLCHAIN/bin/llvm-nm"
+    # Capture the output first: grep -q stops reading early, and with pipefail
+    # the tool's broken pipe would then count as a failed check.
+    local header exports symbol
+    header="$("$readelf" -h "$dest")"
+    exports="$("$nm" -D --defined-only "$dest")"
+    grep -q "Machine:.*ARM" <<<"$header" || die "libmdix_ffi.so is not an ARM library"
+    grep -q "Class:.*ELF32" <<<"$header" || die "libmdix_ffi.so is not 32-bit"
+    for symbol in mdix_version mdix_load_str mdix_builder_new mdix_builder_to_string; do
+        grep -q " T $symbol\$" <<<"$exports" || die "libmdix_ffi.so does not export $symbol"
+    done
+    echo "needs: $("$readelf" -d "$dest" | grep NEEDED | sed 's/.*\[\(.*\)\]/\1/' | tr '\n' ' ')"
+    ls -la "$dest"
+}
+
 stage_package() {
     log "package, align, sign"
     require_sdk
@@ -168,7 +204,8 @@ stage_package() {
     rm -f "$unsigned" "$aligned" "$apk"
     "$BT/aapt" package -f -M "$stage/AndroidManifest.xml" -I "$ANDROID_JAR" \
         -A "$stage/assets" -F "$unsigned"
-    (cd "$stage" && "$BT/aapt" add "$unsigned" "lib/$ABI/libmain.so")
+    [ -f "$stage/lib/$ABI/libmdix_ffi.so" ] || die "libmdix_ffi.so not fetched yet (run the mdix stage)"
+    (cd "$stage" && "$BT/aapt" add "$unsigned" "lib/$ABI/libmain.so" "lib/$ABI/libmdix_ffi.so")
     "$BT/zipalign" -f -p 4 "$unsigned" "$aligned"
 
     # Throwaway debug key, regenerated on every clean run. No secrets involved.
@@ -182,18 +219,18 @@ stage_package() {
     "$BT/apksigner" verify --verbose "$apk"
     ls -la "$apk"
     echo "contents:"
-    unzip -l "$apk" | grep -E "AndroidManifest|libmain|heat_distort" || true
+    unzip -l "$apk" | grep -E "AndroidManifest|libmain|libmdix|heat_distort|balloon" || true
 }
 
 stages=("$@")
 if [ "${#stages[@]}" -eq 0 ]; then
-    stages=(raylib rust odin link package)
+    stages=(raylib rust odin link mdix package)
 fi
 for s in "${stages[@]}"; do
     case "$s" in
-        raylib|rust|odin|link|package) "stage_$s" ;;
+        raylib|rust|odin|link|mdix|package) "stage_$s" ;;
         -h|--help) sed -n '2,19p' "${BASH_SOURCE[0]}"; exit 0 ;;
-        *) die "unknown stage '$s' (raylib rust odin link package)" ;;
+        *) die "unknown stage '$s' (raylib rust odin link mdix package)" ;;
     esac
 done
 log "done"

@@ -6,6 +6,7 @@
 package main
 
 import rl "vendor:raylib"
+import "store"
 
 // Every screen of the game is a scene, as in Unity: it loads its own
 // resources, updates and draws each frame, and unloads when the game moves on.
@@ -33,6 +34,8 @@ Game :: struct {
 	switching:  bool,
 	frame:      int,
 	demo:       Demo_Mode,
+	store:      store.Store, // the local database and the result of its start-up check
+	heat_strength: f32, // how strongly the heat-distortion pass wobbles the picture
 }
 
 // The five calls a scene answers. `draw` renders into game.target, which the

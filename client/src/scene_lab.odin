@@ -10,6 +10,7 @@ import "core:math"
 import rl "vendor:raylib"
 import rlgl "vendor:raylib/rlgl"
 import bl "balloon"
+import "store"
 
 PHYSICS_DT :: f32(1.0 / 60.0)
 // A slow frame runs at most this many physics steps, then drops the rest of
@@ -203,6 +204,38 @@ lab_draw_ui :: proc(game: ^Game, state: rawptr) {
 	text := fmt.bprintf(buf[:47], "physics %.2f ms", lab.sim_ms)
 	buf[len(text)] = 0
 	rl.DrawText(cstring(&buf[0]), 20, 20 + 2 * size + 16, size, {120, 200, 255, 255})
+
+	// The result of the start-up check of the local database. It can be longer
+	// than the screen is wide, so it is broken into lines.
+	check := &game.store.check
+	color := rl.Color{120, 220, 140, 255}
+	if check.status != .Ok {
+		color = {255, 160, 110, 255}
+	}
+	message := check_line(check)
+	per_line := max(20, int(f32(game.screen_w - 40) / (f32(size) * 0.62)))
+	y := 20 + 3 * size + 24
+	for len(message) > 0 {
+		take := min(len(message), per_line)
+		if take < len(message) {
+			// Break at the last space that fits, when there is one.
+			for back := take; back > per_line / 2; back -= 1 {
+				if message[back - 1] == ' ' {
+					take = back
+					break
+				}
+			}
+		}
+		line: [160]u8
+		copy(line[:159], message[:take])
+		rl.DrawText(cstring(&line[0]), 20, y, size, color)
+		y += size + 4
+		message = message[take:]
+	}
+}
+
+check_line :: proc(c: ^store.Check) -> string {
+	return store.check_text(c)
 }
 
 // A large floor with a faint grid so depth and height are easy to read. The

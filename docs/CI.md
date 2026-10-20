@@ -10,7 +10,7 @@ Two GitHub Actions workflows and four scripts. The workflow files are not part o
   - `rust` builds and tests the workspace on Rust 1.75 and on stable. On stable it also checks formatting, runs clippy with warnings denied, and builds the docs with warnings denied.
   - `determinism` builds `tv_server`, runs the self-test twice with seed 1 in separate processes and requires identical output, then requires that seed 2 gives different output.
   - `docs` runs `scripts/check_headers.py`.
-  - `odin` installs a pinned Odin release (`ODIN_TAG` at the top of the file), type-checks the client, runs the soft-body and balloon tests, validates all four shader files with glslang, builds the client and runs its self-test, then renders headless screenshots of the lab at rest and with the balloon held by its tip under a virtual display and keeps them as the `lab-screenshot` artifact.
+  - `odin` installs a pinned Odin release (`ODIN_TAG` at the top of the file), type-checks the client, runs the soft-body and balloon tests, runs the store tests twice (against a stand-in DixScript library built from `client/src/store/testdata/fake_mdix_ffi.c`, then against DixScript's real Linux library, checked by commit and checksum), validates all four shader files with glslang, builds the client and runs its self-test, then renders headless screenshots of the lab at rest and with the balloon held by its tip under a virtual display and keeps them as the `lab-screenshot` artifact.
 - `.github/workflows/bench.yml` runs on demand and on pushes to `main` that touch code or benchmark files. It runs the Criterion benchmarks and the Odin benchmark, merges them with `scripts/bench_summary.py`, compares against `benches/baseline.json` with `scripts/bench_compare.py`, and uploads `bench-results`. Comparison only reports by default. The `fail_pct` input turns a regression above that percentage into a failure.
 
 - `.github/workflows/android.yml` runs on demand only. It sets up Java 17, the Android SDK with build-tools 34.0.0, NDK r26d, Rust with the `armv7-linux-androideabi` target, and Odin, runs `scripts/build_android.sh`, and uploads a signed debug APK named `terminal-viscosity-armv7-debug.apk`. The setup mirrors the working midnote Android workflow.
@@ -57,8 +57,9 @@ Not covered yet: the browser (WebAssembly) build, any server networking, and che
 - The link flags follow raylib's own Android template. `-Wl,--wrap=fopen` is mandatory, because raylib's Android backend reads assets through a wrapped `fopen`. `-Wl,--no-undefined` makes a missing symbol fail in CI instead of when the app starts.
 - Packaging follows raylib's own Android recipe: `aapt package`, then `aapt add` for the library, `zipalign`, then `apksigner` with a throwaway debug key. No secrets are involved.
 - The Odin objects are built with `-microarch:cortex-a7`, because Odin's 32-bit ARM default is an ARMv6 CPU. After the Odin stage, `scripts/check_android_abi.py` runs.
-- Settings come from environment variables (`TV_ANDROID_API`, `TV_ANDROID_TARGET_SDK`, `TV_ANDROID_BUILD_TOOLS`, `TV_ANDROID_PLATFORM`, `TV_RAYLIB_TAG`, `TV_OPT`).
+- Settings come from environment variables (`TV_ANDROID_API`, `TV_ANDROID_TARGET_SDK`, `TV_ANDROID_BUILD_TOOLS`, `TV_ANDROID_PLATFORM`, `TV_RAYLIB_TAG`, `TV_OPT`, `TV_MDIX_COMMIT`, `TV_MDIX_SHA256`).
 - `TV_OPT` is the Odin optimization level and defaults to `minimal`, the level known to run on the phone. `size` also compiles for 32-bit ARM and makes the balloon physics about five times faster on the desktop, but it has not been tried on a device. With `size`, Odin writes one object file instead of one per package, which the later stages handle.
+- The `mdix` stage fetches `libmdix_ffi.so` for armeabi-v7a, the library the game's local database runs on. DixScript's own CI builds and commits it for its Unity package, so no Rust is compiled here. The file is downloaded by commit, checked against a pinned SHA-256, and checked to be a 32-bit ARM library that exports the entry points the game looks up. It needs only `libdl`, `libm`, and `libc`, which every Android has. The `package` stage then adds it next to `libmain.so`. To move to a newer DixScript, change `TV_MDIX_COMMIT` and `TV_MDIX_SHA256` together, here and in the matching step of `ci.yml`.
 
 ## Fixes and Problems
 
@@ -79,6 +80,8 @@ Not covered yet: the browser (WebAssembly) build, any server networking, and che
 - raylib's Makefile redefines `__ANDROID_API__` on the command line, which prints a harmless macro-redefinition warning for every file.
 - The `package` stage was run locally with Ubuntu's `aapt`, `zipalign`, and `apksigner`. It has not yet run in CI.
 - The Odin stage with `TV_OPT=size` was run locally against a placeholder NDK: it produces one object file and passes the ABI guard. It has not been linked or run.
+- The first version of the `mdix` stage said a valid library was "not 32-bit". The script runs with `pipefail`, and `grep -q` stops reading as soon as it matches, so the tool feeding it died of a broken pipe and the check counted as failed. The stage now captures each tool's output before searching it.
+- The `mdix` stage was run locally against a stand-in NDK: it downloaded the real file, matched the checksum, rejected a wrong checksum, and found the entry points. The `aapt add` line that puts two libraries in the APK was tried on a dummy APK, and `zipalign` accepted the result. It has not run in CI, and the library has not been loaded on a phone.
 
 ### `check_android_abi.py`
 - Written after the first installed build crashed on launch. See `client/docs/client.md`, section `android_entry.odin`.

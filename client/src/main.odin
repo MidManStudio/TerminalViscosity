@@ -9,6 +9,7 @@ import "core:os"
 import "core:strconv"
 import "core:strings"
 import rl "vendor:raylib"
+import "store"
 
 // Desktop window size. Android ignores it and uses the full screen.
 WINDOW_W :: 1280
@@ -93,11 +94,17 @@ run :: proc(opts: Options) {
 		screen_w = rl.GetScreenWidth(),
 		screen_h = rl.GetScreenHeight(),
 		demo     = opts.demo,
+		// The wobble belongs to blasts. It is off until something calls for it.
+		heat_strength = 0,
 	}
 	game.fx = load_heat_shader()
 	defer unload_heat_shader(&game.fx)
 	game.target = rl.LoadRenderTexture(game.screen_w, game.screen_h)
 	defer rl.UnloadRenderTexture(game.target)
+
+	// Prove the local database works before any scene starts. It cannot stop
+	// the game: a failure becomes a line of text on the overlay.
+	store.run_check(&game.store, raylib_files(), mdix_library_path())
 
 	game_enter(&game, .Balloon_Lab)
 	defer game_leave(&game)
@@ -113,7 +120,7 @@ run :: proc(opts: Options) {
 
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.BLACK)
-		draw_scene(&game.fx, game.target)
+		draw_scene(&game.fx, game.target, game.heat_strength)
 		scene.draw_ui(&game, game.state)
 		rl.EndDrawing()
 

@@ -72,7 +72,7 @@ unload_heat_shader :: proc(fx: ^HeatShader) {
 
 // Draws the off-screen scene to the window. Render textures are stored upside
 // down, so the source rectangle has a negative height.
-draw_scene :: proc(fx: ^HeatShader, scene: rl.RenderTexture2D) {
+draw_scene :: proc(fx: ^HeatShader, scene: rl.RenderTexture2D, strength: f32) {
 	src := rl.Rectangle{0, 0, f32(scene.texture.width), -f32(scene.texture.height)}
 	// The scene covers the whole screen, so it is copied without blending. A
 	// translucent object leaves less than 1 in the scene's alpha channel, and
@@ -82,7 +82,7 @@ draw_scene :: proc(fx: ^HeatShader, scene: rl.RenderTexture2D) {
 	defer rlgl.EnableColorBlend()
 	if fx.valid {
 		t := f32(rl.GetTime())
-		strength := f32(1.0)
+		strength := strength
 		rl.SetShaderValue(fx.shader, fx.time_loc, &t, .FLOAT)
 		rl.SetShaderValue(fx.shader, fx.strength_loc, &strength, .FLOAT)
 		rl.BeginShaderMode(fx.shader)

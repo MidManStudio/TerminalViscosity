@@ -31,6 +31,15 @@
 - Players, hit detection, and the arena do not exist in the simulation yet.
 - Tick rate is 60 Hz. The snapshot rate is not chosen.
 
+### Local data
+
+- **Decided: the DixScript library is loaded at run time and not linked.** A missing library then becomes a message on screen. Its Android build comes prebuilt from DixScript's own repository, pinned by commit and checksum.
+- **Decided: the game crates stay dependency-free.** DixScript lives in the client only. The server can read the same `.mdix` files with the `dixscript` crate.
+- **Open: where shipped content lives.** The plan is compound, reaction, and membrane tables as `.mdix` files in the APK's assets, read with raylib and parsed with `mdix_load_str`, with a content hash at the handshake. Nothing is built yet.
+- **Open: what a save protects.** DixScript can compress and encrypt files. The server stays the authority, so a save cannot grant power, and encryption would only deter casual editing.
+- **Open: other platforms.** Only the Linux and Android libraries are wired up. DixScript's repository also ships Windows, macOS, and other Android builds.
+- **Open: the Rust version.** The core DixScript crate declares 1.75, its C library crate declares 1.85, and the game crates keep a 1.75 floor. The prebuilt library avoids the question for the client.
+
 ### Balloon body
 
 - **Mesh detail.** The balloon is a geodesic sphere of frequency 6 (362 vertices). Frequency 8 (642) is smoother and costs about 1.7 times as much. The right value depends on how the physics runs on the phone, which is not measured yet.
