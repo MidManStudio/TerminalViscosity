@@ -91,6 +91,18 @@ jobs:
         run: odin test client/src/softbody -vet -strict-style
       - name: Balloon tests
         run: odin test client/src/balloon -vet -strict-style
+      - name: Store tests with a stand-in DixScript library
+        run: |
+          mkdir -p build
+          cc -shared -fPIC -o build/libfake_mdix.so client/src/store/testdata/fake_mdix_ffi.c
+          TV_MDIX_FAKE_LIB="$PWD/build/libfake_mdix.so" odin test client/src/store -vet -strict-style
+      - name: Store tests with the real DixScript library
+        run: |
+          # DixScript's own CI publishes this build in its repository. The same
+          # commit and checksum as scripts/build_android.sh, for Linux.
+          curl -sSfL -o build/libmdix_ffi.so "https://raw.githubusercontent.com/Mid-D-Man/DixScript-Rust/35ae2d23a62a0ad6b97ca0016fda0ef01c8e0584/com.midmanstudio.mdix/Runtime/Plugins/Linux/x86_64/libmdix_ffi.so"
+          echo "23341d054ee3b4a1866403ca96f176d1153beac105487b29d1befe0605e2b5e1  build/libmdix_ffi.so" | sha256sum -c -
+          TV_MDIX_LIB="$PWD/build/libmdix_ffi.so" odin test client/src/store -vet -strict-style
       - name: Validate shaders
         run: |
           glslangValidator -S frag client/shaders/glsl330/heat_distort.fs
