@@ -91,6 +91,8 @@ jobs:
         run: odin test client/src/softbody -vet -strict-style
       - name: Balloon tests
         run: odin test client/src/balloon -vet -strict-style
+      - name: Lab tests
+        run: odin test client/src/lab -vet -strict-style
       - name: Store tests with a stand-in DixScript library
         run: |
           mkdir -p build
@@ -111,14 +113,18 @@ jobs:
           glslangValidator -S frag client/shaders/glsl330/balloon.fs
           glslangValidator -S vert client/shaders/glsl100/balloon.vs
           glslangValidator -S frag client/shaders/glsl100/balloon.fs
+          glslangValidator -S vert client/shaders/glsl330/lab.vs
+          glslangValidator -S frag client/shaders/glsl330/lab.fs
+          glslangValidator -S vert client/shaders/glsl100/lab.vs
+          glslangValidator -S frag client/shaders/glsl100/lab.fs
       - name: Build client and run selftest
         run: bash scripts/build_client.sh --selftest
-      - name: Headless render, balloon at rest
+      - name: Headless render, lab room
         working-directory: build
         run: xvfb-run -a -s "-screen 0 1280x720x24" ./tv_client --fixed-step --frames 240 --screenshot lab.png
       - name: Headless render, balloon held by its tip
         working-directory: build
-        run: xvfb-run -a -s "-screen 0 1280x720x24" ./tv_client --fixed-step --demo hang --frames 330 --screenshot lab_hang.png
+        run: xvfb-run -a -s "-screen 0 1280x720x24" ./tv_client --fixed-step --scene balloon --demo hang --frames 330 --screenshot lab_hang.png
       - uses: actions/upload-artifact@v4
         with:
           name: lab-screenshot
