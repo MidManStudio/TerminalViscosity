@@ -52,6 +52,18 @@ load_heat_shader :: proc() -> HeatShader {
 	return fx
 }
 
+// Loads the shader the lab room is drawn with. `ok` is false if it fails to
+// compile, and the room is then drawn with raylib's default shader.
+load_lab_shader :: proc() -> (shader: rl.Shader, ok: bool) {
+	vs := shader_path("lab.vs")
+	defer delete(vs)
+	fs := shader_path("lab.fs")
+	defer delete(fs)
+	shader = rl.LoadShader(vs, fs)
+	ok = rl.IsShaderValid(shader)
+	return
+}
+
 // Loads the balloon shader. `ok` is false if it fails to compile, and the
 // balloon is then drawn flat with raylib's default shader.
 load_balloon_shader :: proc() -> (shader: rl.Shader, ok: bool) {

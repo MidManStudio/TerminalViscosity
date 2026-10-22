@@ -4,17 +4,18 @@
 
 The Odin client: window, input, rendering, scenes, and the crafting-lab prototype. It links the Rust simulation through the C ABI in `tv_ffi`. Raylib comes from the `vendor:raylib` package that ships with the Odin compiler (raylib 6.0 in the release used here).
 
-The game is arranged in scenes, as in Unity. There is one scene so far, the lab: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The lab overlay also shows the result of a start-up check of the local database, which reads and writes DixScript through its C library. The balloon editing menu, the arena, networking, and balloon painting are not started.
+The game is arranged in scenes, as in Unity. There are two scenes. The lab room is the chemistry lab, walked around in first person: a large open room with long counters along the walls and one in the middle. The balloon lab is the balloon on its own: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The lab overlay also shows the result of a start-up check of the local database, which reads and writes DixScript through its C library. The balloon editing menu, the arena, networking, and balloon painting are not started.
 
 Commands, run from the repository root with `cargo` and `odin` on the path:
 
 - `bash scripts/build_client.sh` builds the Rust library and the client into `build/`.
 - `build/tv_client --selftest` runs without a window and checks the ABI, the simulation, and the 3D balloon.
+- `odin test client/src/lab` runs the lab layout, player, and collision tests.
 - `odin test client/src/balloon` runs the balloon tests, and `odin test client/src/softbody` runs the older 2D ring tests.
 - `odin test client/src/store` runs the local-database tests. Three of them need a DixScript library and skip themselves without one. `TV_MDIX_FAKE_LIB` points at the stand-in built with `cc -shared -fPIC -o libfake_mdix.so client/src/store/testdata/fake_mdix_ffi.c`, and `TV_MDIX_LIB` points at the real DixScript library.
 - `odin run client/bench -o:speed` runs the soft-body and balloon benchmarks.
 - From `build/`, `./tv_client --fixed-step --frames 240 --screenshot lab.png` runs the lab for a fixed number of frames and saves a screenshot. The screenshot path is relative to the working directory. Under a virtual display this works in CI: `xvfb-run -a ./tv_client ...`.
-- `--demo hang` and `--demo swing` script the pointer: after 90 frames the tip is grabbed and lifted, and `swing` then sways it side to side. `--fixed-step` advances the game by exactly 1/60 s per frame, so a given frame count always shows the same picture. `--size 1600x720` opens a window of that size, which is handy for trying a phone's wide screen.
+- `--demo hang` and `--demo swing` script the pointer: after 90 frames the tip is grabbed and lifted, and `swing` then sways it side to side. `--fixed-step` advances the game by exactly 1/60 s per frame, so a given frame count always shows the same picture. `--size 1600x720` opens a window of that size, which is handy for trying a phone's wide screen. `--scene room` or `--scene balloon` picks the scene to start in, and the demos only act in the balloon scene. In the lab room a desktop walks with WASD or the arrow keys and looks by dragging the mouse. A small button in the top right corner switches scenes.
 
 ## Modules
 
@@ -97,6 +98,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 **Decisions:**
 - A scene allocates its own state in `load` and returns it as a pointer, and the manager only hands it back. That keeps scenes independent of one another.
 - `draw` renders into the shared render target, which the heat shader puts on screen. `draw_ui` draws on the screen afterwards, so text is never distorted.
+- The balloon lab and the lab room each have a button in the top right corner that moves to the other.
 - The scene table is a `switch` inside a procedure, not a constant array of procedures, so nothing needs package-level initialization, which does not run on Android.
 
 ### `scene_lab.odin`
@@ -111,6 +113,67 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - The overlay shows the milliseconds the physics took, so the cost on a phone can be read off a screenshot.
 - It also shows the result of the database check, green when it passed and orange when not. The line is broken to fit the screen, because a loader error that names a path is longer than a phone is wide.
 - The scripted demo grabs the tip at frame 90 and lifts it over 45 frames. `swing` sways it after frame 170.
+
+### `layout.odin`
+**What it does:** Package `lab`, the chemistry lab as data, in metres. `build` fills a `Layout` with the boxes the room is made of and the footprints a player cannot enter. The room is 24 by 16 with a 3.6 m ceiling. It has long counters along the north, south, and west walls, one island counter in the middle, four rows of ceiling light panels, and a clear east wall for a way in. A counter is a glowing plinth, a dark body, and a light top that overhangs a little. It has no raylib dependency, so it is tested without a window.
+
+**Decisions:**
+- Everything is boxes. The floor, walls, and ceiling are slabs lying outside the room, so their outward faces are the ones seen from inside, and no face needs special handling.
+- No two boxes share a visible face, and nothing sits closer than 4 cm to a surface it is not meant to touch, so a 16-bit depth buffer on a phone cannot make surfaces flicker.
+- Colors, glow, and gloss are constants at the top of the file. The look is a clean light room with dark counters and teal glow, between the dark teal and white clinical references. Changing it is a matter of editing those constants.
+- The balloon is not placed yet. Its physics runs at a scale where the balloon is 2 units across, and when it is placed in the lab it will be drawn scaled down.
+
+**Tests:** `lab_test.odin`.
+
+### `player.odin`
+**What it does:** A walker seen from above, with a view direction. `player_look` turns the view and keeps the pitch within about 70 degrees. `player_move` walks for one frame at a stick position, and `blocked` says whether a spot is inside a counter or outside the room.
+
+**Decisions:**
+- Collision is a circle against rectangles. Each axis is tried on its own, so a diagonal push into a counter slides along it.
+- A move is cut into pieces of at most 15 cm, so a long frame on a slow phone cannot carry the player through a counter.
+- Yaw 0 faces -z and a positive yaw turns to the right. The stick is limited to a length of 1, so walking diagonally is not faster.
+
+**Tests:** `lab_test.odin`.
+
+### `lab_test.odin`
+**What it does:** The layout fits its arrays and every box has a size, glow, and gloss in range. The player starts in the open. Full stick covers the walking speed. A counter stops the player at the right distance and a slanted walk slides along it. The player cannot leave the room in any of six directions. Three long frames in a row do not carry the player through the island. Looking clamps the pitch, and walking follows the view direction.
+
+### `lab_mesh.odin`
+**What it does:** Turns the layout into one static raylib mesh with a color for each vertex, and draws it with one call. The first texture coordinate carries how much a surface glows and the second how glossy it is.
+
+**Decisions:**
+- One mesh and one call for the whole room is the cheapest thing a phone can draw. Boxes go in already placed in the world, so no model matrix is passed.
+- Each face is built from a normal and two tangents that turn toward each other the right way round, which makes the corners come out counter-clockwise seen from outside without any per-face fixing.
+- Mesh and material memory comes from raylib's allocator, because `UnloadMesh` frees it.
+- If the lab shader fails to compile, the room is drawn with raylib's default shader in flat colors.
+
+### `input.odin`
+**What it does:** Reads every finger on the screen as a list of pointers with stable ids, and turns them into movement and look controls. On a phone, the first finger that lands on the left 40 percent of the screen becomes a floating joystick wherever it lands, and a finger that lands elsewhere turns the view. With a mouse there is no joystick and the keyboard walks instead. It also draws the joystick and the scene-switch button.
+
+**Decisions:**
+- A finger is tracked by the id Android gives it and not by its index, because the index shifts when another finger lifts.
+- A finger that lands on the button is kept out of the controls until it lifts, so a tap on the button never starts the joystick or turns the view.
+- The joystick is floating, so a thumb does not have to find a fixed spot. A faint ring shows where it starts.
+- A finger that was already down last frame is never re-assigned a role.
+- Touch positions on Android come from the C wrapper in `android/entry.c`.
+
+### `scene_room.odin`
+**What it does:** The lab room scene. It owns the layout, the player, the room mesh, and the controls. Each frame it reads the pointers, turns the view by the look drag, and walks by the joystick or the keyboard. The camera is at eye height, 1.6 m, with a 70 degree field of view.
+
+**Decisions:**
+- First person with a joystick, so the room can be crossed without a pointer tap on a floor spot and so later stations can be reached by walking.
+- The clip planes are 0.08 to 70 for the room. The default far plane of 4000 gives a 16-bit depth buffer almost no precision.
+- The button in the corner changes scenes, so the balloon lab stays reachable on a phone.
+
+### `lab.vs`
+**What it does:** Vertex shader for the room. The mesh is in world space, so positions and normals pass straight through, with the vertex color and the glow and gloss values passed on. There are two versions, `shaders/glsl330/` and `shaders/glsl100/`.
+
+**Decisions:** The two files are kept in step by hand. Both pass `glslangValidator`.
+
+### `lab.fs`
+**What it does:** Fragment shader for the room. The lab has no real lights. Shading is a sky-and-floor ambient term, a soft key light from above, full brightness for the ceiling panels and counter glow, a sheen on glossy surfaces that grows at a slant, and fog that fades the far end of the room into the background color.
+
+**Decisions:** Fake lighting costs the same however many lights the room has. The fog color matches the clear color of the room scene, so the far wall fades into the background. Highp precision is used where the device has it.
 
 ### `balloon.vs`
 **What it does:** Vertex shader for the balloon. The mesh is already in world space, so positions and normals pass straight through. The first texture coordinate carries how much of the knot a vertex is. There are two versions, `shaders/glsl330/` and `shaders/glsl100/`.
@@ -184,6 +247,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - Layout comes from the real screen size, so the same code fits a 1280 by 720 desktop window and a phone.
 - The 4x multisampling hint is skipped on Android.
 - A missing `os.args` is handled, because it is empty on Android.
+- The first scene is the lab room, and `--scene` can pick the other.
 - `--fixed-step`, `--demo`, and `--size` exist so headless runs are repeatable and can show a held balloon. They are for CI and screenshots, and the phone never passes them.
 - The database check runs before any scene starts, and its result sits in `Game` for the overlay.
 - The heat-wobble strength starts at 0 and lives in `Game`. The wobble belongs to blasts, so it is off until something asks for it.
@@ -193,6 +257,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 
 **Decisions:**
 - The Odin runtime start-up is not run in this build mode. Code on the Android path must not rely on package-level initializers or on `os.args`, which is empty there.
+- It also holds the Android `platform_pointers`. The finger count and ids are plain integers, so raylib is called directly for them, but a touch position goes through a C wrapper, like the mouse position does.
 - It also holds the Android `platform_mouse_position`, which calls a C wrapper instead of raylib directly. Odin's 32-bit ARM backend returns a struct of two floats in registers, while the NDK returns it through a hidden pointer.
 
 ### `platform_desktop.odin`
@@ -205,6 +270,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - Shader files are found relative to the executable, and `scripts/build_client.sh` copies `client/shaders` next to it. On Android they are read from the APK's assets by relative path.
 - Browser and Android builds need the OpenGL ES shaders, so the directory is chosen at compile time by target.
 - `draw_scene` takes the wobble strength as an argument.
+- `load_lab_shader` loads the room shader the same way as the balloon shader.
 - The scene is copied to the screen with blending off. A translucent balloon leaves an alpha below 1 in the scene texture, and blending that onto black would darken the picture. This holds with and without the heat shader.
 
 ### `heat_distort.fs`
@@ -262,6 +328,30 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - Odin dev-2026-10 crashes inside LLVM when compiling for 32-bit ARM Android with `-o:speed` or `-o:aggressive`. `-o:minimal` and `-o:size` work. The Android build uses `-o:minimal` unless `TV_OPT` says otherwise.
 - `-build-mode:executable` is rejected for the Android subtarget, and `-build-mode:shared` defines a `main` that does nothing, which would stop raylib from starting the game. Hence plain objects plus the C shim.
 - Every raylib and rlgl function the 3D client calls on Android (50 of them) was compared with how clang compiles the C prototype for 32-bit ARM. 43 are identical, including `BeginMode3D`, `DrawMesh`, `UploadMesh`, `UpdateMeshBuffer`, `UnloadMesh`, and the rlgl calls that take doubles. The other 7 differ only in names for the same layout: arrays of floats versus integers of the same size, `i1` versus `i8` for a returned bool, and extra attributes on a hidden return pointer. All 7 were already in use by the working 2D build.
+
+### `layout.odin`
+- None recorded yet.
+
+### `player.odin`
+- None recorded yet.
+
+### `lab_test.odin`
+- None recorded yet.
+
+### `lab_mesh.odin`
+- None recorded yet.
+
+### `input.odin`
+- None recorded yet. The joystick and look controls have been compiled for the phone and never touched on one.
+
+### `scene_room.odin`
+- None recorded yet.
+
+### `lab.vs`
+- None recorded yet.
+
+### `lab.fs`
+- None recorded yet.
 
 ### `mdix_dyn.odin`
 - None recorded yet. The library calls were checked on the desktop only against the stand-in library, and the real library is tested in CI. Neither has run on the phone.

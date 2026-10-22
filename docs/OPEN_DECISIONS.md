@@ -31,6 +31,14 @@
 - Players, hit detection, and the arena do not exist in the simulation yet.
 - Tick rate is 60 Hz. The snapshot rate is not chosen.
 
+### The lab room
+
+- **Decided: first person with a floating joystick and a look drag.** A pointer-tap walk was the alternative.
+- **Decided: the room is in metres.** The balloon's physics runs at a scale where it is 2 units across, so in the lab it will be drawn scaled down. The ratio is not chosen.
+- **Open: the look.** It is a clean light room with dark counters and teal glow, a mix of the dark teal and white clinical references. Palette and glow are constants at the top of `layout.odin`.
+- **Open: where the stations go.** The chem bench, the chamber machine, and the clamp station have no place in the room yet, and the island counter and the long counters are bare.
+- **Open: ceiling.** The ceiling is flat with straight light panels. The hexagon panels in one reference are not done.
+
 ### Local data
 
 - **Decided: the DixScript library is loaded at run time and not linked.** A missing library then becomes a message on screen. Its Android build comes prebuilt from DixScript's own repository, pinned by commit and checksum.

@@ -11,7 +11,8 @@ import "store"
 // Every screen of the game is a scene, as in Unity: it loads its own
 // resources, updates and draws each frame, and unloads when the game moves on.
 Scene_Id :: enum {
-	Balloon_Lab,
+	Lab_Room, // the chemistry lab, walked around in first person
+	Balloon_Lab, // the balloon on its own, for grabbing and dropping
 }
 
 // Scripted pointer input for headless runs, so CI and screenshots can show the
@@ -51,6 +52,8 @@ Scene :: struct {
 
 scene_procs :: proc(id: Scene_Id) -> Scene {
 	switch id {
+	case .Lab_Room:
+		return {load = room_load, update = room_update, draw = room_draw, draw_ui = room_draw_ui, unload = room_unload}
 	case .Balloon_Lab:
 		return {load = lab_load, update = lab_update, draw = lab_draw, draw_ui = lab_draw_ui, unload = lab_unload}
 	}

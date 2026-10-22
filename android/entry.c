@@ -19,6 +19,7 @@ typedef struct {
 } TvVec2;
 
 extern TvVec2 GetMousePosition(void);
+extern TvVec2 GetTouchPosition(int index);
 
 // Odin's 32-bit ARM backend returns an 8-byte struct of floats in registers,
 // but the NDK's ABI returns it through a hidden pointer, so calling
@@ -29,6 +30,15 @@ extern TvVec2 GetMousePosition(void);
 void tv_android_mouse_position(float *out_x, float *out_y)
 {
     TvVec2 p = GetMousePosition();
+    *out_x = p.x;
+    *out_y = p.y;
+}
+
+// The same problem and the same remedy for a touch point. The lab's joystick
+// and look controls read two fingers at once.
+void tv_android_touch_position(int index, float *out_x, float *out_y)
+{
+    TvVec2 p = GetTouchPosition(index);
     *out_x = p.x;
     *out_y = p.y;
 }

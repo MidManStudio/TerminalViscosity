@@ -7,6 +7,7 @@
 package main
 
 import "base:runtime"
+import rl "vendor:raylib"
 
 // On Android, raylib's own `android_main` calls a C function named `main`.
 // android/entry.c provides that `main` and calls this procedure. The Odin
@@ -27,10 +28,25 @@ foreign import shim "system:c"
 @(default_calling_convention = "c")
 foreign shim {
 	tv_android_mouse_position :: proc(out_x, out_y: ^f32) ---
+	tv_android_touch_position :: proc(index: i32, out_x, out_y: ^f32) ---
 }
 
 platform_mouse_position :: proc() -> [2]f32 {
 	x, y: f32
 	tv_android_mouse_position(&x, &y)
 	return {x, y}
+}
+
+// Every finger on the screen. The count and the ids are plain integers, so
+// raylib is called directly for them. The id stays the same for as long as a
+// finger is down, while its index changes when another finger lifts.
+platform_pointers :: proc(out: ^Pointers) {
+	out.count = 0
+	count := min(int(rl.GetTouchPointCount()), MAX_POINTERS)
+	for i in 0 ..< count {
+		x, y: f32
+		tv_android_touch_position(i32(i), &x, &y)
+		out.items[out.count] = {id = int(rl.GetTouchPointId(i32(i))), pos = {x, y}}
+		out.count += 1
+	}
 }

@@ -77,7 +77,7 @@ lab_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	if game.demo != .None {
 		lab_demo(lab, game)
 	} else {
-		lab_input(lab, &frame, w, h)
+		lab_input(lab, game, &frame, w, h)
 	}
 	if lab.holding {
 		bl.pin(&lab.balloon, lab.hold_vertex, lab.hold_target)
@@ -104,9 +104,14 @@ lab_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 
 // Pointer handling: press on the balloon to grab it, press elsewhere to turn
 // the camera. A single pointer is enough, so it works the same with a finger.
-lab_input :: proc(lab: ^Lab, frame: ^Camera_Frame, w, h: f32) {
+lab_input :: proc(lab: ^Lab, game: ^Game, frame: ^Camera_Frame, w, h: f32) {
 	pointer := platform_mouse_position()
 	if rl.IsMouseButtonPressed(.LEFT) {
+		button := switch_button(w, h)
+		if pointer.x >= button.x && pointer.x <= button.x + button.z && pointer.y >= button.y && pointer.y <= button.y + button.w {
+			game_switch(game, .Lab_Room)
+			return
+		}
 		lab.last_pointer = pointer
 		if vertex := lab_pick(lab, frame, pointer); vertex >= 0 {
 			lab.holding = true
@@ -198,6 +203,7 @@ lab_draw :: proc(game: ^Game, state: rawptr) {
 lab_draw_ui :: proc(game: ^Game, state: rawptr) {
 	lab := cast(^Lab)state
 	size := max(i32(18), game.screen_h / 32)
+	draw_switch_button(f32(game.screen_w), f32(game.screen_h), "lab")
 	rl.DrawText("drag the tip to lift the balloon, drag the background to look around", 20, 20, size, rl.RAYWHITE)
 	rl.DrawFPS(20, 20 + size + 8)
 	buf: [48]u8

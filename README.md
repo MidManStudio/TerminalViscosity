@@ -2,7 +2,7 @@
 
 A multiplayer-first 3D water-balloon fight where the balloons are filled with liquid chemicals you craft beforehand. Simple shapes, heavy shader effects.
 
-Status: scaffold. The simulation core, wire protocol, C ABI, CI, benchmarks, and a crafting-lab prototype (a 3D water balloon with jiggle, held by a tied tip, in a scene system, and a local database check on DixScript) exist. The arena, networking, chemistry integration, and balloon painting do not.
+Status: scaffold. The simulation core, wire protocol, C ABI, CI, benchmarks, and a crafting-lab prototype (a walkable first-person chemistry lab room, a 3D water balloon with jiggle held by a tied tip, a scene system, and a local database check on DixScript) exist. The arena, networking, chemistry integration, and balloon painting do not.
 
 ## Layout
 

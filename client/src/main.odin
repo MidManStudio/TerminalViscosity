@@ -22,12 +22,14 @@ Options :: struct {
 	height:     i32,
 	fixed_step: bool, // every frame advances the game by exactly 1/60 s
 	demo:       Demo_Mode,
+	scene:      Scene_Id,
 }
 
 main :: proc() {
 	opts := Options {
 		width  = WINDOW_W,
 		height = WINDOW_H,
+		scene  = .Lab_Room,
 	}
 	args: []string
 	if len(os.args) > 1 {
@@ -62,6 +64,16 @@ main :: proc() {
 			}
 		case "--fixed-step":
 			opts.fixed_step = true
+		case "--scene":
+			if i + 1 < len(args) {
+				i += 1
+				switch args[i] {
+				case "room":
+					opts.scene = .Lab_Room
+				case "balloon":
+					opts.scene = .Balloon_Lab
+				}
+			}
 		case "--demo":
 			if i + 1 < len(args) {
 				i += 1
@@ -106,7 +118,7 @@ run :: proc(opts: Options) {
 	// the game: a failure becomes a line of text on the overlay.
 	store.run_check(&game.store, raylib_files(), mdix_library_path())
 
-	game_enter(&game, .Balloon_Lab)
+	game_enter(&game, opts.scene)
 	defer game_leave(&game)
 
 	for !rl.WindowShouldClose() {
