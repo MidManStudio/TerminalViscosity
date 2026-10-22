@@ -42,11 +42,18 @@ Controls :: struct {
 
 STICK_SIDE :: f32(0.4) // the left part of the screen where a finger starts the joystick
 
-controls_init :: proc(c: ^Controls) {
+// Starts the controls. Any finger already down, such as the one that just
+// tapped a button in the previous scene, is noted as known, so it is ignored
+// until it lifts and cannot press anything in this scene.
+controls_init :: proc(c: ^Controls, pointers: ^Pointers) {
 	c^ = {}
 	c.stick_id = -1
 	c.look_id = -1
 	c.button_id = -1
+	c.known_count = pointers.count
+	for i in 0 ..< pointers.count {
+		c.known[i] = pointers.items[i].id
+	}
 }
 
 // Pixels the joystick can be pushed.

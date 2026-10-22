@@ -28,7 +28,9 @@ room_load :: proc(game: ^Game) -> rawptr {
 	lab.player_init(&room.player, &room.layout)
 	shader, ok := load_lab_shader()
 	lab_mesh_init(&room.mesh, &room.layout, shader, ok)
-	controls_init(&room.controls)
+	pointers: Pointers
+	platform_pointers(&pointers)
+	controls_init(&room.controls, &pointers)
 	// Up close the near plane has to be small, and the room is small enough
 	// that the far plane can stay close, which keeps a 16-bit depth buffer accurate.
 	rlgl.SetClipPlanes(0.08, 70)

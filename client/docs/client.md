@@ -115,7 +115,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - The scripted demo grabs the tip at frame 90 and lifts it over 45 frames. `swing` sways it after frame 170.
 
 ### `layout.odin`
-**What it does:** Package `lab`, the chemistry lab as data, in metres. `build` fills a `Layout` with the boxes the room is made of and the footprints a player cannot enter. The room is 24 by 16 with a 3.6 m ceiling. It has long counters along the north, south, and west walls, one island counter in the middle, four rows of ceiling light panels, and a clear east wall for a way in. A counter is a glowing plinth, a dark body, and a light top that overhangs a little. It has no raylib dependency, so it is tested without a window.
+**What it does:** Package `lab`, the chemistry lab as data, in metres. `build` fills a `Layout` with the boxes the room is made of and the footprints a player cannot enter. The room is 24 by 16 with a 3.6 m ceiling. It has long counters along the north, south, and west walls, one island counter in the middle, four rows of ceiling light panels, and a clear east wall for a way in. A counter is 1.1 m high: a glowing plinth, a dark body, and a light top that overhangs a little. It has no raylib dependency, so it is tested without a window.
 
 **Decisions:**
 - Everything is boxes. The floor, walls, and ceiling are slabs lying outside the room, so their outward faces are the ones seen from inside, and no face needs special handling.
@@ -154,7 +154,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - A finger is tracked by the id Android gives it and not by its index, because the index shifts when another finger lifts.
 - A finger that lands on the button is kept out of the controls until it lifts, so a tap on the button never starts the joystick or turns the view.
 - The joystick is floating, so a thumb does not have to find a fixed spot. A faint ring shows where it starts.
-- A finger that was already down last frame is never re-assigned a role.
+- A finger that was already down last frame is never re-assigned a role. The same goes for a finger that was already down when the scene started, so the tap that switched scenes cannot press the button of the new one.
 - Touch positions on Android come from the C wrapper in `android/entry.c`.
 
 ### `scene_room.odin`
@@ -342,7 +342,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - None recorded yet.
 
 ### `input.odin`
-- None recorded yet. The joystick and look controls have been compiled for the phone and never touched on one.
+- Tapping the button in the balloon scene loaded the lab room and then immediately returned to the balloon scene. The finger was still down when the room started, the room's controls had not seen it before, and it sat on the same corner where the room draws its own button, so it counted as a new press. The controls now start knowing which fingers are already down.
 
 ### `scene_room.odin`
 - None recorded yet.

@@ -16,7 +16,7 @@ MAX_COLLIDERS :: 8
 ROOM_W :: f32(24) // along x
 ROOM_D :: f32(16) // along z
 ROOM_H :: f32(3.6)
-COUNTER_HEIGHT :: f32(0.9)
+COUNTER_HEIGHT :: f32(1.1)
 
 // A box to draw. `emissive` is how much it glows by its own light, from 0 to
 // 1, and `gloss` is how much it reflects the room, from 0 to 1.
