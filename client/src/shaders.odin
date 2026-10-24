@@ -64,6 +64,19 @@ load_lab_shader :: proc() -> (shader: rl.Shader, ok: bool) {
 	return
 }
 
+// Loads the shader the glass vessels and their liquid are drawn with: the lab
+// vertex shader and its own fragment shader. `ok` is false if it fails to
+// compile, and the vessels are then drawn solid with the lab shader.
+load_vessel_shader :: proc() -> (shader: rl.Shader, ok: bool) {
+	vs := shader_path("lab.vs")
+	defer delete(vs)
+	fs := shader_path("vessel.fs")
+	defer delete(fs)
+	shader = rl.LoadShader(vs, fs)
+	ok = rl.IsShaderValid(shader)
+	return
+}
+
 // Loads the balloon shader. `ok` is false if it fails to compile, and the
 // balloon is then drawn flat with raylib's default shader.
 load_balloon_shader :: proc() -> (shader: rl.Shader, ok: bool) {

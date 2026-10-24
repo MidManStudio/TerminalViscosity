@@ -123,3 +123,45 @@ walking_follows_the_view_direction :: proc(t: ^testing.T) {
 	f = player_flat_forward(p)
 	testing.expect(t, f.x > 0.99 && abs(f.y) < 1e-4)
 }
+
+@(test)
+a_jump_rises_about_half_a_metre_and_lands :: proc(t: ^testing.T) {
+	l := new(Layout)
+	defer free(l)
+	p := new(Player)
+	defer free(p)
+	build(l)
+	player_init(p, l)
+	testing.expect(t, player_jump(p))
+	peak := f32(0)
+	for _ in 0 ..< 90 {
+		player_update_air(p, 1.0 / 60)
+		peak = max(peak, p.jump)
+	}
+	testing.expectf(t, peak > 0.40 && peak < 0.50, "the peak was %v m", peak)
+	testing.expect_value(t, p.jump, 0)
+	testing.expect_value(t, p.vy, 0)
+	testing.expect_value(t, player_eye_y(p), EYE_HEIGHT)
+}
+
+@(test)
+there_is_no_jump_in_the_air :: proc(t: ^testing.T) {
+	l := new(Layout)
+	defer free(l)
+	p := new(Player)
+	defer free(p)
+	build(l)
+	player_init(p, l)
+	testing.expect(t, player_jump(p))
+	for _ in 0 ..< 10 {
+		player_update_air(p, 1.0 / 60)
+	}
+	testing.expect(t, p.jump > 0)
+	testing.expect(t, !player_jump(p))
+	testing.expect(t, player_eye_y(p) > EYE_HEIGHT)
+}
+
+@(test)
+a_jump_is_too_low_to_clear_a_counter :: proc(t: ^testing.T) {
+	testing.expect(t, JUMP_SPEED * JUMP_SPEED / (2 * GRAVITY) < COUNTER_HEIGHT)
+}

@@ -1,0 +1,62 @@
+// ============================================================================
+// NOTICE: Full documentation, design decisions, and fix history for this file
+// live in docs/client.md, section "vessel.fs"
+// ============================================================================
+
+#version 100
+
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+varying vec3 fragPos;
+varying vec3 fragNormal;
+varying vec4 fragColor;
+varying vec2 fragMaterial;
+
+uniform vec3 eyePos;
+uniform float liquidMode; // 0 draws the glass, 1 draws the liquid inside it
+uniform float levelY;     // height of the liquid surface in the world
+uniform vec3 liquidColor;
+
+// GLES 2 version of the glsl330 shader. Keep the two in step by hand.
+void main()
+{
+    vec3 fogColor = vec3(0.80, 0.84, 0.88);
+    vec3 lightDir = vec3(0.2191, 0.8765, 0.4303);
+    vec3 n = normalize(fragNormal);
+    vec3 v = normalize(eyePos - fragPos);
+    float fog = clamp((length(eyePos - fragPos) - 10.0) / 22.0, 0.0, 1.0);
+
+    if (liquidMode > 0.5) {
+        if (fragPos.y > levelY) {
+            discard;
+        }
+        vec3 normal = n;
+        if (!gl_FrontFacing) {
+            normal = vec3(0.0, 1.0, 0.0);
+        }
+        float sky = normal.y * 0.5 + 0.5;
+        vec3 ambient = mix(vec3(0.34, 0.37, 0.42), vec3(0.78, 0.82, 0.88), sky);
+        float key = max(dot(normal, lightDir), 0.0);
+        vec3 lit = liquidColor * (ambient + 0.30 * key);
+        if (gl_FrontFacing) {
+            lit *= 0.82;
+        } else {
+            lit += 0.30 * pow(max(dot(reflect(-lightDir, normal), v), 0.0), 24.0);
+        }
+        gl_FragColor = vec4(mix(clamp(lit, 0.0, 1.0), fogColor, fog), 1.0);
+        return;
+    }
+
+    float facing = clamp(abs(dot(n, v)), 0.0, 1.0);
+    float rim = pow(1.0 - facing, 3.0);
+    float glint = pow(max(dot(reflect(-lightDir, n), v), 0.0), 40.0);
+    float sky = n.y * 0.5 + 0.5;
+    vec3 body = fragColor.rgb * mix(0.75, 1.1, sky);
+    vec3 lit = body + vec3(0.85, 0.92, 1.0) * (0.35 * rim + 0.9 * glint);
+    float alpha = clamp(0.16 + 0.55 * rim + 0.8 * glint, 0.0, 0.88);
+    gl_FragColor = vec4(mix(clamp(lit, 0.0, 1.0), fogColor, fog), alpha);
+}

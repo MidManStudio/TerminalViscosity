@@ -7,6 +7,7 @@ package main
 
 import rl "vendor:raylib"
 import "carry"
+import "core:strconv"
 
 // One rounded box of a hand icon, in a unit square with y pointing down.
 // `shade` darkens the box so a thumb can be told apart from the fist.
@@ -40,27 +41,84 @@ grab_button :: proc(w, h: f32) -> [4]f32 {
 	return {w - size * 1.8 - 24, h - size - 24, size * 1.8, size}
 }
 
+// The jump button, just above the grab button and as wide as it.
+jump_button :: proc(w, h: f32) -> [4]f32 {
+	g := grab_button(w, h)
+	height := g.w * 0.8
+	return {g.x, g.y - height - 16, g.z, height}
+}
+
+// A button on a dark backing with a bright edge and a shadowed label, so it
+// reads on the light walls and floor as well as on the dark counters.
+draw_button :: proc(b: [4]f32, label: cstring, fill, edge, ink: rl.Color) {
+	rect := rl.Rectangle{b.x, b.y, b.z, b.w}
+	rl.DrawRectangleRounded(rect, 0.3, 8, fill)
+	rl.DrawRectangleRoundedLinesEx(rect, 0.3, 8, 3, edge)
+	font := i32(min(b.z / 5, b.w * 0.34))
+	x := i32(b.x + b.z * 0.5) - rl.MeasureText(label, font) / 2
+	y := i32(b.y + b.w * 0.5) - font / 2
+	rl.DrawText(label, x + 1, y + 2, font, {0, 0, 0, 220})
+	rl.DrawText(label, x, y, font, ink)
+}
+
 // The button says "grab" until something is held, and then "release". It is
-// dim when there is nothing within reach to grab.
+// dimmer when there is nothing within reach to grab.
 draw_grab_button :: proc(w, h: f32, state: carry.State) {
-	b := grab_button(w, h)
 	label: cstring = "grab"
-	fill := rl.Color{255, 255, 255, 18}
-	edge := rl.Color{255, 255, 255, 70}
-	ink := rl.Color{255, 255, 255, 110}
+	fill := rl.Color{10, 18, 28, 150}
+	edge := rl.Color{200, 210, 222, 120}
+	ink := rl.Color{200, 210, 222, 170}
 	switch state {
 	case .Idle:
 	case .Reaching:
-		fill, edge, ink = {255, 255, 255, 44}, {255, 255, 255, 150}, rl.RAYWHITE
+		fill, edge, ink = {10, 44, 50, 215}, {60, 230, 215, 255}, rl.RAYWHITE
 	case .Holding:
 		label = "release"
-		fill, edge, ink = {60, 230, 215, 70}, {60, 230, 215, 200}, rl.RAYWHITE
+		fill, edge, ink = {14, 74, 74, 230}, {60, 230, 215, 255}, rl.RAYWHITE
 	}
-	rect := rl.Rectangle{b.x, b.y, b.z, b.w}
-	rl.DrawRectangleRounded(rect, 0.3, 8, fill)
-	rl.DrawRectangleRoundedLinesEx(rect, 0.3, 8, 2, edge)
-	font := i32(b.w / 5)
-	rl.DrawText(label, i32(b.x + b.z * 0.5) - rl.MeasureText(label, font) / 2, i32(b.y + b.w * 0.5) - font / 2, font, ink)
+	draw_button(grab_button(w, h), label, fill, edge, ink)
+}
+
+// The jump button is dimmer while the player is already in the air.
+draw_jump_button :: proc(w, h: f32, airborne: bool) {
+	fill := rl.Color{10, 18, 28, 190}
+	edge := rl.Color{230, 236, 242, 220}
+	ink := rl.RAYWHITE
+	if airborne {
+		fill, edge, ink = {10, 18, 28, 120}, {200, 210, 222, 100}, {200, 210, 222, 150}
+	}
+	draw_button(jump_button(w, h), "jump", fill, edge, ink)
+}
+
+// One line under the hand icon about the vessel the player is looking at or
+// holding: what is in it and how full it is. The text is built in a buffer on
+// the stack, so nothing is allocated each frame.
+draw_contents :: proc(w, h: f32, pr: ^carry.Prop) {
+	buf: [96]u8
+	n := 0
+	put :: proc(buf: []u8, n: ^int, text: string) {
+		for c in transmute([]u8)text {
+			if n^ < len(buf) - 1 {
+				buf[n^] = c
+				n^ += 1
+			}
+		}
+	}
+	digits: [24]u8
+	put(buf[:], &n, carry.compound_name(pr.compound))
+	if pr.compound != 0 {
+		put(buf[:], &n, "  ")
+		put(buf[:], &n, strconv.write_int(digits[:], i64(pr.ml + 0.5), 10))
+		put(buf[:], &n, " / ")
+		put(buf[:], &n, strconv.write_int(digits[:], i64(carry.capacity_ml(pr.kind) + 0.5), 10))
+		put(buf[:], &n, " ml")
+	}
+	text := cstring(raw_data(buf[:]))
+	font := i32(max(f32(16), h * 0.032))
+	x := i32(w * 0.5) - rl.MeasureText(text, font) / 2
+	y := i32(h * 0.5) + i32(max(f32(30), h * 0.075)) + 24
+	rl.DrawText(text, x + 1, y + 2, font, {0, 0, 0, 220})
+	rl.DrawText(text, x, y, font, rl.RAYWHITE)
 }
 
 // Draws a hand icon with its top left corner at (x, y) and `size` pixels

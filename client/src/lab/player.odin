@@ -12,6 +12,8 @@ EYE_HEIGHT :: f32(1.6)
 WALK_SPEED :: f32(3.2) // metres per second at full stick
 PITCH_LIMIT :: f32(1.25) // radians up or down
 MAX_STEP :: f32(0.15) // the longest distance moved in one piece, so no counter is skipped over
+JUMP_SPEED :: f32(3.0) // metres per second upward at take-off, about a 46 cm jump
+GRAVITY :: f32(9.8)
 
 // A walker seen from above, with a view direction. Yaw 0 looks toward -z and a
 // positive yaw turns toward +x.
@@ -19,10 +21,41 @@ Player :: struct {
 	x, z:  f32,
 	yaw:   f32,
 	pitch: f32,
+	jump:  f32, // how far the eye is above its standing height, in metres
+	vy:    f32, // how fast the eye is rising, in metres per second
 }
 
 player_init :: proc(p: ^Player, l: ^Layout) {
 	p^ = {x = l.spawn.x, z = l.spawn.z, yaw = l.spawn_yaw}
+}
+
+// Height of the eye above the floor, including a jump in progress.
+player_eye_y :: proc(p: ^Player) -> f32 {
+	return EYE_HEIGHT + p.jump
+}
+
+// Starts a jump. Only works standing on the floor, so there is no double jump.
+player_jump :: proc(p: ^Player) -> bool {
+	if p.jump > 0 || p.vy != 0 {
+		return false
+	}
+	p.vy = JUMP_SPEED
+	return true
+}
+
+// Moves the eye up and down for a jump in progress. A jump is too low to get
+// onto a counter, so it only changes the height of the view, and walking and
+// collision stay as they are.
+player_update_air :: proc(p: ^Player, dt: f32) {
+	if p.jump <= 0 && p.vy == 0 {
+		return
+	}
+	p.vy -= GRAVITY * dt
+	p.jump += p.vy * dt
+	if p.jump <= 0 {
+		p.jump = 0
+		p.vy = 0
+	}
 }
 
 // Turns the view. Looking up is a positive pitch.

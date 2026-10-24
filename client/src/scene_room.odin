@@ -59,13 +59,14 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 
 	pointers: Pointers
 	platform_pointers(&pointers)
-	buttons := [2][4]f32{switch_button(w, h), grab_button(w, h)}
+	buttons := [3][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h)}
 	controls_update(&room.controls, &pointers, w, h, buttons[:])
 	if room.controls.pressed == 0 {
 		game_switch(game, .Balloon_Lab)
 		return
 	}
 	grab_pressed := room.controls.pressed == 1
+	jump_pressed := room.controls.pressed == 2
 
 	// Looking: dragging up looks up, and dragging right turns right.
 	delta := room.controls.look_delta
@@ -77,6 +78,9 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	when ODIN_PLATFORM_SUBTARGET != .Android {
 		if rl.IsKeyPressed(.E) {
 			grab_pressed = true
+		}
+		if rl.IsKeyPressed(.SPACE) {
+			jump_pressed = true
 		}
 		if rl.IsKeyDown(.W) || rl.IsKeyDown(.UP) {
 			push.y += 1
@@ -95,6 +99,10 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	right := lab.player_flat_right(&room.player)
 	wish := right * push.x + forward * push.y
 	lab.player_move(&room.player, &room.layout, wish, dt)
+	if jump_pressed {
+		lab.player_jump(&room.player)
+	}
+	lab.player_update_air(&room.player, dt)
 
 	// Carrying: the button, or E on a desktop, grabs what the crosshair points
 	// at, or lets go of what is held.
@@ -111,7 +119,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 
 room_camera :: proc(room: ^Room) -> rl.Camera3D {
 	p := &room.player
-	eye := Vec3{p.x, lab.EYE_HEIGHT, p.z}
+	eye := Vec3{p.x, lab.player_eye_y(p), p.z}
 	return rl.Camera3D{position = eye, target = eye + lab.player_forward(p), up = {0, 1, 0}, fovy = ROOM_FOV, projection = .PERSPECTIVE}
 }
 
@@ -121,12 +129,15 @@ room_draw :: proc(game: ^Game, state: rawptr) {
 	camera := room_camera(room)
 	rl.BeginMode3D(camera)
 	lab_mesh_draw(&room.mesh, camera.position)
-	props_draw(&room.meshes, room.mesh.material, &room.props)
 	view := carry.view_of(&room.player)
 	grip, radius := carry.grip_of(&room.props, view)
 	placed: [carry.MAX_HAND_PARTS]carry.Placed
 	count := carry.hands_place(&room.hands, view, grip, radius, &placed)
+	// Solid things first, then the liquid, then the glass blended over all of it.
 	hands_draw(&room.meshes, room.mesh.material, placed[:count])
+	props_draw_caps(&room.meshes, room.mesh.material, &room.props)
+	props_draw_liquids(&room.meshes, &room.props, camera.position)
+	props_draw_glass(&room.meshes, room.mesh.material, &room.props, camera.position)
 	rl.EndMode3D()
 }
 
@@ -138,11 +149,15 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 	when ODIN_PLATFORM_SUBTARGET == .Android {
 		rl.DrawText("left thumb walks, right thumb looks", 20, 20, size, {40, 52, 66, 255})
 	} else {
-		rl.DrawText("WASD or arrows walk, drag the mouse to look, E grabs", 20, 20, size, {40, 52, 66, 255})
+		rl.DrawText("WASD or arrows walk, drag the mouse to look, E grabs, space jumps", 20, 20, size, {40, 52, 66, 255})
 	}
 	rl.DrawFPS(20, 20 + size + 8)
 	state := carry.state_of(&room.props)
 	draw_crosshair(w, h, state)
+	if focus := carry.focus(&room.props); focus != -1 {
+		draw_contents(w, h, &room.props.items[focus])
+	}
 	draw_grab_button(w, h, state)
+	draw_jump_button(w, h, room.player.jump > 0)
 	controls_draw(&room.controls, w, h)
 }

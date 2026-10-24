@@ -4,19 +4,19 @@
 
 The Odin client: window, input, rendering, scenes, and the crafting-lab prototype. It links the Rust simulation through the C ABI in `tv_ffi`. Raylib comes from the `vendor:raylib` package that ships with the Odin compiler (raylib 6.0 in the release used here).
 
-The game is arranged in scenes, as in Unity. There are two scenes. The lab room is the chemistry lab, walked around in first person: a large open room with long counters along the walls and one in the middle. Glass vessels stand on the middle counter and can be picked up and carried in the player's hands. The balloon lab is the balloon on its own: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The lab overlay also shows the result of a start-up check of the local database, which reads and writes DixScript through its C library. The balloon editing menu, the arena, networking, and balloon painting are not started.
+The game is arranged in scenes, as in Unity. There are two scenes. The lab room is the chemistry lab, walked around in first person: a large open room with long counters along the walls and one in the middle. Glass vessels with colored liquid in them stand on the middle counter and can be picked up and carried in the player's hands. The player can also jump. The balloon lab is the balloon on its own: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The lab overlay also shows the result of a start-up check of the local database, which reads and writes DixScript through its C library. The balloon editing menu, the arena, networking, and balloon painting are not started.
 
 Commands, run from the repository root with `cargo` and `odin` on the path:
 
 - `bash scripts/build_client.sh` builds the Rust library and the client into `build/`.
 - `build/tv_client --selftest` runs without a window and checks the ABI, the simulation, and the 3D balloon.
 - `odin test client/src/lab` runs the lab layout, player, and collision tests.
-- `odin test client/src/carry` runs the tests for picking up, carrying, and dropping vessels, the vessel and hand shapes, and the hand poses.
+- `odin test client/src/carry` runs the tests for picking up, carrying, and dropping vessels, what a vessel holds, the vessel and hand shapes, and the hand poses.
 - `odin test client/src/balloon` runs the balloon tests, and `odin test client/src/softbody` runs the older 2D ring tests.
 - `odin test client/src/store` runs the local-database tests. Three of them need a DixScript library and skip themselves without one. `TV_MDIX_FAKE_LIB` points at the stand-in built with `cc -shared -fPIC -o libfake_mdix.so client/src/store/testdata/fake_mdix_ffi.c`, and `TV_MDIX_LIB` points at the real DixScript library.
 - `odin run client/bench -o:speed` runs the soft-body and balloon benchmarks.
 - From `build/`, `./tv_client --fixed-step --frames 240 --screenshot lab.png` runs the lab for a fixed number of frames and saves a screenshot. The screenshot path is relative to the working directory. Under a virtual display this works in CI: `xvfb-run -a ./tv_client ...`.
-- `--demo hang` and `--demo swing` script the pointer: after 90 frames the tip is grabbed and lifted, and `swing` then sways it side to side. `--fixed-step` advances the game by exactly 1/60 s per frame, so a given frame count always shows the same picture. `--size 1600x720` opens a window of that size, which is handy for trying a phone's wide screen. `--scene room` or `--scene balloon` picks the scene to start in, and the demos only act in the balloon scene. In the lab room a desktop walks with WASD or the arrow keys and looks by dragging the mouse. A small button in the top right corner switches scenes, and a button in the bottom right corner grabs the vessel under the crosshair or lets go of the one held. On a desktop E does the same.
+- `--demo hang` and `--demo swing` script the pointer: after 90 frames the tip is grabbed and lifted, and `swing` then sways it side to side. `--fixed-step` advances the game by exactly 1/60 s per frame, so a given frame count always shows the same picture. `--size 1600x720` opens a window of that size, which is handy for trying a phone's wide screen. `--scene room` or `--scene balloon` picks the scene to start in, and the demos only act in the balloon scene. In the lab room a desktop walks with WASD or the arrow keys and looks by dragging the mouse. A small button in the top right corner switches scenes, a button in the bottom right corner grabs the vessel under the crosshair or lets go of the one held, and a jump button sits above it. On a desktop E grabs and space jumps.
 
 ## Modules
 
@@ -116,12 +116,12 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - The scripted demo grabs the tip at frame 90 and lifts it over 45 frames. `swing` sways it after frame 170.
 
 ### `layout.odin`
-**What it does:** Package `lab`, the chemistry lab as data, in metres. `build` fills a `Layout` with the boxes the room is made of and the footprints a player cannot enter. The room is 24 by 16 with a 3.6 m ceiling. It has long counters along the north, south, and west walls, one island counter in the middle, four rows of ceiling light panels, and a clear east wall for a way in. A counter is 1.1 m high: a glowing plinth, a dark body, and a light top that overhangs a little. It has no raylib dependency, so it is tested without a window.
+**What it does:** Package `lab`, the chemistry lab as data, in metres. `build` fills a `Layout` with the boxes the room is made of and the footprints a player cannot enter. The room is 24 by 16 with a 3.6 m ceiling. It has long counters along the north, south, and west walls, one island counter in the middle, four rows of ceiling light panels, and a clear east wall for a way in. A counter is 1.1 m high: a glowing plinth, a dark body, and a dark teal top that overhangs a little, which sets it apart from the light floor and holds clear glass and bright liquids well. It has no raylib dependency, so it is tested without a window.
 
 **Decisions:**
 - Everything is boxes. The floor, walls, and ceiling are slabs lying outside the room, so their outward faces are the ones seen from inside, and no face needs special handling.
 - No two boxes share a visible face, and nothing sits closer than 4 cm to a surface it is not meant to touch, so a 16-bit depth buffer on a phone cannot make surfaces flicker.
-- Colors, glow, and gloss are constants at the top of the file. The look is a clean light room with dark counters and teal glow, between the dark teal and white clinical references. Changing it is a matter of editing those constants.
+- Colors, glow, and gloss are constants at the top of the file. The look is a clean light room with dark teal counters and teal glow, between the dark teal and white clinical references. Changing it is a matter of editing those constants.
 - The balloon is not placed yet. Its physics runs at a scale where the balloon is 2 units across, and when it is placed in the lab it will be drawn scaled down.
 
 **Tests:** `lab_test.odin`.
@@ -135,32 +135,43 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - Yaw 0 faces -z and a positive yaw turns to the right. The stick is limited to a length of 1, so walking diagonally is not faster.
 
 **Tests:** `lab_test.odin`.
+- A jump is a height above the standing eye and a speed, moved by `player_update_air`, which only changes how high the view is. Walking and collision stay as they were. A jump peaks at about 46 cm, well under the 1.1 m counters, so a collision circle on the floor is still right and nothing can be climbed. A second jump cannot start in the air.
 
 ### `lab_test.odin`
-**What it does:** The layout fits its arrays and every box has a size, glow, and gloss in range. The player starts in the open. Full stick covers the walking speed. A counter stops the player at the right distance and a slanted walk slides along it. The player cannot leave the room in any of six directions. Three long frames in a row do not carry the player through the island. Looking clamps the pitch, and walking follows the view direction.
+**What it does:** The layout fits its arrays and every box has a size, glow, and gloss in range. The player starts in the open. Full stick covers the walking speed. A counter stops the player at the right distance and a slanted walk slides along it. The player cannot leave the room in any of six directions. Three long frames in a row do not carry the player through the island. Looking clamps the pitch, and walking follows the view direction. A jump peaks between 40 and 50 cm and lands, there is no jump in the air, and a jump stays lower than a counter.
 
 ### `carry.odin`
-**What it does:** Package `carry`, the things in the lab room that the player can pick up, in metres. It has no raylib dependency, so it is tested without a window. A `Prop` is a vessel standing on a counter or the floor. Each frame `update` finds the prop under the crosshair, puts the held prop at a hold point in front of the eyes, and lets every other prop fall until it stands on something. `grab` takes the prop under the crosshair when the hands are empty and `release` lets go. `state_of` says whether the hands are idle, reaching, or holding, and that drives the hands, the crosshair, and the grab button.
+**What it does:** Package `carry`, the things in the lab room that the player can pick up, in metres. It has no raylib dependency, so it is tested without a window. A `Prop` is a vessel standing on a counter or the floor, holding one compound as an id and an amount in millilitres. Each frame `update` finds the prop under the crosshair, puts the held prop at a hold point in front of the eyes, and lets every other prop fall until it stands on something. `grab` takes the prop under the crosshair when the hands are empty and `release` lets go. `state_of` says whether the hands are idle, reaching, or holding, and that drives the hands, the crosshair, and the grab button. `focus` names the vessel the contents label is about, and `far_to_near` orders the props for drawing see-through glass. The view follows the player's eye, so it rises with a jump.
 
 **Decisions:**
 - The crosshair test is a ray from the eye against a box around each prop, padded by 5 cm, with a reach of 2 m. The padding makes small vessels easy to hit when aiming with a thumb. A counter between the eye and a prop hides it.
 - One prop is held at a time.
 - The hold point is 0.55 m ahead, 0.17 m to the right, and 0.20 m below the eye. The held prop is kept inside the room and never lower than the counter top when any part of it is over a counter, so it rests on the counter instead of passing through it. This is a clamp and not a push, so it cannot jam.
 - A released prop falls under gravity and stops on the counter top or the floor under any part of its footprint. Props do not collide with each other yet, and a vessel that is only partly over a counter edge stays up on the counter.
-- Vessel sizes are constants in `kind_dims`. They are a little larger than real glassware so they read on a phone screen.
+- A vessel holds one compound, and an amount above what it can hold is cut down when it is added. A vessel with no compound holds nothing.
+- The first seven vessels stand on the island, each with a different stock liquid and one beaker left empty, so the glass and the liquid can be judged side by side.
+
+**Tests:** `carry_test.odin`.
+
+### `vessels.odin`
+**What it does:** What a vessel is and what it holds. It has the stock liquids, a stand-in table of ten fictional liquids with a name and a color each (ids 1 to 10, with 0 for empty), the outline of the space inside each kind of vessel, and the maths that follows from that outline: how much a vessel holds, how high a given amount stands, and the height of the surface in the world.
+
+**Decisions:**
+- Capacity comes from the shape, so the glass and the numbers cannot disagree. Each step of the inside outline is a slice of a cone, so the volume is exact, and the level for a given amount is found by halving the range. A beaker holds about 935 ml, a conical flask about 645 ml, and a bottle about 790 ml, which suits a balloon that holds 1000 ml in total.
+- The glass is 6 mm thick, a little thicker than real glassware, so the rim reads on a phone screen.
+- The liquid table is temporary. The compound database is planned as DixScript content, and this table is replaced by it. The ids are the ones the wire format carries.
+- The level is worked out for an upright vessel. When pouring tilts a vessel, the surface stays flat in the world and its height has to come from the volume and the tilt, which is the next step.
 
 **Tests:** `carry_test.odin`.
 
 ### `shapes.odin`
-**What it does:** Builds meshes as plain arrays (`Shape`) so they can be tested without a window. `lathe_build` turns a profile of radius and height pairs around the vertical axis. `vessel_shape` uses it for a beaker, a conical flask, and a closed bottle with a cap. `box_build` makes the unit cube that the hands are drawn from. The client copies a shape into a raylib mesh.
+**What it does:** Builds meshes as plain arrays (`Shape`) so they can be tested without a window. `lathe_build` turns a profile of radius and height pairs around the vertical axis. For each kind of vessel `vessel_shape` makes the glass, a hollow shell open at the top, `liquid_shape` makes a solid that fills the whole inside, and `cap_shape` makes the cap of a bottle. `box_build` makes the unit cube that the hands are drawn from. The client copies a shape into a raylib mesh.
 
 **Decisions:**
 - Each band of a profile has its own vertices, slope, and color, so corners such as the rim, the base, and the shoulder stay sharp while the shading is smooth around the shape.
-- One rule decides every normal and every winding: the outward normal of a band is to the right of the direction of travel along the profile, which runs up the outside and down the inside. The tests check each triangle of each shape against its own normals, which stands in for looking at a render.
-- The vessels are hollow and empty, in opaque pastel colors. Glass and the liquid level are the next step.
+- One rule decides every normal and every winding: the outward normal of a band is to the right of the direction of travel along the profile. For the glass the profile runs up the outside, across the rim, and down the inside. The tests check each triangle of each shape against its own normals, which stands in for looking at a render.
+- The glass and the liquid come from the same outlines, so they always fit. The liquid is drawn 0.6 mm inside the glass so the two never fight over a pixel.
 - A shape has a fixed capacity of 512 vertices and 1536 indices. A test fails if one is cut off.
-
-**Tests:** `carry_test.odin`.
 
 ### `hands.odin`
 **What it does:** The first-person hands as boxes: for each hand a sleeve, a palm, two finger segments that curl, and a thumb. `hands_update` moves a curl value and a lift value toward the pose for the current state, and `hands_place` turns the parts into world frames for drawing. At rest the hands sit low in the bottom corners with only the fingertips in view. With something in reach the right hand lifts a little. While holding, the right hand closes around the held vessel and the left hand rises a little.
@@ -174,7 +185,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 **Tests:** `carry_test.odin`.
 
 ### `carry_test.odin`
-**What it does:** Every shape faces outward, has unit normals, and fits its arrays, and the vessels stay inside their stated size. The view is a right-handed set. The default props stand on the island. The crosshair picks a prop it points at, and not one it points over or one out of reach. A counter hides what is behind it. Grabbing takes the aimed prop once. A sweep of positions and view directions near and far from the counters shows that a held prop never enters a counter or leaves the room. A vessel in open space sits at the hold point. Released props fall to a counter or the floor. The hands close and open again. Every hand part is right-handed and stays near the eye. An unturned part follows the view, and a turned prop keeps a right-handed frame.
+**What it does:** Every shape, the glass, the liquid, the cap, and the box, faces outward, has unit normals, has the expected number of vertices, and stays inside its vessel's size. The view is a right-handed set and rises with a jump. The default props stand on the island, hold no more than their capacity, and include one empty beaker. A vessel cannot be filled past its capacity and holds nothing without a compound. Capacities are between 400 and 1000 ml, and a beaker's matches a hand calculation. The level never drops as the amount grows and matches the volume. Every stock liquid has a name and a color. See-through props are ordered far to near. The crosshair picks a prop it points at, and not one it points over or one out of reach. A counter hides what is behind it. Grabbing takes the aimed prop once. A sweep of positions and view directions near and far from the counters shows that a held prop never enters a counter or leaves the room. A vessel in open space sits at the hold point. Released props fall to a counter or the floor. The hands close and open again, every hand part is right-handed and stays near the eye, an unturned part follows the view, and a turned prop keeps a right-handed frame.
 
 ### `lab_mesh.odin`
 **What it does:** Turns the layout into one static raylib mesh with a color for each vertex, and draws it with one call. The first texture coordinate carries how much a surface glows and the second how glossy it is.
@@ -196,7 +207,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - Touch positions on Android come from the C wrapper in `android/entry.c`.
 
 ### `scene_room.odin`
-**What it does:** The lab room scene. It owns the layout, the player, the room mesh, the controls, the props, the hands, and their meshes. Each frame it reads the pointers, turns the view by the look drag, and walks by the joystick or the keyboard, then runs the carrying step and moves the hands. The grab button, or E on a desktop, grabs or releases. The room, the vessels, and the hands are drawn in that order, and the crosshair, hand icon, and buttons are drawn on the screen afterwards. The camera is at eye height, 1.6 m, with a 70 degree field of view.
+**What it does:** The lab room scene. It owns the layout, the player, the room mesh, the controls, the props, the hands, and their meshes. Each frame it reads the pointers, turns the view by the look drag, and walks by the joystick or the keyboard, then runs the carrying step and moves the hands. The grab button, or E on a desktop, grabs or releases, and the jump button, or space, jumps. The room is drawn first, then the hands and the bottle caps, then the liquid, then the glass blended over it all. The crosshair, hand icon, contents line, and buttons are drawn on the screen afterwards. The camera is at eye height, 1.6 m, with a 70 degree field of view.
 
 **Decisions:**
 - First person with a joystick, so the room can be crossed without a pointer tap on a floor spot and so later stations can be reached by walking.
@@ -204,30 +215,43 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - The button in the corner changes scenes, so the balloon lab stays reachable on a phone.
 
 ### `prop_mesh.odin`
-**What it does:** Copies the shapes from `carry` into raylib meshes and draws them: one mesh for each kind of vessel, and a unit cube in glove blue and in sleeve white for the hands. Everything is drawn with the room's own material and shader, with a model matrix that moves each piece.
+**What it does:** Copies the shapes from `carry` into raylib meshes and draws them: for each kind of vessel its glass and the liquid inside it, the cap of a bottle, and a unit cube in glove blue and in sleeve white for the hands. Drawing is in passes. Hands and bottle caps are solid and use the room's material. Liquid is drawn next with the vessel shader, cut off at a flat surface in world space, with back faces on so the cut shows as the surface. Glass is drawn last, from the farthest vessel to the nearest, blended over everything behind it and without writing depth, so glass behind glass still shows. If the vessel shader fails to compile, the glass is drawn solid with the room's shader and there is no liquid.
 
 **Decisions:**
-- The matrix is built by hand. Raylib's `Matrix` in the Odin binding is row-major, with the move in the last column.
+- The matrix for each piece is built by hand. Raylib's `Matrix` in the Odin binding is row-major, with the move in the last column.
 - Mesh memory comes from raylib's allocator, because `UnloadMesh` frees it.
-- The hands and the held vessel are drawn with the depth test on, so fingers behind a vessel are hidden by it. The cost is that a hand can poke into a counter when the player looks steeply down very close to it. A separate depth pass for the hands would fix that if it shows.
+- The hands and the held vessel are depth tested with the room, and the hands are drawn before the glass, so fingers behind a vessel are hidden by it and fingers in front of it are not. The cost is that a hand can poke into a counter when the player looks steeply down very close to it. A separate depth pass for the hands would fix that if it shows.
+- The liquid is drawn opaque, so it needs no sorting.
 
 ### `interact_ui.odin`
-**What it does:** The 2D pieces of carrying: the crosshair dot with a hand icon under it, and the grab button in the bottom right corner. The icon is an open hand in white while nothing is in reach, in teal when something is, and a closed fist while holding. The button says grab, and release while holding, and it is dim when nothing is in reach.
+**What it does:** The 2D pieces of carrying and jumping: the crosshair dot with a hand icon under it, a line about the vessel in view or in hand, the grab button in the bottom right corner, and the jump button above it. The icon is an open hand in white while nothing is in reach, in teal when something is, and a closed fist while holding. The line names the liquid and says how full the vessel is. The grab button says grab, and release while holding, and it is dimmer when nothing is in reach. The jump button is dimmer while the player is in the air.
 
 **Decisions:**
 - Grabbing on a phone is a button that turns into the release button while holding, as decided in the design discussion.
+- Buttons have a dark backing, a bright edge, and a shadowed label, so they read on the light floor and walls as well as on the dark counters.
 - The icons are drawn from rounded rectangles in code, so no image files have to be packaged into the APK.
-- The icons are opaque with a dark outline, so overlapping pieces do not blend twice and the icon reads on the light walls and the dark counters.
+- The icons are opaque with a dark outline, so overlapping pieces do not blend twice and the icon reads on light and dark surfaces.
+- The contents line is built in a buffer on the stack, so nothing is allocated each frame.
 
 ### `lab.vs`
 **What it does:** Vertex shader for the room, the vessels, and the hands. The room mesh is in world space and is drawn with an identity model matrix, so its positions and normals pass straight through. Vessels and hands are drawn with a model matrix that moves them, and the shader applies it so the lighting and fog work on world positions. The vertex color and the glow and gloss values are passed on. There are two versions, `shaders/glsl330/` and `shaders/glsl100/`.
 
 **Decisions:** The two files are kept in step by hand. Both pass `glslangValidator`.
+- The glass and liquid of the vessels use this same vertex shader, with `vessel.fs` as their fragment shader.
 
 ### `lab.fs`
 **What it does:** Fragment shader for the room. The lab has no real lights. Shading is a sky-and-floor ambient term, a soft key light from above, full brightness for the ceiling panels and counter glow, a sheen on glossy surfaces that grows at a slant, and fog that fades the far end of the room into the background color.
 
 **Decisions:** Fake lighting costs the same however many lights the room has. The fog color matches the clear color of the room scene, so the far wall fades into the background. Highp precision is used where the device has it.
+
+### `vessel.fs`
+**What it does:** Fragment shader for the glass vessels and the liquid in them. One file serves both, switched by the `liquidMode` uniform. Glass is nearly clear in the middle of a surface, turns more solid toward its edge, and has a bright glint where it catches the light. Liquid is shaded like the room and cut off at a flat surface at the height `levelY`, in world space, in the color `liquidColor`. The liquid is drawn as a closed solid, so where the surface cuts it we see the inside of its far wall, and that is painted as the surface.
+
+**Decisions:**
+- The cut is made against the world position of each pixel, so when a vessel is tilted for pouring the surface will stay flat in the world with no change to the shader.
+- Glass alpha stays at or below 0.88, so even the edge of a vessel shows what is behind it.
+- Fog is the same as in `lab.fs`, so vessels far away fade with the room.
+- The lighting is the same fake light as the room, so no real light is needed. The GLES 2 version is kept in step with the desktop one by hand.
 
 ### `balloon.vs`
 **What it does:** Vertex shader for the balloon. The mesh is already in world space, so positions and normals pass straight through. The first texture coordinate carries how much of the knot a vertex is. There are two versions, `shaders/glsl330/` and `shaders/glsl100/`.
@@ -326,6 +350,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - `draw_scene` takes the wobble strength as an argument.
 - `load_lab_shader` loads the room shader the same way as the balloon shader.
 - The scene is copied to the screen with blending off. A translucent balloon leaves an alpha below 1 in the scene texture, and blending that onto black would darken the picture. This holds with and without the heat shader.
+- `load_vessel_shader` pairs the lab vertex shader with `vessel.fs`, so the vessels share the room's way of moving a mesh into the world.
 
 ### `heat_distort.fs`
 **What it does:** A small screen-space ripple. There are two versions, `shaders/glsl330/` for desktop and `shaders/glsl100/` for OpenGL ES 2 and the browser.
@@ -387,7 +412,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - None recorded yet.
 
 ### `player.odin`
-- None recorded yet.
+- A jump changes only the height of the view, and has not been tried on a phone yet.
 
 ### `lab_test.odin`
 - None recorded yet.
@@ -395,8 +420,11 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 ### `carry.odin`
 - Props do not collide with each other, so two vessels let go at the same spot overlap. A vessel only partly over a counter edge stays up on the counter instead of tipping off.
 
+### `vessels.odin`
+- The stock liquid table is a stand-in with fictional names. The compound database will replace it, and the level is only right for an upright vessel until pouring is added.
+
 ### `shapes.odin`
-- None recorded yet.
+- The vessels were opaque pastel solids at first. They are now see-through glass with liquid, as asked after the first test on the phone.
 
 ### `hands.odin`
 - The pose numbers were set from the geometry and have not been seen on a screen or a device. Expect to tune the wrist spots and the curl angles after the first look on the phone.
@@ -405,10 +433,10 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - None recorded yet.
 
 ### `prop_mesh.odin`
-- A hand can poke into a counter when the player looks steeply down close to it, because the hands are depth tested with the room.
+- The glass is blended without writing depth and sorted by the distance to the base of each vessel, which is right for vessels standing apart and may be wrong for vessels touching. A hand can poke into a counter when the player looks steeply down close to it, because the hands are depth tested with the room.
 
 ### `interact_ui.odin`
-- None recorded yet.
+- The grab button was hard to see over the light counter tops. It now has a dark backing and the counter tops are dark teal.
 
 ### `lab_mesh.odin`
 - None recorded yet.
@@ -425,6 +453,9 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 
 ### `lab.fs`
 - None recorded yet.
+
+### `vessel.fs`
+- None recorded yet. The glass and liquid look has been compiled and validated with glslang for both GLSL versions, but not seen on a device.
 
 ### `mdix_dyn.odin`
 - None recorded yet. The library calls were checked on the desktop only against the stand-in library, and the real library is tested in CI. Neither has run on the phone.

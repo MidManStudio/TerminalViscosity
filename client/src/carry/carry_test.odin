@@ -39,11 +39,33 @@ look_at :: proc(p: ^lab.Player, target: Vec3) {
 	p.pitch = math.atan2(d.y, math.sqrt(d.x * d.x + d.z * d.z))
 }
 
-expected_vertices :: proc(k: Kind) -> int {
-	bands := 7
-	if k == .Beaker {
-		bands = 5
+// Bands in the glass of each kind: up the outside, over the rim, down the inside.
+glass_bands :: proc(k: Kind) -> int {
+	switch k {
+	case .Beaker:
+		return 5
+	case .Flask:
+		return 7
+	case .Bottle:
+		return 9
 	}
+	return 0
+}
+
+// Bands in the liquid solid of each kind.
+liquid_bands :: proc(k: Kind) -> int {
+	switch k {
+	case .Beaker:
+		return 3
+	case .Flask:
+		return 4
+	case .Bottle:
+		return 5
+	}
+	return 0
+}
+
+vertices_for :: proc(bands: int) -> int {
 	return bands * 2 * (SHAPE_SEGMENTS + 1)
 }
 
@@ -72,8 +94,17 @@ every_shape_faces_outward_and_fits :: proc(t: ^testing.T) {
 	defer free(s)
 	for k in Kind {
 		vessel_shape(s, k)
-		check_shape(t, s, "vessel")
-		testing.expect_value(t, s.vert_count, expected_vertices(k))
+		check_shape(t, s, "glass")
+		testing.expect_value(t, s.vert_count, vertices_for(glass_bands(k)))
+		liquid_shape(s, k)
+		check_shape(t, s, "liquid")
+		testing.expect_value(t, s.vert_count, vertices_for(liquid_bands(k)))
+		has_cap := cap_shape(s, k)
+		testing.expect_value(t, has_cap, k == .Bottle)
+		if has_cap {
+			check_shape(t, s, "cap")
+			testing.expect_value(t, s.vert_count, vertices_for(3))
+		}
 	}
 	box_build(s, {255, 255, 255, 255})
 	check_shape(t, s, "box")
@@ -86,12 +117,23 @@ vessels_stay_inside_their_footprint :: proc(t: ^testing.T) {
 	s := new(Shape)
 	defer free(s)
 	for k in Kind {
-		vessel_shape(s, k)
 		d := kind_dims(k)
-		for i in 0 ..< s.vert_count {
-			p := s.positions[i]
-			reach := math.sqrt(p.x * p.x + p.z * p.z)
-			testing.expectf(t, reach <= d.radius + 1e-4 && p.y >= -1e-4 && p.y <= d.height + 1e-4, "%v vertex %v is outside its size", k, i)
+		for part in 0 ..< 3 {
+			switch part {
+			case 0:
+				vessel_shape(s, k)
+			case 1:
+				liquid_shape(s, k)
+			case:
+				if !cap_shape(s, k) {
+					continue
+				}
+			}
+			for i in 0 ..< s.vert_count {
+				p := s.positions[i]
+				reach := math.sqrt(p.x * p.x + p.z * p.z)
+				testing.expectf(t, reach <= d.radius + 1e-4 && p.y >= -1e-4 && p.y <= d.height + 1e-4, "%v part %v vertex %v is outside its size", k, part, i)
+			}
 		}
 	}
 }
@@ -119,11 +161,95 @@ the_defaults_stand_on_the_island :: proc(t: ^testing.T) {
 	defer free_scene(l, p, props)
 	props_place_defaults(props, l)
 	testing.expect_value(t, props.count, 7)
+	empty := 0
 	for i in 0 ..< props.count {
 		pr := props.items[i]
 		testing.expect_value(t, pr.pos.y, lab.COUNTER_HEIGHT)
 		testing.expect(t, abs(pr.pos.x) < 5 && abs(pr.pos.z) < 0.7)
+		testing.expect(t, pr.ml >= 0 && pr.ml <= capacity_ml(pr.kind))
+		testing.expect_value(t, pr.compound == 0, pr.ml == 0)
+		if pr.compound == 0 {
+			empty += 1
+		}
 	}
+	testing.expect_value(t, empty, 1)
+}
+
+@(test)
+a_vessel_cannot_hold_more_than_its_capacity :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	props_add(props, l, .Flask, 0, 0.35, u16(Stock.Water), 1e6)
+	props_add(props, l, .Beaker, 1, 0.35, 0, 500) // no compound, so nothing in it
+	testing.expect_value(t, props.items[0].ml, capacity_ml(.Flask))
+	testing.expect_value(t, props.items[1].ml, 0)
+}
+
+@(test)
+capacities_come_from_the_shape :: proc(t: ^testing.T) {
+	for k in Kind {
+		c := capacity_ml(k)
+		testing.expectf(t, c > 400 && c < 1000, "%v holds %v ml", k, c)
+	}
+	// A beaker is a plain cylinder inside, so it can be worked out by hand.
+	d := kind_dims(.Beaker)
+	inner := d.radius - VESSEL_WALL
+	by_hand := math.PI * inner * inner * (d.height - VESSEL_WALL) * 1e6
+	testing.expect(t, abs(capacity_ml(.Beaker) - by_hand) < 1)
+}
+
+@(test)
+the_fill_height_matches_the_volume :: proc(t: ^testing.T) {
+	for k in Kind {
+		previous := f32(0)
+		for ml := f32(0); ml <= capacity_ml(k); ml += 25 {
+			h := fill_height(k, ml)
+			testing.expectf(t, h >= previous, "%v: the level dropped at %v ml", k, ml)
+			previous = h
+			if ml > 0 {
+				testing.expectf(t, abs(interior_volume(k, h) - ml) < 0.5, "%v: %v ml gave a level holding %v", k, ml, interior_volume(k, h))
+			}
+		}
+		testing.expect_value(t, fill_height(k, 1e6), brim_height(k))
+		testing.expect_value(t, fill_height(k, 0), VESSEL_WALL)
+	}
+}
+
+@(test)
+every_stock_liquid_has_a_name_and_a_color :: proc(t: ^testing.T) {
+	table := STOCK_LIQUIDS
+	testing.expect_value(t, len(table), int(max(Stock)))
+	for id in 1 ..= len(table) {
+		testing.expect(t, compound_name(u16(id)) != "Empty")
+		c := compound_color(u16(id))
+		testing.expect(t, c.r >= 0 && c.r <= 1 && c.g >= 0 && c.g <= 1 && c.b >= 0 && c.b <= 1)
+	}
+	testing.expect_value(t, compound_name(0), "Empty")
+	testing.expect_value(t, compound_name(999), "Empty")
+}
+
+@(test)
+see_through_things_are_ordered_far_to_near :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	props_place_defaults(props, l)
+	eye := Vec3{0.4, 1.7, 2.0}
+	order: [MAX_PROPS]int
+	n := far_to_near(props, eye, &order)
+	testing.expect_value(t, n, props.count)
+	for i in 1 ..< n {
+		a := props.items[order[i - 1]].pos - eye
+		b := props.items[order[i]].pos - eye
+		testing.expect(t, dot(a, a) >= dot(b, b))
+	}
+}
+
+@(test)
+the_view_rises_with_a_jump :: proc(t: ^testing.T) {
+	p := new(lab.Player)
+	defer free(p)
+	p.jump = 0.3
+	testing.expect_value(t, view_of(p).eye.y, lab.EYE_HEIGHT + 0.3)
 }
 
 @(test)

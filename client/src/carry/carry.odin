@@ -48,12 +48,15 @@ kind_dims :: proc(k: Kind) -> Dims {
 	return {0.05, 0.1}
 }
 
-// One thing that can be picked up. `pos` is the middle of its base.
+// One thing that can be picked up. `pos` is the middle of its base. A vessel
+// holds one compound at a time, as an id (0 for empty) and an amount.
 Prop :: struct {
-	kind: Kind,
-	pos:  Vec3,
-	yaw:  f32,
-	vy:   f32, // how fast it is falling, in metres per second, while it settles
+	kind:     Kind,
+	pos:      Vec3,
+	yaw:      f32,
+	vy:       f32, // how fast it is falling, in metres per second, while it settles
+	compound: u16,
+	ml:       f32,
 }
 
 Props :: struct {
@@ -89,7 +92,7 @@ view_of :: proc(p: ^lab.Player) -> View {
 	forward := lab.player_forward(p)
 	right := Vec3{math.cos(p.yaw), 0, math.sin(p.yaw)}
 	back := -forward
-	return {eye = {p.x, lab.EYE_HEIGHT, p.z}, right = right, up = cross(back, right), back = back}
+	return {eye = {p.x, lab.player_eye_y(p), p.z}, right = right, up = cross(back, right), back = back}
 }
 
 props_init :: proc(props: ^Props) {
@@ -113,27 +116,56 @@ support_height :: proc(l: ^lab.Layout, x, z, radius: f32) -> f32 {
 	return 0
 }
 
-// Adds a prop standing on whatever is under (x, z). False if the list is full.
-props_add :: proc(props: ^Props, l: ^lab.Layout, kind: Kind, x, z: f32) -> bool {
+// Adds a vessel standing on whatever is under (x, z), holding `ml` of a
+// compound, which is cut down to what the vessel can hold. False if the list
+// is full.
+props_add :: proc(props: ^Props, l: ^lab.Layout, kind: Kind, x, z: f32, compound: u16 = 0, ml: f32 = 0) -> bool {
 	if props.count == MAX_PROPS {
 		return false
 	}
 	d := kind_dims(kind)
-	props.items[props.count] = {kind = kind, pos = {x, support_height(l, x, z, d.radius), z}}
+	amount := compound == 0 ? f32(0) : clamp(ml, 0, capacity_ml(kind))
+	props.items[props.count] = {kind = kind, pos = {x, support_height(l, x, z, d.radius), z}, compound = compound, ml = amount}
 	props.count += 1
 	return true
 }
 
-// A first handful of vessels in two rows along the near edge of the island.
+// A first handful of vessels in two rows along the near edge of the island,
+// with a different stock liquid in each and one beaker left empty.
 props_place_defaults :: proc(props: ^Props, l: ^lab.Layout) {
-	front := [?]Kind{.Beaker, .Flask, .Bottle, .Beaker}
-	back := [?]Kind{.Bottle, .Beaker, .Flask}
-	for k, i in front {
-		props_add(props, l, k, (f32(i) - 1.5) * 0.6, 0.38)
+	stock :: proc(s: Stock) -> u16 {
+		return u16(s)
 	}
-	for k, i in back {
-		props_add(props, l, k, (f32(i) - 1) * 0.6, -0.12)
+	props_add(props, l, .Beaker, -0.9, 0.38, stock(.Dye_Red), 400)
+	props_add(props, l, .Flask, -0.3, 0.38, stock(.Spark_Blue), 300)
+	props_add(props, l, .Bottle, 0.3, 0.38, stock(.Fizz_Acid), 600)
+	props_add(props, l, .Beaker, 0.9, 0.38)
+	props_add(props, l, .Bottle, -0.6, -0.12, stock(.Soda_Base), 500)
+	props_add(props, l, .Beaker, 0, -0.12, stock(.Water), 250)
+	props_add(props, l, .Flask, 0.6, -0.12, stock(.Ember_Oil), 450)
+}
+
+// The props from the farthest to the nearest, for drawing see-through things
+// in an order that blends right. Returns how many.
+far_to_near :: proc(props: ^Props, eye: Vec3, out: ^[MAX_PROPS]int) -> int {
+	dist: [MAX_PROPS]f32
+	for i in 0 ..< props.count {
+		out[i] = i
+		d := props.items[i].pos - eye
+		dist[i] = dot(d, d)
 	}
+	for i in 1 ..< props.count {
+		for j := i; j > 0 && dist[out[j - 1]] < dist[out[j]]; j -= 1 {
+			out[j - 1], out[j] = out[j], out[j - 1]
+		}
+	}
+	return props.count
+}
+
+// The vessel the label should talk about: the held one, else the one under
+// the crosshair, else -1.
+focus :: proc(props: ^Props) -> int {
+	return props.held != -1 ? props.held : props.aimed
 }
 
 // Where a ray from `origin` along `dir` first enters the box from `lo` to
