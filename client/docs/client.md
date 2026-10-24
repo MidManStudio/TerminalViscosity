@@ -11,12 +11,13 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - `bash scripts/build_client.sh` builds the Rust library and the client into `build/`.
 - `build/tv_client --selftest` runs without a window and checks the ABI, the simulation, and the 3D balloon.
 - `odin test client/src/lab` runs the lab layout, player, and collision tests.
+- `odin test client/src/mpm` runs the liquid simulation tests.
 - `odin test client/src/carry` runs the tests for picking up, carrying, and dropping vessels, what a vessel holds, the vessel and hand shapes, and the hand poses.
 - `odin test client/src/balloon` runs the balloon tests, and `odin test client/src/softbody` runs the older 2D ring tests.
 - `odin test client/src/store` runs the local-database tests. Three of them need a DixScript library and skip themselves without one. `TV_MDIX_FAKE_LIB` points at the stand-in built with `cc -shared -fPIC -o libfake_mdix.so client/src/store/testdata/fake_mdix_ffi.c`, and `TV_MDIX_LIB` points at the real DixScript library.
-- `odin run client/bench -o:speed` runs the soft-body and balloon benchmarks.
+- `odin run client/bench -o:speed` runs the soft-body, balloon, and liquid simulation benchmarks.
 - From `build/`, `./tv_client --fixed-step --frames 240 --screenshot lab.png` runs the lab for a fixed number of frames and saves a screenshot. The screenshot path is relative to the working directory. Under a virtual display this works in CI: `xvfb-run -a ./tv_client ...`.
-- `--demo hang` and `--demo swing` script the pointer: after 90 frames the tip is grabbed and lifted, and `swing` then sways it side to side. `--fixed-step` advances the game by exactly 1/60 s per frame, so a given frame count always shows the same picture. `--size 1600x720` opens a window of that size, which is handy for trying a phone's wide screen. `--scene room` or `--scene balloon` picks the scene to start in, and the demos only act in the balloon scene. In the lab room a desktop walks with WASD or the arrow keys and looks by dragging the mouse. A small button in the top right corner switches scenes, a button in the bottom right corner grabs the vessel under the crosshair or lets go of the one held, and a jump button sits above it. On a desktop E grabs and space jumps.
+- `--demo hang` and `--demo swing` script the pointer: after 90 frames the tip is grabbed and lifted, and `swing` then sways it side to side. `--fixed-step` advances the game by exactly 1/60 s per frame, so a given frame count always shows the same picture. `--size 1600x720` opens a window of that size, which is handy for trying a phone's wide screen. `--scene room`, `--scene balloon`, or `--scene bench` picks the scene to start in, and the demos only act in the balloon scene. In the lab room a desktop walks with WASD or the arrow keys and looks by dragging the mouse. A small button in the top right corner switches scenes, a button in the bottom right corner grabs the vessel under the crosshair or lets go of the one held, and a jump button sits above it. On a desktop E grabs and space jumps. A button under the scene switch opens the liquid sim test.
 
 ## Modules
 
@@ -99,7 +100,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 **Decisions:**
 - A scene allocates its own state in `load` and returns it as a pointer, and the manager only hands it back. That keeps scenes independent of one another.
 - `draw` renders into the shared render target, which the heat shader puts on screen. `draw_ui` draws on the screen afterwards, so text is never distorted.
-- The balloon lab and the lab room each have a button in the top right corner that moves to the other.
+- The balloon lab and the lab room each have a button in the top right corner that moves to the other. The sim-test scene is a third scene, opened by a button under the scene switch in the lab room, and its button in the top right corner goes back to the lab room.
 - The scene table is a `switch` inside a procedure, not a constant array of procedures, so nothing needs package-level initialization, which does not run on Android.
 
 ### `scene_lab.odin`
@@ -187,6 +188,27 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 ### `carry_test.odin`
 **What it does:** Every shape, the glass, the liquid, the cap, and the box, faces outward, has unit normals, has the expected number of vertices, and stays inside its vessel's size. The view is a right-handed set and rises with a jump. The default props stand on the island, hold no more than their capacity, and include one empty beaker. A vessel cannot be filled past its capacity and holds nothing without a compound. Capacities are between 400 and 1000 ml, and a beaker's matches a hand calculation. The level never drops as the amount grows and matches the volume. Every stock liquid has a name and a color. See-through props are ordered far to near. The crosshair picks a prop it points at, and not one it points over or one out of reach. A counter hides what is behind it. Grabbing takes the aimed prop once. A sweep of positions and view directions near and far from the counters shows that a held prop never enters a counter or leaves the room. A vessel in open space sits at the hold point. Released props fall to a counter or the floor. The hands close and open again, every hand part is right-handed and stays near the eye, an unturned part follows the view, and a turned prop keeps a right-handed frame.
 
+### `mpm.odin`
+**What it does:** Package `mpm`, the liquid simulator for the lab: the Moving Least Squares Material Point Method of Hu et al. (2018) for a weakly compressible fluid, in 3D. Particles carry the liquid and a background grid works out the forces. Each substep sends mass and momentum from the particles to the grid, updates the grid with gravity and walls, and reads velocities back with the affine matrix of APIC. The stress comes from each particle's volume ratio alone and is folded into the transfer, as in section 3.4 of the paper, so no kernel gradient is ever evaluated. It has no raylib dependency. After `sim_init` nothing is allocated, so stepping never touches the allocator.
+
+**Decisions:**
+- The simulation is for the lab only: pours, splashes, and liquid in motion. The gameplay balloon does not use it.
+- The stiffness is low, a bulk modulus of 1e4 as in the paper's water examples, so the liquid is slightly squashy. Real water would need steps far too small. The step must stay under about 0.3 dx / (sound speed + fastest flow), which is about 0.3 ms for 1 cm cells.
+- Eight particles to a cell on a lattice, so a block always has the same count and a run always comes out the same on one device. Results are not meant to match between arm32 and x86, so the liquid is a visual only and the server never depends on it.
+- The walls are the outer three cells of the grid, and particles are clamped just inside, so the 27-node stencil can never leave the grid. Bounds checks stay on, so a bug is an error and not a stray write.
+- A particle's volume ratio is limited to 0.2 to 5, so one bad step cannot spread.
+- Thin glass walls, which the paper handles with CPIC, are not here yet.
+
+**Tests:** `mpm_test.odin`. **Benchmarks:** `client/bench/mpm_bench.odin`.
+
+### `scenario.odin`
+**What it does:** The one liquid every benchmark uses: a cube with 6, 8, 10, 12, or 16 particles along each side, so 216 to 4096 particles, centered in a grid of 32 cells and a little above the floor, so it drops and splashes.
+
+**Decisions:** The desktop benchmark and the sim-test scene both use it, so their numbers can be compared.
+
+### `mpm_test.odin`
+**What it does:** A block holds two particles to a cell along each side and is cut off at the capacity. The grid receives all the mass. A block in free fall speeds up at gravity. Momentum is conserved without gravity. A block set spinning keeps its spin, which fails if the affine matrix is rebuilt at the wrong scale. A tank of liquid comes to rest, slightly compressed by its own weight. A dropped block splashes and stays inside the grid. The same start gives the same liquid bit for bit. The benchmark cube has the stated particle counts and stays finite.
+
 ### `lab_mesh.odin`
 **What it does:** Turns the layout into one static raylib mesh with a color for each vertex, and draws it with one call. The first texture coordinate carries how much a surface glows and the second how glossy it is.
 
@@ -207,12 +229,24 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - Touch positions on Android come from the C wrapper in `android/entry.c`.
 
 ### `scene_room.odin`
-**What it does:** The lab room scene. It owns the layout, the player, the room mesh, the controls, the props, the hands, and their meshes. Each frame it reads the pointers, turns the view by the look drag, and walks by the joystick or the keyboard, then runs the carrying step and moves the hands. The grab button, or E on a desktop, grabs or releases, and the jump button, or space, jumps. The room is drawn first, then the hands and the bottle caps, then the liquid, then the glass blended over it all. The crosshair, hand icon, contents line, and buttons are drawn on the screen afterwards. The camera is at eye height, 1.6 m, with a 70 degree field of view.
+**What it does:** The lab room scene. It owns the layout, the player, the room mesh, the controls, the props, the hands, and their meshes. Each frame it reads the pointers, turns the view by the look drag, and walks by the joystick or the keyboard, then runs the carrying step and moves the hands. The grab button, or E on a desktop, grabs or releases, and the jump button, or space, jumps. The button under the scene switch opens the sim test. The room is drawn first, then the hands and the bottle caps, then the liquid, then the glass blended over it all. The crosshair, hand icon, contents line, and buttons are drawn on the screen afterwards. The camera is at eye height, 1.6 m, with a 70 degree field of view.
 
 **Decisions:**
 - First person with a joystick, so the room can be crossed without a pointer tap on a floor spot and so later stations can be reached by walking.
 - The clip planes are 0.08 to 70 for the room. The default far plane of 4000 gives a 16-bit depth buffer almost no precision.
 - The button in the corner changes scenes, so the balloon lab stays reachable on a phone.
+
+### `scene_bench.odin`
+**What it does:** The sim-test scene. It times the liquid simulation on the device itself at five particle counts, six substeps a frame so the screen keeps moving, and shows the cost for each count. When it finishes it fits a straight line through the smallest and largest count to get the cost of one particle and the fixed cost of the grid, and shows what that allows for a 125 ml splash at 1, 2, and 3 cm cells. A tap runs it again, and the button in the top right corner goes back to the lab room.
+
+**Decisions:**
+- It runs on the phone because desktop numbers say little about it. On a desktop the same code is about six times slower built with `-o:minimal`, which is what the phone build uses, than with `-o:speed`.
+- Six substeps in one frame keeps every frame short, so Android never thinks the app has hung, even on a very slow device.
+- The first two batches of each count are warm-up, and the middle of the rest is taken.
+- The build mode is shown at the top, so a run built with `TV_OPT=size` can be compared with one built without it.
+- In the estimate, twice the cell size is eight times fewer particles and half the steps, and the grid cost falls with the cube of the cell size. Real time at 0.3 ms steps needs 56 substeps in a 60 Hz frame. The budget is 6 ms of the 16.7 ms frame.
+- The text is formatted into a buffer on the stack, so the screen allocates nothing.
+- The scene is a measuring tool. Its button comes out once pouring uses the simulation.
 
 ### `prop_mesh.odin`
 **What it does:** Copies the shapes from `carry` into raylib meshes and draws them: for each kind of vessel its glass and the liquid inside it, the cap of a bottle, and a unit cube in glove blue and in sleeve white for the hands. Drawing is in passes. Hands and bottle caps are solid and use the room's material. Liquid is drawn next with the vessel shader, cut off at a flat surface in world space, with back faces on so the cut shows as the surface. Glass is drawn last, from the farthest vessel to the nearest, blended over everything behind it and without writing depth, so glass behind glass still shows. If the vessel shader fails to compile, the glass is drawn solid with the room's shader and there is no liquid.
@@ -224,7 +258,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - The liquid is drawn opaque, so it needs no sorting.
 
 ### `interact_ui.odin`
-**What it does:** The 2D pieces of carrying and jumping: the crosshair dot with a hand icon under it, a line about the vessel in view or in hand, the grab button in the bottom right corner, and the jump button above it. The icon is an open hand in white while nothing is in reach, in teal when something is, and a closed fist while holding. The line names the liquid and says how full the vessel is. The grab button says grab, and release while holding, and it is dimmer when nothing is in reach. The jump button is dimmer while the player is in the air.
+**What it does:** The 2D pieces of carrying and jumping: the crosshair dot with a hand icon under it, a line about the vessel in view or in hand, the grab button in the bottom right corner, and the jump button above it. The icon is an open hand in white while nothing is in reach, in teal when something is, and a closed fist while holding. The line names the liquid and says how full the vessel is. The grab button says grab, and release while holding, and it is dimmer when nothing is in reach. The jump button is dimmer while the player is in the air. A small button under the scene switch opens the liquid sim test.
 
 **Decisions:**
 - Grabbing on a phone is a button that turns into the release button while holding, as decided in the design discussion.
@@ -269,6 +303,11 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 **What it does:** Times one 60 Hz step of the balloon, all substeps included, while the tip is held and swung, so the pin, the constraints, and the damping all run. Cases are mesh frequency 4 with 6 substeps, 6 with 8, and 8 with 8, plus a frame for frequency 6 that also builds the render normals. It prints `BENCH balloon_step_f6_s8 <ns>` style lines.
 
 **Decisions:** On the development machine a frequency 6 step with 8 substeps takes about 0.18 ms compiled with `-o:speed`, and about 0.5 ms with `-o:minimal`, the level the Android build uses. A phone core is several times slower, so the lab overlay shows the real cost.
+
+### `mpm_bench.odin`
+**What it does:** Times one substep of the liquid simulation at each of the five benchmark particle counts, the median of nine samples of 40 steps, and prints `BENCH mpm_step_<count> <ns>` lines.
+
+**Decisions:** The cost is almost all per particle, so the five counts give a straight line from which the cost of one particle and the fixed cost of the grid can be read. The same cases run on the phone in the sim-test scene.
 
 ### `mdix_dyn.odin`
 **What it does:** Package `store`, the game's local database, and its door to DixScript. `Mdix` holds the 13 DixScript C functions the game calls. `mdix_open` loads the library by file name at run time and looks each function up by name, and `db_get_int` and `db_get_string` read values with their ownership handled.
@@ -426,10 +465,25 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 ### `shapes.odin`
 - The vessels were opaque pastel solids at first. They are now see-through glass with liquid, as asked after the first test on the phone.
 
+### `mpm.odin`
+- Only a box of liquid so far: no walls thinner than a cell, no cohesion, and no coupling to the vessels. None of it has run on a phone yet, and the cost there is what the sim test is for.
+
+### `scenario.odin`
+- None recorded yet.
+
+### `mpm_test.odin`
+- The first version of the tests did not notice a wrong affine matrix scale. Checking it by changing the scale on purpose showed that, and the spin test was added, which does fail.
+
 ### `hands.odin`
 - The pose numbers were set from the geometry and have not been seen on a screen or a device. Expect to tune the wrist spots and the curl angles after the first look on the phone.
 
 ### `carry_test.odin`
+- None recorded yet.
+
+### `scene_bench.odin`
+- The numbers have not been seen on a phone yet. The estimate rows assume the grid cost falls with the cube of the cell size.
+
+### `mpm_bench.odin`
 - None recorded yet.
 
 ### `prop_mesh.odin`

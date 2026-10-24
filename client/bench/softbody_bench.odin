@@ -3,8 +3,9 @@
 // live in docs/client.md, section "softbody_bench.odin"
 // ============================================================================
 
-// Headless benchmark entry point. It runs the soft-body ring benchmark here and
-// the 3D balloon benchmark from balloon_bench.odin, and prints one line per
+// Headless benchmark entry point. It runs the soft-body ring benchmark here, the
+// 3D balloon benchmark from balloon_bench.odin, and the liquid simulation
+// benchmark from mpm_bench.odin, and prints one line per
 // case in the form `BENCH <name> <ns_per_step>`, which scripts/bench_summary.py reads.
 package main
 
@@ -52,4 +53,5 @@ bench_softbody :: proc() {
 main :: proc() {
 	bench_softbody()
 	bench_balloon_all()
+	bench_mpm_all()
 }

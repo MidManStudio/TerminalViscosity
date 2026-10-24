@@ -48,6 +48,12 @@ jump_button :: proc(w, h: f32) -> [4]f32 {
 	return {g.x, g.y - height - 16, g.z, height}
 }
 
+// The button that opens the liquid sim test, just under the scene switch.
+bench_button :: proc(w, h: f32) -> [4]f32 {
+	b := switch_button(w, h)
+	return {b.x, b.y + b.w + 12, b.z, b.w}
+}
+
 // A button on a dark backing with a bright edge and a shadowed label, so it
 // reads on the light walls and floor as well as on the dark counters.
 draw_button :: proc(b: [4]f32, label: cstring, fill, edge, ink: rl.Color) {
@@ -165,4 +171,8 @@ draw_crosshair :: proc(w, h: f32, state: carry.State) {
 		open := ICON_OPEN
 		draw_icon(open[:], x, y, size, hand)
 	}
+}
+
+draw_bench_button :: proc(w, h: f32) {
+	draw_button(bench_button(w, h), "sim test", {10, 18, 28, 190}, {230, 236, 242, 200}, rl.RAYWHITE)
 }
