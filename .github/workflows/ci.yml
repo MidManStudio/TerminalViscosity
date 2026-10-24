@@ -93,6 +93,8 @@ jobs:
         run: odin test client/src/balloon -vet -strict-style
       - name: Lab tests
         run: odin test client/src/lab -vet -strict-style
+      - name: Carry tests
+        run: odin test client/src/carry -vet -strict-style
       - name: Store tests with a stand-in DixScript library
         run: |
           mkdir -p build
