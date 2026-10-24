@@ -11,6 +11,7 @@ attribute vec3 vertexNormal;
 attribute vec4 vertexColor;
 
 uniform mat4 mvp;
+uniform mat4 matModel;
 
 varying vec3 fragPos;
 varying vec3 fragNormal;
@@ -20,8 +21,8 @@ varying vec2 fragMaterial;
 // GLES 2 version of the glsl330 shader. Keep the two in step by hand.
 void main()
 {
-    fragPos = vertexPosition;
-    fragNormal = vertexNormal;
+    fragPos = (matModel * vec4(vertexPosition, 1.0)).xyz;
+    fragNormal = (matModel * vec4(vertexNormal, 0.0)).xyz;
     fragColor = vertexColor;
     fragMaterial = vertexTexCoord;
     gl_Position = mvp * vec4(vertexPosition, 1.0);

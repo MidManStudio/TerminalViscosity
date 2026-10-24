@@ -4,18 +4,19 @@
 
 The Odin client: window, input, rendering, scenes, and the crafting-lab prototype. It links the Rust simulation through the C ABI in `tv_ffi`. Raylib comes from the `vendor:raylib` package that ships with the Odin compiler (raylib 6.0 in the release used here).
 
-The game is arranged in scenes, as in Unity. There are two scenes. The lab room is the chemistry lab, walked around in first person: a large open room with long counters along the walls and one in the middle. The balloon lab is the balloon on its own: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The lab overlay also shows the result of a start-up check of the local database, which reads and writes DixScript through its C library. The balloon editing menu, the arena, networking, and balloon painting are not started.
+The game is arranged in scenes, as in Unity. There are two scenes. The lab room is the chemistry lab, walked around in first person: a large open room with long counters along the walls and one in the middle. Glass vessels stand on the middle counter and can be picked up and carried in the player's hands. The balloon lab is the balloon on its own: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The lab overlay also shows the result of a start-up check of the local database, which reads and writes DixScript through its C library. The balloon editing menu, the arena, networking, and balloon painting are not started.
 
 Commands, run from the repository root with `cargo` and `odin` on the path:
 
 - `bash scripts/build_client.sh` builds the Rust library and the client into `build/`.
 - `build/tv_client --selftest` runs without a window and checks the ABI, the simulation, and the 3D balloon.
 - `odin test client/src/lab` runs the lab layout, player, and collision tests.
+- `odin test client/src/carry` runs the tests for picking up, carrying, and dropping vessels, the vessel and hand shapes, and the hand poses.
 - `odin test client/src/balloon` runs the balloon tests, and `odin test client/src/softbody` runs the older 2D ring tests.
 - `odin test client/src/store` runs the local-database tests. Three of them need a DixScript library and skip themselves without one. `TV_MDIX_FAKE_LIB` points at the stand-in built with `cc -shared -fPIC -o libfake_mdix.so client/src/store/testdata/fake_mdix_ffi.c`, and `TV_MDIX_LIB` points at the real DixScript library.
 - `odin run client/bench -o:speed` runs the soft-body and balloon benchmarks.
 - From `build/`, `./tv_client --fixed-step --frames 240 --screenshot lab.png` runs the lab for a fixed number of frames and saves a screenshot. The screenshot path is relative to the working directory. Under a virtual display this works in CI: `xvfb-run -a ./tv_client ...`.
-- `--demo hang` and `--demo swing` script the pointer: after 90 frames the tip is grabbed and lifted, and `swing` then sways it side to side. `--fixed-step` advances the game by exactly 1/60 s per frame, so a given frame count always shows the same picture. `--size 1600x720` opens a window of that size, which is handy for trying a phone's wide screen. `--scene room` or `--scene balloon` picks the scene to start in, and the demos only act in the balloon scene. In the lab room a desktop walks with WASD or the arrow keys and looks by dragging the mouse. A small button in the top right corner switches scenes.
+- `--demo hang` and `--demo swing` script the pointer: after 90 frames the tip is grabbed and lifted, and `swing` then sways it side to side. `--fixed-step` advances the game by exactly 1/60 s per frame, so a given frame count always shows the same picture. `--size 1600x720` opens a window of that size, which is handy for trying a phone's wide screen. `--scene room` or `--scene balloon` picks the scene to start in, and the demos only act in the balloon scene. In the lab room a desktop walks with WASD or the arrow keys and looks by dragging the mouse. A small button in the top right corner switches scenes, and a button in the bottom right corner grabs the vessel under the crosshair or lets go of the one held. On a desktop E does the same.
 
 ## Modules
 
@@ -138,6 +139,43 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 ### `lab_test.odin`
 **What it does:** The layout fits its arrays and every box has a size, glow, and gloss in range. The player starts in the open. Full stick covers the walking speed. A counter stops the player at the right distance and a slanted walk slides along it. The player cannot leave the room in any of six directions. Three long frames in a row do not carry the player through the island. Looking clamps the pitch, and walking follows the view direction.
 
+### `carry.odin`
+**What it does:** Package `carry`, the things in the lab room that the player can pick up, in metres. It has no raylib dependency, so it is tested without a window. A `Prop` is a vessel standing on a counter or the floor. Each frame `update` finds the prop under the crosshair, puts the held prop at a hold point in front of the eyes, and lets every other prop fall until it stands on something. `grab` takes the prop under the crosshair when the hands are empty and `release` lets go. `state_of` says whether the hands are idle, reaching, or holding, and that drives the hands, the crosshair, and the grab button.
+
+**Decisions:**
+- The crosshair test is a ray from the eye against a box around each prop, padded by 5 cm, with a reach of 2 m. The padding makes small vessels easy to hit when aiming with a thumb. A counter between the eye and a prop hides it.
+- One prop is held at a time.
+- The hold point is 0.55 m ahead, 0.17 m to the right, and 0.20 m below the eye. The held prop is kept inside the room and never lower than the counter top when any part of it is over a counter, so it rests on the counter instead of passing through it. This is a clamp and not a push, so it cannot jam.
+- A released prop falls under gravity and stops on the counter top or the floor under any part of its footprint. Props do not collide with each other yet, and a vessel that is only partly over a counter edge stays up on the counter.
+- Vessel sizes are constants in `kind_dims`. They are a little larger than real glassware so they read on a phone screen.
+
+**Tests:** `carry_test.odin`.
+
+### `shapes.odin`
+**What it does:** Builds meshes as plain arrays (`Shape`) so they can be tested without a window. `lathe_build` turns a profile of radius and height pairs around the vertical axis. `vessel_shape` uses it for a beaker, a conical flask, and a closed bottle with a cap. `box_build` makes the unit cube that the hands are drawn from. The client copies a shape into a raylib mesh.
+
+**Decisions:**
+- Each band of a profile has its own vertices, slope, and color, so corners such as the rim, the base, and the shoulder stay sharp while the shading is smooth around the shape.
+- One rule decides every normal and every winding: the outward normal of a band is to the right of the direction of travel along the profile, which runs up the outside and down the inside. The tests check each triangle of each shape against its own normals, which stands in for looking at a render.
+- The vessels are hollow and empty, in opaque pastel colors. Glass and the liquid level are the next step.
+- A shape has a fixed capacity of 512 vertices and 1536 indices. A test fails if one is cut off.
+
+**Tests:** `carry_test.odin`.
+
+### `hands.odin`
+**What it does:** The first-person hands as boxes: for each hand a sleeve, a palm, two finger segments that curl, and a thumb. `hands_update` moves a curl value and a lift value toward the pose for the current state, and `hands_place` turns the parts into world frames for drawing. At rest the hands sit low in the bottom corners with only the fingertips in view. With something in reach the right hand lifts a little. While holding, the right hand closes around the held vessel and the left hand rises a little.
+
+**Decisions:**
+- Parts are described in the camera's frame with z toward the viewer, so ahead is negative. That keeps the frame right-handed, so the triangle winding of the cube survives and no part is drawn inside out. A test checks every part in every state.
+- The grip follows the vessel's real position and not the ideal hold point, so the hand stays on a vessel that a counter has lifted.
+- Every number (wrist spots, segment lengths, curl angles) is a constant in `hand_parts`. They were set without seeing the result on a screen and are expected to need tuning on the phone.
+- Matrices are built by hand, because raylib's matrix helpers return a struct, which is not safe to call from Odin on Android.
+
+**Tests:** `carry_test.odin`.
+
+### `carry_test.odin`
+**What it does:** Every shape faces outward, has unit normals, and fits its arrays, and the vessels stay inside their stated size. The view is a right-handed set. The default props stand on the island. The crosshair picks a prop it points at, and not one it points over or one out of reach. A counter hides what is behind it. Grabbing takes the aimed prop once. A sweep of positions and view directions near and far from the counters shows that a held prop never enters a counter or leaves the room. A vessel in open space sits at the hold point. Released props fall to a counter or the floor. The hands close and open again. Every hand part is right-handed and stays near the eye. An unturned part follows the view, and a turned prop keeps a right-handed frame.
+
 ### `lab_mesh.odin`
 **What it does:** Turns the layout into one static raylib mesh with a color for each vertex, and draws it with one call. The first texture coordinate carries how much a surface glows and the second how glossy it is.
 
@@ -148,25 +186,41 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - If the lab shader fails to compile, the room is drawn with raylib's default shader in flat colors.
 
 ### `input.odin`
-**What it does:** Reads every finger on the screen as a list of pointers with stable ids, and turns them into movement and look controls. On a phone, the first finger that lands on the left 40 percent of the screen becomes a floating joystick wherever it lands, and a finger that lands elsewhere turns the view. With a mouse there is no joystick and the keyboard walks instead. It also draws the joystick and the scene-switch button.
+**What it does:** Reads every finger on the screen as a list of pointers with stable ids, and turns them into movement and look controls. On a phone, the first finger that lands on the left 40 percent of the screen becomes a floating joystick wherever it lands, and a finger that lands elsewhere turns the view. With a mouse there is no joystick and the keyboard walks instead. It also draws the joystick and the scene-switch button. The controls take a list of button boxes, such as the scene switch and the grab button, and report which one a finger pressed.
 
 **Decisions:**
 - A finger is tracked by the id Android gives it and not by its index, because the index shifts when another finger lifts.
-- A finger that lands on the button is kept out of the controls until it lifts, so a tap on the button never starts the joystick or turns the view.
+- A finger that lands on a button is kept out of the controls until it lifts, so a tap on a button never starts the joystick or turns the view.
 - The joystick is floating, so a thumb does not have to find a fixed spot. A faint ring shows where it starts.
 - A finger that was already down last frame is never re-assigned a role. The same goes for a finger that was already down when the scene started, so the tap that switched scenes cannot press the button of the new one.
 - Touch positions on Android come from the C wrapper in `android/entry.c`.
 
 ### `scene_room.odin`
-**What it does:** The lab room scene. It owns the layout, the player, the room mesh, and the controls. Each frame it reads the pointers, turns the view by the look drag, and walks by the joystick or the keyboard. The camera is at eye height, 1.6 m, with a 70 degree field of view.
+**What it does:** The lab room scene. It owns the layout, the player, the room mesh, the controls, the props, the hands, and their meshes. Each frame it reads the pointers, turns the view by the look drag, and walks by the joystick or the keyboard, then runs the carrying step and moves the hands. The grab button, or E on a desktop, grabs or releases. The room, the vessels, and the hands are drawn in that order, and the crosshair, hand icon, and buttons are drawn on the screen afterwards. The camera is at eye height, 1.6 m, with a 70 degree field of view.
 
 **Decisions:**
 - First person with a joystick, so the room can be crossed without a pointer tap on a floor spot and so later stations can be reached by walking.
 - The clip planes are 0.08 to 70 for the room. The default far plane of 4000 gives a 16-bit depth buffer almost no precision.
 - The button in the corner changes scenes, so the balloon lab stays reachable on a phone.
 
+### `prop_mesh.odin`
+**What it does:** Copies the shapes from `carry` into raylib meshes and draws them: one mesh for each kind of vessel, and a unit cube in glove blue and in sleeve white for the hands. Everything is drawn with the room's own material and shader, with a model matrix that moves each piece.
+
+**Decisions:**
+- The matrix is built by hand. Raylib's `Matrix` in the Odin binding is row-major, with the move in the last column.
+- Mesh memory comes from raylib's allocator, because `UnloadMesh` frees it.
+- The hands and the held vessel are drawn with the depth test on, so fingers behind a vessel are hidden by it. The cost is that a hand can poke into a counter when the player looks steeply down very close to it. A separate depth pass for the hands would fix that if it shows.
+
+### `interact_ui.odin`
+**What it does:** The 2D pieces of carrying: the crosshair dot with a hand icon under it, and the grab button in the bottom right corner. The icon is an open hand in white while nothing is in reach, in teal when something is, and a closed fist while holding. The button says grab, and release while holding, and it is dim when nothing is in reach.
+
+**Decisions:**
+- Grabbing on a phone is a button that turns into the release button while holding, as decided in the design discussion.
+- The icons are drawn from rounded rectangles in code, so no image files have to be packaged into the APK.
+- The icons are opaque with a dark outline, so overlapping pieces do not blend twice and the icon reads on the light walls and the dark counters.
+
 ### `lab.vs`
-**What it does:** Vertex shader for the room. The mesh is in world space, so positions and normals pass straight through, with the vertex color and the glow and gloss values passed on. There are two versions, `shaders/glsl330/` and `shaders/glsl100/`.
+**What it does:** Vertex shader for the room, the vessels, and the hands. The room mesh is in world space and is drawn with an identity model matrix, so its positions and normals pass straight through. Vessels and hands are drawn with a model matrix that moves them, and the shader applies it so the lighting and fog work on world positions. The vertex color and the glow and gloss values are passed on. There are two versions, `shaders/glsl330/` and `shaders/glsl100/`.
 
 **Decisions:** The two files are kept in step by hand. Both pass `glslangValidator`.
 
@@ -282,7 +336,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 
 ## CI and Workflows
 
-- `.github/workflows/ci.yml` job `odin` downloads a pinned Odin release, runs `odin check`, the soft-body and balloon tests, validates all the shader files, builds and runs `--selftest`, and renders headless screenshots of the lab resting and held by its tip, which are kept as an artifact.
+- `.github/workflows/ci.yml` job `odin` downloads a pinned Odin release, runs `odin check`, the soft-body, balloon, lab, and carry tests, validates all the shader files, builds and runs `--selftest`, and renders headless screenshots of the lab resting and held by its tip, which are kept as an artifact.
 - `.github/workflows/bench.yml` runs the Odin benchmark and merges it into the result file.
 - `scripts/build_client.sh` is described in `docs/CI.md`.
 
@@ -338,17 +392,36 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 ### `lab_test.odin`
 - None recorded yet.
 
+### `carry.odin`
+- Props do not collide with each other, so two vessels let go at the same spot overlap. A vessel only partly over a counter edge stays up on the counter instead of tipping off.
+
+### `shapes.odin`
+- None recorded yet.
+
+### `hands.odin`
+- The pose numbers were set from the geometry and have not been seen on a screen or a device. Expect to tune the wrist spots and the curl angles after the first look on the phone.
+
+### `carry_test.odin`
+- None recorded yet.
+
+### `prop_mesh.odin`
+- A hand can poke into a counter when the player looks steeply down close to it, because the hands are depth tested with the room.
+
+### `interact_ui.odin`
+- None recorded yet.
+
 ### `lab_mesh.odin`
 - None recorded yet.
 
 ### `input.odin`
+- The controls took one button box and now take a list. The scene-switch button is index 0 and the grab button is index 1 in the lab room.
 - Tapping the button in the balloon scene loaded the lab room and then immediately returned to the balloon scene. The finger was still down when the room started, the room's controls had not seen it before, and it sat on the same corner where the room draws its own button, so it counted as a new press. The controls now start knowing which fingers are already down.
 
 ### `scene_room.odin`
-- None recorded yet.
+- The carrying, hands, crosshair, and grab button were written and compile for desktop and Android, but have not been seen running on a phone yet.
 
 ### `lab.vs`
-- None recorded yet.
+- The shader now reads the model matrix. The room is drawn with an identity matrix, so its look does not change. The normal is moved with `vec4(normal, 0.0)` and not `mat3(matModel)`, because GLSL ES 1.00 may not accept a matrix built from a matrix.
 
 ### `lab.fs`
 - None recorded yet.

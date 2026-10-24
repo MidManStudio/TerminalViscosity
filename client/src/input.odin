@@ -24,7 +24,8 @@ Pointers :: struct {
 
 // Movement and look controls. On a phone the first finger down on the left of
 // the screen becomes a floating joystick, wherever it lands, and a finger
-// down anywhere else turns the view. With a mouse there is no joystick, and
+// down anywhere else turns the view. A finger that lands on one of the
+// on-screen buttons presses it instead. With a mouse there is no joystick, and
 // the keyboard moves instead.
 Controls :: struct {
 	stick_id:     int,
@@ -34,7 +35,7 @@ Controls :: struct {
 	look_last:    [2]f32,
 	look_delta:   [2]f32, // pixels moved this frame
 	button_id:    int, // a finger that landed on the button, kept out of the controls until it lifts
-	tapped:       bool, // the button was pressed this frame
+	pressed:      int, // index of the button pressed this frame, or -1
 	// Which ids were down last frame, to tell a new finger from a held one.
 	known:        [MAX_POINTERS]int,
 	known_count:  int,
@@ -50,6 +51,7 @@ controls_init :: proc(c: ^Controls, pointers: ^Pointers) {
 	c.stick_id = -1
 	c.look_id = -1
 	c.button_id = -1
+	c.pressed = -1
 	c.known_count = pointers.count
 	for i in 0 ..< pointers.count {
 		c.known[i] = pointers.items[i].id
@@ -61,10 +63,10 @@ stick_radius :: proc(w, h: f32) -> f32 {
 	return min(w, h) * 0.14
 }
 
-// Reads the pointers and updates the joystick and look. `button` is a box
+// Reads the pointers and updates the joystick and look. `buttons` are boxes
 // (x, y, width, height) that a finger can press without moving or looking.
-controls_update :: proc(c: ^Controls, pointers: ^Pointers, w, h: f32, button: [4]f32) {
-	c.tapped = false
+controls_update :: proc(c: ^Controls, pointers: ^Pointers, w, h: f32, buttons: [][4]f32) {
+	c.pressed = -1
 	c.look_delta = {}
 
 	// Roles of fingers that lifted are released.
@@ -101,10 +103,15 @@ controls_update :: proc(c: ^Controls, pointers: ^Pointers, w, h: f32, button: [4
 			}
 		}
 		if is_new && c.stick_id != p.id && c.look_id != p.id && c.button_id != p.id {
-			inside := p.pos.x >= button.x && p.pos.x <= button.x + button.z && p.pos.y >= button.y && p.pos.y <= button.y + button.w
-			if inside {
+			hit := -1
+			for b, bi in buttons {
+				if p.pos.x >= b.x && p.pos.x <= b.x + b.z && p.pos.y >= b.y && p.pos.y <= b.y + b.w {
+					hit = bi
+				}
+			}
+			if hit != -1 {
 				c.button_id = p.id
-				c.tapped = true
+				c.pressed = hit
 			} else if touch_layout && c.stick_id == -1 && p.pos.x < w * STICK_SIDE {
 				c.stick_id = p.id
 				c.stick_origin = p.pos
