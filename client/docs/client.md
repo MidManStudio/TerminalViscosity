@@ -4,20 +4,21 @@
 
 The Odin client: window, input, rendering, scenes, and the crafting-lab prototype. It links the Rust simulation through the C ABI in `tv_ffi`. Raylib comes from the `vendor:raylib` package that ships with the Odin compiler (raylib 6.0 in the release used here).
 
-The game is arranged in scenes, as in Unity. There are two scenes. The lab room is the chemistry lab, walked around in first person: a large open room with long counters along the walls and one in the middle. Glass vessels with colored liquid in them stand on the middle counter and can be picked up and carried in the player's hands. The player can also jump. The balloon lab is the balloon on its own: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The lab overlay also shows the result of a start-up check of the local database, which reads and writes DixScript through its C library. The balloon editing menu, the arena, networking, and balloon painting are not started.
+The game is arranged in scenes, as in Unity. There are two scenes. The lab room is the chemistry lab, walked around in first person: a large open room with long counters along the walls and one in the middle. Glass vessels with colored liquid in them stand on the middle counter, ten with one of each stock liquid and the rest empty, and can be picked up, carried in the player's hands, and poured into each other, which makes the liquids react. Some reactions are violent enough to hurt the player and break the vessel. The player can also jump. The balloon lab is the balloon on its own: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The lab overlay also shows the result of a start-up check of the local database, which reads and writes DixScript through its C library. The balloon editing menu, the arena, networking, and balloon painting are not started.
 
 Commands, run from the repository root with `cargo` and `odin` on the path:
 
 - `bash scripts/build_client.sh` builds the Rust library and the client into `build/`.
 - `build/tv_client --selftest` runs without a window and checks the ABI, the simulation, and the 3D balloon.
 - `odin test client/src/lab` runs the lab layout, player, and collision tests.
+- `odin test client/src/chem` runs the compound and reaction matrix tests.
 - `odin test client/src/mpm` runs the liquid simulation tests.
-- `odin test client/src/carry` runs the tests for picking up, carrying, and dropping vessels, what a vessel holds, the vessel and hand shapes, and the hand poses.
+- `odin test client/src/carry` runs the tests for picking up, carrying, and dropping vessels, what a vessel holds, mixing and its blasts, health, the vessel and hand shapes, and the hand poses.
 - `odin test client/src/balloon` runs the balloon tests, and `odin test client/src/softbody` runs the older 2D ring tests.
 - `odin test client/src/store` runs the local-database tests. Three of them need a DixScript library and skip themselves without one. `TV_MDIX_FAKE_LIB` points at the stand-in built with `cc -shared -fPIC -o libfake_mdix.so client/src/store/testdata/fake_mdix_ffi.c`, and `TV_MDIX_LIB` points at the real DixScript library.
 - `odin run client/bench -o:speed` runs the soft-body, balloon, and liquid simulation benchmarks.
 - From `build/`, `./tv_client --fixed-step --frames 240 --screenshot lab.png` runs the lab for a fixed number of frames and saves a screenshot. The screenshot path is relative to the working directory. Under a virtual display this works in CI: `xvfb-run -a ./tv_client ...`.
-- `--demo hang` and `--demo swing` script the pointer: after 90 frames the tip is grabbed and lifted, and `swing` then sways it side to side. `--fixed-step` advances the game by exactly 1/60 s per frame, so a given frame count always shows the same picture. `--size 1600x720` opens a window of that size, which is handy for trying a phone's wide screen. `--scene room`, `--scene balloon`, or `--scene bench` picks the scene to start in, and the demos only act in the balloon scene. In the lab room a desktop walks with WASD or the arrow keys and looks by dragging the mouse. A small button in the top right corner switches scenes, a button in the bottom right corner grabs the vessel under the crosshair or lets go of the one held, and a jump button sits above it. On a desktop E grabs and space jumps. A button under the scene switch opens the liquid sim test.
+- `--demo hang` and `--demo swing` script the pointer: after 90 frames the tip is grabbed and lifted, and `swing` then sways it side to side. `--fixed-step` advances the game by exactly 1/60 s per frame, so a given frame count always shows the same picture. `--size 1600x720` opens a window of that size, which is handy for trying a phone's wide screen. `--scene room`, `--scene balloon`, or `--scene bench` picks the scene to start in, and the demos only act in the balloon scene. In the lab room a desktop walks with WASD or the arrow keys and looks by dragging the mouse. A small button in the top right corner switches scenes, a button in the bottom right corner grabs the vessel under the crosshair or lets go of the one held, and a jump button sits above it. A mix button sits left of the grab button, and pours the held vessel into the vessel it is over. On a desktop E grabs, M mixes, and space jumps. A button under the scene switch opens the liquid sim test.
 
 ## Modules
 
@@ -141,8 +142,49 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 ### `lab_test.odin`
 **What it does:** The layout fits its arrays and every box has a size, glow, and gloss in range. The player starts in the open. Full stick covers the walking speed. A counter stops the player at the right distance and a slanted walk slides along it. The player cannot leave the room in any of six directions. Three long frames in a row do not carry the player through the island. Looking clamps the pitch, and walking follows the view direction. A jump peaks between 40 and 50 cm and lands, there is no jump in the air, and a jump stays lower than a counter.
 
+### `chem.odin`
+**What it does:** Package `chem`, what the lab liquids are and what happens when two of them meet. It has the compounds (ten stock liquids and eight products), the ten classes they belong to, and the reaction matrix. `react(a, b)` gives the product, the volatility from 0 to 1, and the heat, in either order. The answer has the same shape as `ChemBackend::react` in `tv_sim`, with the product added for the lab. It has no raylib dependency.
+
+**The matrix.** Only classes meet, so a new compound only needs a class. Every pair of classes has exactly one rule, 55 in all. A number after a product is the volatility, and `keeps it` means the other compound stays what it is, only thinned:
+
+| | Neutral | Acid | Base | Fuel | Oxidizer | Cryo | Gel | Lube | Dye | Inert |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Neutral** | Water | keeps it | keeps it | Slurry | keeps it | Slush | Sticky | Slick | keeps it | Slurry |
+| **Acid** | keeps it | Slurry | Foam 0.25 | Slurry 0.2 | Brew 0.7 | Slush 0.1 | Sticky | Slick 0.05 | Slurry 0.05 | Slurry |
+| **Base** | keeps it | Foam 0.25 | Slurry | Slick 0.1 | Brew 0.35 | Slush 0.1 | Sticky | Slick | Slurry 0.05 | Slurry |
+| **Fuel** | Slurry | Slurry 0.2 | Slick 0.1 | Slurry | Char 1 | Slurry | Sticky 0.05 | Slick 0.1 | Slurry 0.05 | Slurry |
+| **Oxidizer** | keeps it | Brew 0.7 | Brew 0.35 | Char 1 | Slurry | Slush 0.55 | Sticky 0.2 | Slick 0.15 | Slurry 0.15 | Slurry |
+| **Cryo** | Slush | Slush 0.1 | Slush 0.1 | Slurry | Slush 0.55 | Slush | Sticky | Slick | Slush | Slurry |
+| **Gel** | Sticky | Sticky | Sticky | Sticky 0.05 | Sticky 0.2 | Sticky | Sticky | Sticky | Sticky | Sticky |
+| **Lube** | Slick | Slick 0.05 | Slick | Slick 0.1 | Slick 0.15 | Slick | Sticky | Slick | Slick | Slurry |
+| **Dye** | keeps it | Slurry 0.05 | Slurry 0.05 | Slurry 0.05 | Slurry 0.15 | Slush | Sticky | Slick | Magenta | Slurry |
+| **Inert** | Slurry | Slurry | Slurry | Slurry | Slurry | Slurry | Sticky | Slurry | Slurry | Slurry |
+
+Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and fuel reactions are hot. The stock liquids are Water (neutral), Fizz Acid (acid), Soda Base (base), Ember Oil (fuel), Spark Blue (oxidizer), Frost Gel (cryo), Glue Goo (gel), Slick (lube), and Dye Red and Dye Violet (dye). The products are Neutral Foam and Slush (neutral), Sticky Mess (gel), Slick Mess (lube), Char, Slurry, and Acrid Brew (inert), and Magenta (dye).
+
+**Decisions:**
+- The danger sits around the oxidizer, Spark Blue. Fuel with oxidizer is the worst blast, at 1.0. Acid with oxidizer is a smaller blast, at 0.7. Base with oxidizer, at 0.35, and cryo with oxidizer, at 0.55, spatter. Everything else is calm. A test fails if any other pair becomes dangerous, so a change is made on purpose.
+- Mixing acid and base is safe and makes foam, so there is a harmless reaction to learn from first.
+- Gel takes over anything it meets, lube makes a slippery mess, water thins acids, bases, oxidizers, and dyes without changing them, and two dyes blend into a new one.
+- Inert products are dead ends. Whatever meets slurry or char becomes slurry, so a bad mix wastes the ingredients, and a vessel holds one compound at a time.
+- Unordered pairs of the same compound do not react, and neither does anything with an empty vessel.
+- This table is a stand-in. The compound database is planned as DixScript content shared with the server, and these rules will come from there.
+
+**Tests:** `chem_test.odin`.
+
+### `hazard.odin`
+**What it does:** What a reaction does to the player. A volatility below 0.3 is calm, 0.3 up to 0.6 spatters, and 0.6 and over is a blast. A spatter does up to 15 damage and a blast 30 to 100, the most at point blank and falling in a straight line to nothing at the edge: 1.5 m for a spatter, and 2 to 4 m for a blast, larger for a stronger one.
+
+**Decisions:**
+- A blast damages the player and breaks the container, as decided. A spatter only stings and throws 20% of the liquid out of the vessel.
+- Mixing is done with the vessel in the hands, under a metre from the eye. At 0.8 m the worst blast does 80 damage, which hurts a lot and does not kill from full health, the acid blast does about 32, and a spatter does a few.
+- Every number here is a first guess to be tuned by playing.
+
+### `chem_test.odin`
+**What it does:** The ids and the table agree, and names are unique. Every pair of classes has exactly one rule, and every product is a known compound. The outcome does not depend on the order. Nothing reacts with itself or with nothing. A reaction always makes a real compound. Water thins acids, bases, oxidizers, and dyes. The known recipes make what they should. Only the planned pairs are dangerous, two blasts and two spatters, all around the oxidizer. Damage falls with distance and grows with volatility, and the worst blast at arm's length hurts a lot but does not kill.
+
 ### `carry.odin`
-**What it does:** Package `carry`, the things in the lab room that the player can pick up, in metres. It has no raylib dependency, so it is tested without a window. A `Prop` is a vessel standing on a counter or the floor, holding one compound as an id and an amount in millilitres. Each frame `update` finds the prop under the crosshair, puts the held prop at a hold point in front of the eyes, and lets every other prop fall until it stands on something. `grab` takes the prop under the crosshair when the hands are empty and `release` lets go. `state_of` says whether the hands are idle, reaching, or holding, and that drives the hands, the crosshair, and the grab button. `focus` names the vessel the contents label is about, and `far_to_near` orders the props for drawing see-through glass. The view follows the player's eye, so it rises with a jump.
+**What it does:** Package `carry`, the things in the lab room that the player can pick up, in metres. It has no raylib dependency, so it is tested without a window. A `Prop` is a vessel standing on a counter or the floor, holding one compound as an id and an amount in millilitres. Each frame `update` finds the prop under the crosshair, puts the held prop at a hold point in front of the eyes, and lets every other prop fall until it stands on something. `grab` takes the prop under the crosshair when the hands are empty and `release` lets go. `state_of` says whether the hands are idle, reaching, or holding, and that drives the hands, the crosshair, and the grab button. `props_remove` takes a vessel out when it breaks and keeps the held and aimed indices right, `focus` names the vessel the contents label is about, and `far_to_near` orders the props for drawing see-through glass. The view follows the player's eye, so it rises with a jump.
 
 **Decisions:**
 - The crosshair test is a ray from the eye against a box around each prop, padded by 5 cm, with a reach of 2 m. The padding makes small vessels easy to hit when aiming with a thumb. A counter between the eye and a prop hides it.
@@ -150,18 +192,37 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - The hold point is 0.55 m ahead, 0.17 m to the right, and 0.20 m below the eye. The held prop is kept inside the room and never lower than the counter top when any part of it is over a counter, so it rests on the counter instead of passing through it. This is a clamp and not a push, so it cannot jam.
 - A released prop falls under gravity and stops on the counter top or the floor under any part of its footprint. Props do not collide with each other yet, and a vessel that is only partly over a counter edge stays up on the counter.
 - A vessel holds one compound, and an amount above what it can hold is cut down when it is added. A vessel with no compound holds nothing.
-- The first seven vessels stand on the island, each with a different stock liquid and one beaker left empty, so the glass and the liquid can be judged side by side.
+- Twenty-three vessels stand on the island in five rows along its near edge: one filled with each of the ten stock liquids, so every reaction can be tried, and thirteen empty ones, some in a back row and some at the ends, to pour into and mix in. A test checks that no two overlap.
 
 **Tests:** `carry_test.odin`.
 
 ### `vessels.odin`
-**What it does:** What a vessel is and what it holds. It has the stock liquids, a stand-in table of ten fictional liquids with a name and a color each (ids 1 to 10, with 0 for empty), the outline of the space inside each kind of vessel, and the maths that follows from that outline: how much a vessel holds, how high a given amount stands, and the height of the surface in the world.
+**What it does:** What a vessel is and what it holds. It has the outline of the space inside each kind of vessel and the maths that follows from that outline: how much a vessel holds, how high a given amount stands, and the height of the surface in the world. The liquids themselves are in `chem`.
 
 **Decisions:**
 - Capacity comes from the shape, so the glass and the numbers cannot disagree. Each step of the inside outline is a slice of a cone, so the volume is exact, and the level for a given amount is found by halving the range. A beaker holds about 935 ml, a conical flask about 645 ml, and a bottle about 790 ml, which suits a balloon that holds 1000 ml in total.
 - The glass is 6 mm thick, a little thicker than real glassware, so the rim reads on a phone screen.
-- The liquid table is temporary. The compound database is planned as DixScript content, and this table is replaced by it. The ids are the ones the wire format carries.
 - The level is worked out for an upright vessel. When pouring tilts a vessel, the surface stays flat in the world and its height has to come from the volume and the tilt, which is the next step.
+
+**Tests:** `carry_test.odin`.
+
+### `mixing.odin`
+**What it does:** Pouring one vessel into another and letting the liquids react. `mix_target` finds the vessel the held one is over: roughly centered over its mouth, with the base of the held vessel not far above its rim. `mix` pours as much as fits, runs `chem.react`, and applies the result. A calm reaction leaves the product in the target. A spatter loses 20% of it. A blast breaks the target and takes the liquid with it. The result says what happened and how much damage the player is to take, worked out from the distance between the eye and the target.
+
+**Decisions:**
+- Mixing is instant and happens at the press of a button, as planned. A pour that tilts the vessel and runs into the target is the step after this one.
+- Everything in the held vessel goes in unless the target is too full, and then the rest stays in the held vessel with its own compound.
+- The reaction uses the whole contents of the target, so the product always replaces what was there, with the total amount.
+- Pouring into an empty vessel, or one with the same liquid, is not a reaction and does no harm.
+- A full vessel cannot be poured into and an empty one cannot be poured from, so neither counts as a target.
+- The held vessel stays in the hands when the target breaks, now empty or with what was left over.
+
+**Tests:** `carry_test.odin`.
+
+### `health.odin`
+**What it does:** The player's health, from 0 to 100, for what the lab can do to them. A hit lowers it and makes the screen flash red, in proportion to the damage. Health comes back at 8 a second after 4 seconds without a hit, and nothing heals once it reaches zero.
+
+**Decisions:** The numbers are first guesses. A player at zero is knocked out, and the lab room then puts everything back as it was at the start, which keeps a bad mix from leaving the lab without the vessels it needs. That is an assumption to revisit.
 
 **Tests:** `carry_test.odin`.
 
@@ -186,7 +247,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 **Tests:** `carry_test.odin`.
 
 ### `carry_test.odin`
-**What it does:** Every shape, the glass, the liquid, the cap, and the box, faces outward, has unit normals, has the expected number of vertices, and stays inside its vessel's size. The view is a right-handed set and rises with a jump. The default props stand on the island, hold no more than their capacity, and include one empty beaker. A vessel cannot be filled past its capacity and holds nothing without a compound. Capacities are between 400 and 1000 ml, and a beaker's matches a hand calculation. The level never drops as the amount grows and matches the volume. Every stock liquid has a name and a color. See-through props are ordered far to near. The crosshair picks a prop it points at, and not one it points over or one out of reach. A counter hides what is behind it. Grabbing takes the aimed prop once. A sweep of positions and view directions near and far from the counters shows that a held prop never enters a counter or leaves the room. A vessel in open space sits at the hold point. Released props fall to a counter or the floor. The hands close and open again, every hand part is right-handed and stays near the eye, an unturned part follows the view, and a turned prop keeps a right-handed frame.
+**What it does:** Every shape, the glass, the liquid, the cap, and the box, faces outward, has unit normals, has the expected number of vertices, and stays inside its vessel's size. The view is a right-handed set and rises with a jump. The default props stand on the island without overlapping, hold no more than their capacity, include one of each stock liquid, and thirteen empty vessels. The vessel under the held one is the target, and not one off to the side, far above or below, full, or when nothing is held. Pouring into an empty vessel moves the liquid, two of the same liquid add up, and only what fits is poured. Acid and base make foam and keep all the liquid, a spatter hurts a little and loses some liquid, and a blast breaks the target, hurts, and leaves the held vessel in the hands, even when the broken vessel came first in the list. Removing a vessel keeps the other indices right. Health drops, comes back, and ends at zero. A vessel cannot be filled past its capacity and holds nothing without a compound. Capacities are between 400 and 1000 ml, and a beaker's matches a hand calculation. The level never drops as the amount grows and matches the volume. See-through props are ordered far to near. The crosshair picks a prop it points at, and not one it points over or one out of reach. A counter hides what is behind it. Grabbing takes the aimed prop once. A sweep of positions and view directions near and far from the counters shows that a held prop never enters a counter or leaves the room. A vessel in open space sits at the hold point. Released props fall to a counter or the floor. The hands close and open again, every hand part is right-handed and stays near the eye, an unturned part follows the view, and a turned prop keeps a right-handed frame.
 
 ### `mpm.odin`
 **What it does:** Package `mpm`, the liquid simulator for the lab: the Moving Least Squares Material Point Method of Hu et al. (2018) for a weakly compressible fluid, in 3D. Particles carry the liquid and a background grid works out the forces. Each substep sends mass and momentum from the particles to the grid, updates the grid with gravity and walls, and reads velocities back with the affine matrix of APIC. The stress comes from each particle's volume ratio alone and is folded into the transfer, as in section 3.4 of the paper, so no kernel gradient is ever evaluated. It has no raylib dependency. After `sim_init` nothing is allocated, so stepping never touches the allocator.
@@ -231,7 +292,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - Touch positions on Android come from the C wrapper in `android/entry.c`.
 
 ### `scene_room.odin`
-**What it does:** The lab room scene. It owns the layout, the player, the room mesh, the controls, the props, the hands, and their meshes. Each frame it reads the pointers, turns the view by the look drag, and walks by the joystick or the keyboard, then runs the carrying step and moves the hands. The grab button, or E on a desktop, grabs or releases, and the jump button, or space, jumps. The button under the scene switch opens the sim test. The room is drawn first, then the hands and the bottle caps, then the liquid, then the glass blended over it all. The crosshair, hand icon, contents line, and buttons are drawn on the screen afterwards. The camera is at eye height, 1.6 m, with a 70 degree field of view.
+**What it does:** The lab room scene. It owns the layout, the player, the room mesh, the controls, the props, the hands, and their meshes. Each frame it reads the pointers, turns the view by the look drag, and walks by the joystick or the keyboard, then runs the carrying step and moves the hands. The grab button, or E on a desktop, grabs or releases, and the jump button, or space, jumps. The button under the scene switch opens the sim test. The mix button, or M, pours the held vessel into the one under it, shows what it made, and takes any damage. At zero health the player is knocked out and the lab is put back as it was. The room is drawn first, then the hands and the bottle caps, then the liquid, then the glass blended over it all. The crosshair, hand icon, contents line, and buttons are drawn on the screen afterwards. The camera is at eye height, 1.6 m, with a 70 degree field of view.
 
 **Decisions:**
 - First person with a joystick, so the room can be crossed without a pointer tap on a floor spot and so later stations can be reached by walking.
@@ -260,7 +321,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - The liquid is drawn opaque, so it needs no sorting.
 
 ### `interact_ui.odin`
-**What it does:** The 2D pieces of carrying and jumping: the crosshair dot with a hand icon under it, a line about the vessel in view or in hand, the grab button in the bottom right corner, and the jump button above it. The icon is an open hand in white while nothing is in reach, in teal when something is, and a closed fist while holding. The line names the liquid and says how full the vessel is. The grab button says grab, and release while holding, and it is dimmer when nothing is in reach. The jump button is dimmer while the player is in the air. A small button under the scene switch opens the liquid sim test.
+**What it does:** The 2D pieces of carrying and jumping: the crosshair dot with a hand icon under it, a line about the vessel in view or in hand, the grab button in the bottom right corner, and the jump button above it. The icon is an open hand in white while nothing is in reach, in teal when something is, and a closed fist while holding. The line names the liquid and says how full the vessel is. The grab button says grab, and release while holding, and it is dimmer when nothing is in reach. The jump button is dimmer while the player is in the air. The mix button, left of grab, is bright when the held vessel is over one it can pour into, and the contents lines then add what is in that vessel. At the top are a health bar and, for a moment after a hit, a red flash over the whole screen, a white-hot one for a blast or spatter, and a message saying what a mix made. A small button under the scene switch opens the liquid sim test.
 
 **Decisions:**
 - Grabbing on a phone is a button that turns into the release button while holding, as decided in the design discussion.
@@ -458,11 +519,26 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 ### `lab_test.odin`
 - None recorded yet.
 
+### `chem.odin`
+- The damage and volatility numbers have not been played yet. The matrix is a first design, with one blast pair around fuel and one around acid, and it is expected to change after playing.
+
+### `hazard.odin`
+- All the numbers are first guesses.
+
+### `chem_test.odin`
+- None recorded yet.
+
 ### `carry.odin`
 - Props do not collide with each other, so two vessels let go at the same spot overlap. A vessel only partly over a counter edge stays up on the counter instead of tipping off.
 
 ### `vessels.odin`
 - The stock liquid table is a stand-in with fictional names. The compound database will replace it, and the level is only right for an upright vessel until pouring is added.
+
+### `mixing.odin`
+- Mixing is a button press with no pour yet, so a vessel is never seen tipping. A blast removes the vessel with no shards or spill.
+
+### `health.odin`
+- The knock-out rule, which resets the lab, is an assumption.
 
 ### `shapes.odin`
 - The vessels were opaque pastel solids at first. They are now see-through glass with liquid, as asked after the first test on the phone.

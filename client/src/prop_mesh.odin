@@ -8,6 +8,7 @@ package main
 import rl "vendor:raylib"
 import rlgl "vendor:raylib/rlgl"
 import "carry"
+import "chem"
 
 GLOVE_COLOR :: [4]u8{70, 150, 215, 255}
 SLEEVE_COLOR :: [4]u8{236, 240, 244, 255}
@@ -143,7 +144,7 @@ props_draw_liquids :: proc(m: ^Prop_Meshes, props: ^carry.Props, eye: Vec3) {
 			continue
 		}
 		level := carry.liquid_level(pr)
-		color := carry.compound_color(pr.compound)
+		color := chem.compound_color(pr.compound)
 		rl.SetShaderValue(m.vessel.shader, m.level_loc, &level, .FLOAT)
 		rl.SetShaderValue(m.vessel.shader, m.color_loc, &color, .VEC3)
 		draw_placed(m.liquids[pr.kind], m.vessel, carry.prop_placed(pr))

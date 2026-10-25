@@ -17,59 +17,6 @@ BOTTLE_BODY :: f32(0.58) // height where the straight body ends
 BOTTLE_SHOULDER :: f32(0.78) // height where the shoulder meets the neck
 BOTTLE_NECK_TOP :: f32(0.86) // height of the mouth, under the cap
 
-// The stock liquids. These are a stand-in with fictional names and plain
-// colors, until the compound database exists as DixScript content. Id 0 means
-// empty, and the ids are what the wire format carries.
-Stock :: enum u16 {
-	None,
-	Water,
-	Fizz_Acid,
-	Soda_Base,
-	Ember_Oil,
-	Spark_Blue,
-	Frost_Gel,
-	Glue_Goo,
-	Slick,
-	Dye_Red,
-	Dye_Violet,
-}
-
-Compound :: struct {
-	name:  string,
-	color: [3]u8,
-}
-
-STOCK_LIQUIDS :: [?]Compound {
-	{"Water", {120, 185, 235}},
-	{"Fizz Acid", {170, 230, 70}},
-	{"Soda Base", {235, 150, 220}},
-	{"Ember Oil", {240, 128, 40}},
-	{"Spark Blue", {60, 140, 255}},
-	{"Frost Gel", {170, 235, 245}},
-	{"Glue Goo", {240, 220, 110}},
-	{"Slick", {96, 74, 120}},
-	{"Dye Red", {225, 50, 60}},
-	{"Dye Violet", {140, 70, 220}},
-}
-
-compound_name :: proc(id: u16) -> string {
-	table := STOCK_LIQUIDS
-	if id == 0 || int(id) > len(table) {
-		return "Empty"
-	}
-	return table[id - 1].name
-}
-
-// The color of a liquid as red, green, and blue between 0 and 1.
-compound_color :: proc(id: u16) -> [3]f32 {
-	table := STOCK_LIQUIDS
-	if id == 0 || int(id) > len(table) {
-		return {1, 1, 1}
-	}
-	c := table[id - 1].color
-	return {f32(c.r) / 255, f32(c.g) / 255, f32(c.b) / 255}
-}
-
 // The outline of the space inside a vessel that liquid can fill, from the
 // middle of the floor up to the brim, as (radius, height) pairs. Returns how
 // many points.

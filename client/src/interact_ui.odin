@@ -7,6 +7,7 @@ package main
 
 import rl "vendor:raylib"
 import "carry"
+import "chem"
 import "core:strconv"
 
 // One rounded box of a hand icon, in a unit square with y pointing down.
@@ -46,6 +47,12 @@ jump_button :: proc(w, h: f32) -> [4]f32 {
 	g := grab_button(w, h)
 	height := g.w * 0.8
 	return {g.x, g.y - height - 16, g.z, height}
+}
+
+// The mix button, just left of the grab button.
+mix_button :: proc(w, h: f32) -> [4]f32 {
+	g := grab_button(w, h)
+	return {g.x - g.z - 16, g.y, g.z, g.w}
 }
 
 // The button that opens the liquid sim test, just under the scene switch.
@@ -96,11 +103,9 @@ draw_jump_button :: proc(w, h: f32, airborne: bool) {
 	draw_button(jump_button(w, h), "jump", fill, edge, ink)
 }
 
-// One line under the hand icon about the vessel the player is looking at or
-// holding: what is in it and how full it is. The text is built in a buffer on
-// the stack, so nothing is allocated each frame.
-draw_contents :: proc(w, h: f32, pr: ^carry.Prop) {
-	buf: [96]u8
+// Writes what a vessel holds into a buffer on the stack, such as
+// "Dye Red  400 / 935 ml", so nothing is allocated each frame.
+contents_text :: proc(buf: ^[96]u8, pr: ^carry.Prop) -> cstring {
 	n := 0
 	put :: proc(buf: []u8, n: ^int, text: string) {
 		for c in transmute([]u8)text {
@@ -111,7 +116,7 @@ draw_contents :: proc(w, h: f32, pr: ^carry.Prop) {
 		}
 	}
 	digits: [24]u8
-	put(buf[:], &n, carry.compound_name(pr.compound))
+	put(buf[:], &n, chem.compound_name(pr.compound))
 	if pr.compound != 0 {
 		put(buf[:], &n, "  ")
 		put(buf[:], &n, strconv.write_int(digits[:], i64(pr.ml + 0.5), 10))
@@ -119,12 +124,29 @@ draw_contents :: proc(w, h: f32, pr: ^carry.Prop) {
 		put(buf[:], &n, strconv.write_int(digits[:], i64(carry.capacity_ml(pr.kind) + 0.5), 10))
 		put(buf[:], &n, " ml")
 	}
-	text := cstring(raw_data(buf[:]))
-	font := i32(max(f32(16), h * 0.032))
-	x := i32(w * 0.5) - rl.MeasureText(text, font) / 2
-	y := i32(h * 0.5) + i32(max(f32(30), h * 0.075)) + 24
+	buf[n] = 0
+	return cstring(raw_data(buf[:]))
+}
+
+draw_text_centered :: proc(text: cstring, cx, y, font: i32, color: rl.Color) {
+	x := cx - rl.MeasureText(text, font) / 2
 	rl.DrawText(text, x + 1, y + 2, font, {0, 0, 0, 220})
-	rl.DrawText(text, x, y, font, rl.RAYWHITE)
+	rl.DrawText(text, x, y, font, color)
+}
+
+// Lines under the hand icon: what the vessel in view or in hand holds and how
+// full it is, and, with something held over another vessel, what is in the one
+// it would be poured into.
+draw_contents :: proc(w, h: f32, pr: ^carry.Prop, target: ^carry.Prop) {
+	buf: [96]u8
+	font := i32(max(f32(16), h * 0.032))
+	cx := i32(w * 0.5)
+	y := i32(h * 0.5) + i32(max(f32(30), h * 0.075)) + 24
+	draw_text_centered(contents_text(&buf, pr), cx, y, font, rl.RAYWHITE)
+	if target != nil {
+		draw_text_centered("pour into", cx, y + font + font / 3, font * 3 / 4, {60, 230, 215, 255})
+		draw_text_centered(contents_text(&buf, target), cx, y + 2 * (font + font / 3) - font / 4, font, {60, 230, 215, 255})
+	}
 }
 
 // Draws a hand icon with its top left corner at (x, y) and `size` pixels
@@ -175,4 +197,47 @@ draw_crosshair :: proc(w, h: f32, state: carry.State) {
 
 draw_bench_button :: proc(w, h: f32) {
 	draw_button(bench_button(w, h), "sim test", {10, 18, 28, 190}, {230, 236, 242, 200}, rl.RAYWHITE)
+}
+
+// The mix button is bright when the held vessel is over one it can pour into.
+draw_mix_button :: proc(w, h: f32, ready: bool) {
+	fill := rl.Color{10, 18, 28, 150}
+	edge := rl.Color{200, 210, 222, 110}
+	ink := rl.Color{200, 210, 222, 160}
+	if ready {
+		fill, edge, ink = {14, 74, 74, 230}, {60, 230, 215, 255}, rl.RAYWHITE
+	}
+	draw_button(mix_button(w, h), "mix", fill, edge, ink)
+}
+
+// The health bar, at the top in the middle, green when full and red when low.
+draw_health :: proc(w, h: f32, hp: f32) {
+	bar_w := w * 0.22
+	bar_h := max(f32(10), h * 0.02)
+	x := w * 0.5 - bar_w * 0.5
+	y := h * 0.025
+	share := clamp(hp / carry.HEALTH_MAX, 0, 1)
+	fill := rl.Color{u8(230 - 170 * share), u8(60 + 170 * share), 70, 255}
+	rl.DrawRectangleRounded({x - 3, y - 3, bar_w + 6, bar_h + 6}, 0.5, 6, {10, 18, 26, 200})
+	if share > 0 {
+		rl.DrawRectangleRounded({x, y, bar_w * share, bar_h}, 0.5, 6, fill)
+	}
+}
+
+// A color over the whole screen: red when hurt, white-hot for a blast.
+draw_flash :: proc(w, h: f32, color: rl.Color, amount: f32) {
+	if amount < 0.02 {
+		return
+	}
+	rl.DrawRectangle(0, 0, i32(w), i32(h), {color.r, color.g, color.b, u8(clamp(amount, 0, 1) * f32(color.a))})
+}
+
+// A message that fades out, for what a mix just did.
+draw_toast :: proc(w, h: f32, text: cstring, timer: f32) {
+	if timer <= 0 {
+		return
+	}
+	alpha := u8(255 * clamp(timer / 0.6, 0, 1))
+	font := i32(max(f32(18), h * 0.04))
+	draw_text_centered(text, i32(w * 0.5), i32(h * 0.14), font, {255, 255, 255, alpha})
 }

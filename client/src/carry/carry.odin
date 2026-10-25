@@ -10,6 +10,7 @@
 // It has no raylib dependency, so it is tested without a window.
 package carry
 
+import "../chem"
 import "../lab"
 import "core:math"
 
@@ -80,6 +81,10 @@ View :: struct {
 	eye, right, up, back: Vec3,
 }
 
+sqrt_f32 :: proc(x: f32) -> f32 {
+	return math.sqrt(x)
+}
+
 dot :: proc(a, b: Vec3) -> f32 {
 	return a.x * b.x + a.y * b.y + a.z * b.z
 }
@@ -130,19 +135,59 @@ props_add :: proc(props: ^Props, l: ^lab.Layout, kind: Kind, x, z: f32, compound
 	return true
 }
 
-// A first handful of vessels in two rows along the near edge of the island,
-// with a different stock liquid in each and one beaker left empty.
+// Takes a prop out of the list, as when a vessel breaks. The indices of the
+// held and aimed props are kept pointing at the same props.
+props_remove :: proc(props: ^Props, i: int) {
+	for j in i ..< props.count - 1 {
+		props.items[j] = props.items[j + 1]
+	}
+	props.count -= 1
+	if props.held == i {
+		props.held = -1
+	} else if props.held > i {
+		props.held -= 1
+	}
+	if props.aimed == i {
+		props.aimed = -1
+	} else if props.aimed > i {
+		props.aimed -= 1
+	}
+}
+
+// The vessels on the island: one filled with each stock liquid, in two rows
+// along its near edge, and a third row and the ends of the first two left
+// empty to pour into and mix in.
 props_place_defaults :: proc(props: ^Props, l: ^lab.Layout) {
-	stock :: proc(s: Stock) -> u16 {
+	id :: proc(s: chem.Id) -> u16 {
 		return u16(s)
 	}
-	props_add(props, l, .Beaker, -0.9, 0.38, stock(.Dye_Red), 400)
-	props_add(props, l, .Flask, -0.3, 0.38, stock(.Spark_Blue), 300)
-	props_add(props, l, .Bottle, 0.3, 0.38, stock(.Fizz_Acid), 600)
-	props_add(props, l, .Beaker, 0.9, 0.38)
-	props_add(props, l, .Bottle, -0.6, -0.12, stock(.Soda_Base), 500)
-	props_add(props, l, .Beaker, 0, -0.12, stock(.Water), 250)
-	props_add(props, l, .Flask, 0.6, -0.12, stock(.Ember_Oil), 450)
+	// Front row.
+	props_add(props, l, .Beaker, -1.2, 0.40, id(.Water), 250)
+	props_add(props, l, .Bottle, -0.6, 0.40, id(.Fizz_Acid), 600)
+	props_add(props, l, .Bottle, 0, 0.40, id(.Soda_Base), 500)
+	props_add(props, l, .Flask, 0.6, 0.40, id(.Ember_Oil), 450)
+	props_add(props, l, .Flask, 1.2, 0.40, id(.Spark_Blue), 300)
+	// Middle row.
+	props_add(props, l, .Bottle, -1.2, -0.05, id(.Frost_Gel), 600)
+	props_add(props, l, .Bottle, -0.6, -0.05, id(.Glue_Goo), 600)
+	props_add(props, l, .Flask, 0, -0.05, id(.Slick), 400)
+	props_add(props, l, .Beaker, 0.6, -0.05, id(.Dye_Red), 400)
+	props_add(props, l, .Beaker, 1.2, -0.05, id(.Dye_Violet), 400)
+	// Back row, all empty.
+	props_add(props, l, .Beaker, -1.2, -0.50)
+	props_add(props, l, .Flask, -0.6, -0.50)
+	props_add(props, l, .Beaker, 0, -0.50)
+	props_add(props, l, .Flask, 0.6, -0.50)
+	props_add(props, l, .Beaker, 1.2, -0.50)
+	// Empty ones at both ends of the front and middle rows.
+	props_add(props, l, .Beaker, -1.8, 0.40)
+	props_add(props, l, .Flask, 1.8, 0.40)
+	props_add(props, l, .Beaker, -2.4, 0.40)
+	props_add(props, l, .Bottle, 2.4, 0.40)
+	props_add(props, l, .Beaker, -1.8, -0.05)
+	props_add(props, l, .Beaker, 1.8, -0.05)
+	props_add(props, l, .Flask, -2.4, -0.05)
+	props_add(props, l, .Beaker, 2.4, -0.05)
 }
 
 // The props from the farthest to the nearest, for drawing see-through things
