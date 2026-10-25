@@ -51,6 +51,7 @@ Sim :: struct {
 	grid_v:    []Vec3, // momentum, then velocity, at each node
 	p_vol:     f32, // the starting volume of one particle
 	p_mass:    f32,
+	active_nodes: int, // how many grid nodes the last step touched
 }
 
 // Makes room for `capacity` particles and a grid of n x n x n nodes. Nothing is
@@ -90,7 +91,7 @@ sim_add_block :: proc(s: ^Sim, lo, hi: Vec3, v: Vec3 = {}) -> int {
 					return added
 				}
 				s.particles[s.count] = {
-					x = {x, y, z},
+					x = {clamp(x, s.p.dx, s.p.dx * f32(s.n - 2)), clamp(y, s.p.dx, s.p.dx * f32(s.n - 2)), clamp(z, s.p.dx, s.p.dx * f32(s.n - 2))},
 					v = v,
 					j = 1,
 				}
@@ -107,7 +108,17 @@ sim_add_block :: proc(s: ^Sim, lo, hi: Vec3, v: Vec3 = {}) -> int {
 // force of section 3.4 folded into the transfer so no kernel gradient is ever
 // needed. The stress is that of a weakly compressible fluid, from the volume
 // ratio alone.
+//
+// Two things keep a step cheap on a phone build with no optimizer. Only the
+// block of the grid that the particles touch is cleared and updated, and the
+// grid is read and written through plain pointers, which is safe because every
+// particle position is forced into [dx, (n - 2) dx] each step, even if a
+// velocity has turned into NaN, so a stencil never leaves the grid.
 sim_step :: proc(s: ^Sim) {
+	if s.count == 0 {
+		s.active_nodes = 0
+		return
+	}
 	n := s.n
 	dx := s.p.dx
 	dt := s.p.dt
@@ -116,10 +127,30 @@ sim_step :: proc(s: ^Sim) {
 	// Section 3.3: the inverse of the moment matrix is 4 / dx^2 for quadratic weights.
 	stress_scale := -dt * s.p_vol * 4 * inv_dx * inv_dx * s.p.bulk
 	c_scale := 4 * inv_dx * inv_dx
+	gm := raw_data(s.grid_m)
+	gv := raw_data(s.grid_v)
 
-	for i in 0 ..< len(s.grid_m) {
-		s.grid_m[i] = 0
-		s.grid_v[i] = {}
+	// The block of grid nodes that any stencil reaches.
+	i0, j0, k0 := n, n, n
+	i1, j1, k1 := 0, 0, 0
+	for pi in 0 ..< s.count {
+		x := s.particles[pi].x
+		bx, by, bz := int(x.x * inv_dx - 0.5), int(x.y * inv_dx - 0.5), int(x.z * inv_dx - 0.5)
+		i0, i1 = min(i0, bx), max(i1, bx)
+		j0, j1 = min(j0, by), max(j1, by)
+		k0, k1 = min(k0, bz), max(k1, bz)
+	}
+	i1, j1, k1 = i1 + 2, j1 + 2, k1 + 2
+	s.active_nodes = (i1 - i0 + 1) * (j1 - j0 + 1) * (k1 - k0 + 1)
+
+	for i in i0 ..= i1 {
+		for j in j0 ..= j1 {
+			row := (i * n + j) * n
+			for k in k0 ..= k1 {
+				gm[row + k] = 0
+				gv[row + k] = {}
+			}
+		}
 	}
 
 	// Particles to grid.
@@ -130,7 +161,10 @@ sim_step :: proc(s: ^Sim) {
 		fx, fy, fz := gx - f32(bx), gy - f32(by), gz - f32(bz)
 		wx := [3]f32{0.5 * (1.5 - fx) * (1.5 - fx), 0.75 - (fx - 1) * (fx - 1), 0.5 * (fx - 0.5) * (fx - 0.5)}
 		wy := [3]f32{0.5 * (1.5 - fy) * (1.5 - fy), 0.75 - (fy - 1) * (fy - 1), 0.5 * (fy - 0.5) * (fy - 0.5)}
-		wz := [3]f32{0.5 * (1.5 - fz) * (1.5 - fz), 0.75 - (fz - 1) * (fz - 1), 0.5 * (fz - 0.5) * (fz - 0.5)}
+		wz0 := 0.5 * (1.5 - fz) * (1.5 - fz)
+		wz1 := 0.75 - (fz - 1) * (fz - 1)
+		wz2 := 0.5 * (fz - 0.5) * (fz - 0.5)
+		dz0, dz1, dz2 := -fz * dx, (1 - fz) * dx, (2 - fz) * dx
 
 		stress := stress_scale * (p.j - 1)
 		a00, a01, a02 := stress + m * p.c[0], m * p.c[1], m * p.c[2]
@@ -143,32 +177,42 @@ sim_step :: proc(s: ^Sim) {
 			for j in 0 ..< 3 {
 				dpy := (f32(j) - fy) * dx
 				wij := wx[i] * wy[j]
-				row := ((bx + i) * n + (by + j)) * n + bz
-				for k in 0 ..< 3 {
-					dpz := (f32(k) - fz) * dx
-					w := wij * wz[k]
-					node := row + k
-					s.grid_m[node] += w * m
-					g := &s.grid_v[node]
-					g.x += w * (mvx + a00 * dpx + a01 * dpy + a02 * dpz)
-					g.y += w * (mvy + a10 * dpx + a11 * dpy + a12 * dpz)
-					g.z += w * (mvz + a20 * dpx + a21 * dpy + a22 * dpz)
-				}
+				// What does not depend on z is worked out once for the row of three nodes.
+				ux := mvx + a00 * dpx + a01 * dpy
+				uy := mvy + a10 * dpx + a11 * dpy
+				uz := mvz + a20 * dpx + a21 * dpy
+				node := ((bx + i) * n + (by + j)) * n + bz
+				w0, w1, w2 := wij * wz0, wij * wz1, wij * wz2
+				gm[node] += w0 * m
+				gm[node + 1] += w1 * m
+				gm[node + 2] += w2 * m
+				g := &gv[node]
+				g.x += w0 * (ux + a02 * dz0)
+				g.y += w0 * (uy + a12 * dz0)
+				g.z += w0 * (uz + a22 * dz0)
+				g = &gv[node + 1]
+				g.x += w1 * (ux + a02 * dz1)
+				g.y += w1 * (uy + a12 * dz1)
+				g.z += w1 * (uz + a22 * dz1)
+				g = &gv[node + 2]
+				g.x += w2 * (ux + a02 * dz2)
+				g.y += w2 * (uy + a12 * dz2)
+				g.z += w2 * (uz + a22 * dz2)
 			}
 		}
 	}
 
 	// Grid update: momentum to velocity, gravity, and the walls.
 	gravity_step := dt * s.p.gravity
-	for i in 0 ..< n {
-		for j in 0 ..< n {
-			for k in 0 ..< n {
-				node := (i * n + j) * n + k
-				mass := s.grid_m[node]
+	for i in i0 ..= i1 {
+		for j in j0 ..= j1 {
+			row := (i * n + j) * n
+			for k in k0 ..= k1 {
+				mass := gm[row + k]
 				if mass <= 0 {
 					continue
 				}
-				g := &s.grid_v[node]
+				g := &gv[row + k]
 				inv := 1 / mass
 				g.x *= inv
 				g.y = g.y * inv + gravity_step
@@ -196,7 +240,10 @@ sim_step :: proc(s: ^Sim) {
 		fx, fy, fz := gx - f32(bx), gy - f32(by), gz - f32(bz)
 		wx := [3]f32{0.5 * (1.5 - fx) * (1.5 - fx), 0.75 - (fx - 1) * (fx - 1), 0.5 * (fx - 0.5) * (fx - 0.5)}
 		wy := [3]f32{0.5 * (1.5 - fy) * (1.5 - fy), 0.75 - (fy - 1) * (fy - 1), 0.5 * (fy - 0.5) * (fy - 0.5)}
-		wz := [3]f32{0.5 * (1.5 - fz) * (1.5 - fz), 0.75 - (fz - 1) * (fz - 1), 0.5 * (fz - 0.5) * (fz - 0.5)}
+		wz0 := 0.5 * (1.5 - fz) * (1.5 - fz)
+		wz1 := 0.75 - (fz - 1) * (fz - 1)
+		wz2 := 0.5 * (fz - 0.5) * (fz - 0.5)
+		e0, e1, e2 := wz0 * -fz * dx, wz1 * (1 - fz) * dx, wz2 * (2 - fz) * dx
 
 		vx, vy, vz: f32
 		c00, c01, c02, c10, c11, c12, c20, c21, c22: f32
@@ -205,33 +252,44 @@ sim_step :: proc(s: ^Sim) {
 			for j in 0 ..< 3 {
 				dpy := (f32(j) - fy) * dx
 				wij := wx[i] * wy[j]
-				row := ((bx + i) * n + (by + j)) * n + bz
-				for k in 0 ..< 3 {
-					dpz := (f32(k) - fz) * dx
-					w := wij * wz[k]
-					g := s.grid_v[row + k]
-					vx += w * g.x
-					vy += w * g.y
-					vz += w * g.z
-					cw := w * c_scale
-					c00 += cw * g.x * dpx
-					c01 += cw * g.x * dpy
-					c02 += cw * g.x * dpz
-					c10 += cw * g.y * dpx
-					c11 += cw * g.y * dpy
-					c12 += cw * g.y * dpz
-					c20 += cw * g.z * dpx
-					c21 += cw * g.z * dpy
-					c22 += cw * g.z * dpz
-				}
+				node := ((bx + i) * n + (by + j)) * n + bz
+				g0, g1, g2 := gv[node], gv[node + 1], gv[node + 2]
+				// Sums along the row of three nodes, plain and weighted by the offset in z.
+				sx := wz0 * g0.x + wz1 * g1.x + wz2 * g2.x
+				sy := wz0 * g0.y + wz1 * g1.y + wz2 * g2.y
+				sz := wz0 * g0.z + wz1 * g1.z + wz2 * g2.z
+				tx := e0 * g0.x + e1 * g1.x + e2 * g2.x
+				ty := e0 * g0.y + e1 * g1.y + e2 * g2.y
+				tz := e0 * g0.z + e1 * g1.z + e2 * g2.z
+				a, b := wij * dpx, wij * dpy
+				vx += wij * sx
+				vy += wij * sy
+				vz += wij * sz
+				c00 += a * sx
+				c01 += b * sx
+				c02 += wij * tx
+				c10 += a * sy
+				c11 += b * sy
+				c12 += wij * ty
+				c20 += a * sz
+				c21 += b * sz
+				c22 += wij * tz
 			}
 		}
+		c00, c01, c02 = c00 * c_scale, c01 * c_scale, c02 * c_scale
+		c10, c11, c12 = c10 * c_scale, c11 * c_scale, c12 * c_scale
+		c20, c21, c22 = c20 * c_scale, c21 * c_scale, c22 * c_scale
 		p.v = {vx, vy, vz}
 		p.c = {c00, c01, c02, c10, c11, c12, c20, c21, c22}
-		p.x.x = clamp(p.x.x + dt * vx, lo, hi)
-		p.x.y = clamp(p.x.y + dt * vy, lo, hi)
-		p.x.z = clamp(p.x.z + dt * vz, lo, hi)
-		p.j = clamp(p.j * (1 + dt * (c00 + c11 + c22)), J_MIN, J_MAX)
+		// Written so that a NaN falls to the low end, because a position must
+		// always stay inside the grid.
+		nx, ny, nz := p.x.x + dt * vx, p.x.y + dt * vy, p.x.z + dt * vz
+		nx = nx >= lo ? (nx <= hi ? nx : hi) : lo
+		ny = ny >= lo ? (ny <= hi ? ny : hi) : lo
+		nz = nz >= lo ? (nz <= hi ? nz : hi) : lo
+		p.x = {nx, ny, nz}
+		jn := p.j * (1 + dt * (c00 + c11 + c22))
+		p.j = jn >= J_MIN ? (jn <= J_MAX ? jn : J_MAX) : J_MIN
 	}
 }
 

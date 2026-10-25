@@ -206,3 +206,188 @@ the_benchmark_liquid_has_the_stated_particle_counts :: proc(t: ^testing.T) {
 		testing.expect(t, sim_finite(&s))
 	}
 }
+
+// The first, plain version of the step: the whole grid cleared and updated, every
+// access checked, the loops written out as the paper gives them. It is kept here
+// to show that the faster step in mpm.odin does the same physics.
+reference_step :: proc(s: ^Sim) {
+	n := s.n
+	dx := s.p.dx
+	dt := s.p.dt
+	inv_dx := 1 / dx
+	m := s.p_mass
+	// Section 3.3: the inverse of the moment matrix is 4 / dx^2 for quadratic weights.
+	stress_scale := -dt * s.p_vol * 4 * inv_dx * inv_dx * s.p.bulk
+	c_scale := 4 * inv_dx * inv_dx
+
+	for i in 0 ..< len(s.grid_m) {
+		s.grid_m[i] = 0
+		s.grid_v[i] = {}
+	}
+
+	// Particles to grid.
+	for pi in 0 ..< s.count {
+		p := &s.particles[pi]
+		gx, gy, gz := p.x.x * inv_dx, p.x.y * inv_dx, p.x.z * inv_dx
+		bx, by, bz := int(gx - 0.5), int(gy - 0.5), int(gz - 0.5)
+		fx, fy, fz := gx - f32(bx), gy - f32(by), gz - f32(bz)
+		wx := [3]f32{0.5 * (1.5 - fx) * (1.5 - fx), 0.75 - (fx - 1) * (fx - 1), 0.5 * (fx - 0.5) * (fx - 0.5)}
+		wy := [3]f32{0.5 * (1.5 - fy) * (1.5 - fy), 0.75 - (fy - 1) * (fy - 1), 0.5 * (fy - 0.5) * (fy - 0.5)}
+		wz := [3]f32{0.5 * (1.5 - fz) * (1.5 - fz), 0.75 - (fz - 1) * (fz - 1), 0.5 * (fz - 0.5) * (fz - 0.5)}
+
+		stress := stress_scale * (p.j - 1)
+		a00, a01, a02 := stress + m * p.c[0], m * p.c[1], m * p.c[2]
+		a10, a11, a12 := m * p.c[3], stress + m * p.c[4], m * p.c[5]
+		a20, a21, a22 := m * p.c[6], m * p.c[7], stress + m * p.c[8]
+		mvx, mvy, mvz := m * p.v.x, m * p.v.y, m * p.v.z
+
+		for i in 0 ..< 3 {
+			dpx := (f32(i) - fx) * dx
+			for j in 0 ..< 3 {
+				dpy := (f32(j) - fy) * dx
+				wij := wx[i] * wy[j]
+				row := ((bx + i) * n + (by + j)) * n + bz
+				for k in 0 ..< 3 {
+					dpz := (f32(k) - fz) * dx
+					w := wij * wz[k]
+					node := row + k
+					s.grid_m[node] += w * m
+					g := &s.grid_v[node]
+					g.x += w * (mvx + a00 * dpx + a01 * dpy + a02 * dpz)
+					g.y += w * (mvy + a10 * dpx + a11 * dpy + a12 * dpz)
+					g.z += w * (mvz + a20 * dpx + a21 * dpy + a22 * dpz)
+				}
+			}
+		}
+	}
+
+	// Grid update: momentum to velocity, gravity, and the walls.
+	gravity_step := dt * s.p.gravity
+	for i in 0 ..< n {
+		for j in 0 ..< n {
+			for k in 0 ..< n {
+				node := (i * n + j) * n + k
+				mass := s.grid_m[node]
+				if mass <= 0 {
+					continue
+				}
+				g := &s.grid_v[node]
+				inv := 1 / mass
+				g.x *= inv
+				g.y = g.y * inv + gravity_step
+				g.z *= inv
+				if (i < BOUND && g.x < 0) || (i > n - BOUND && g.x > 0) {
+					g.x = 0
+				}
+				if (j < BOUND && g.y < 0) || (j > n - BOUND && g.y > 0) {
+					g.y = 0
+				}
+				if (k < BOUND && g.z < 0) || (k > n - BOUND && g.z > 0) {
+					g.z = 0
+				}
+			}
+		}
+	}
+
+	// Grid to particles, then the particles move.
+	lo := dx
+	hi := dx * f32(n - 2)
+	for pi in 0 ..< s.count {
+		p := &s.particles[pi]
+		gx, gy, gz := p.x.x * inv_dx, p.x.y * inv_dx, p.x.z * inv_dx
+		bx, by, bz := int(gx - 0.5), int(gy - 0.5), int(gz - 0.5)
+		fx, fy, fz := gx - f32(bx), gy - f32(by), gz - f32(bz)
+		wx := [3]f32{0.5 * (1.5 - fx) * (1.5 - fx), 0.75 - (fx - 1) * (fx - 1), 0.5 * (fx - 0.5) * (fx - 0.5)}
+		wy := [3]f32{0.5 * (1.5 - fy) * (1.5 - fy), 0.75 - (fy - 1) * (fy - 1), 0.5 * (fy - 0.5) * (fy - 0.5)}
+		wz := [3]f32{0.5 * (1.5 - fz) * (1.5 - fz), 0.75 - (fz - 1) * (fz - 1), 0.5 * (fz - 0.5) * (fz - 0.5)}
+
+		vx, vy, vz: f32
+		c00, c01, c02, c10, c11, c12, c20, c21, c22: f32
+		for i in 0 ..< 3 {
+			dpx := (f32(i) - fx) * dx
+			for j in 0 ..< 3 {
+				dpy := (f32(j) - fy) * dx
+				wij := wx[i] * wy[j]
+				row := ((bx + i) * n + (by + j)) * n + bz
+				for k in 0 ..< 3 {
+					dpz := (f32(k) - fz) * dx
+					w := wij * wz[k]
+					g := s.grid_v[row + k]
+					vx += w * g.x
+					vy += w * g.y
+					vz += w * g.z
+					cw := w * c_scale
+					c00 += cw * g.x * dpx
+					c01 += cw * g.x * dpy
+					c02 += cw * g.x * dpz
+					c10 += cw * g.y * dpx
+					c11 += cw * g.y * dpy
+					c12 += cw * g.y * dpz
+					c20 += cw * g.z * dpx
+					c21 += cw * g.z * dpy
+					c22 += cw * g.z * dpz
+				}
+			}
+		}
+		p.v = {vx, vy, vz}
+		p.c = {c00, c01, c02, c10, c11, c12, c20, c21, c22}
+		p.x.x = clamp(p.x.x + dt * vx, lo, hi)
+		p.x.y = clamp(p.x.y + dt * vy, lo, hi)
+		p.x.z = clamp(p.x.z + dt * vz, lo, hi)
+		p.j = clamp(p.j * (1 + dt * (c00 + c11 + c22)), J_MIN, J_MAX)
+	}
+}
+
+@(test)
+the_fast_step_matches_the_plain_one :: proc(t: ^testing.T) {
+	a, b: Sim
+	sim_init(&a, test_params(), 14, 1000)
+	sim_init(&b, test_params(), 14, 1000)
+	defer sim_destroy(&a)
+	defer sim_destroy(&b)
+	dx := a.p.dx
+	sim_add_block(&a, {4 * dx, 5 * dx, 4 * dx}, {10 * dx, 9 * dx, 8 * dx}, {0.3, 0, -0.2})
+	sim_add_block(&b, {4 * dx, 5 * dx, 4 * dx}, {10 * dx, 9 * dx, 8 * dx}, {0.3, 0, -0.2})
+	for _ in 0 ..< 200 {
+		sim_step(&a)
+		reference_step(&b)
+	}
+	worst_x, worst_v := f32(0), f32(0)
+	for i in 0 ..< a.count {
+		for axis in 0 ..< 3 {
+			worst_x = max(worst_x, abs(a.particles[i].x[axis] - b.particles[i].x[axis]))
+			worst_v = max(worst_v, abs(a.particles[i].v[axis] - b.particles[i].v[axis]))
+		}
+	}
+	testing.expectf(t, worst_x < 1e-3 && worst_v < 1e-2, "the two differ by %v m and %v m/s", worst_x, worst_v)
+}
+
+@(test)
+only_the_block_the_liquid_touches_is_worked_on :: proc(t: ^testing.T) {
+	s: Sim
+	sim_init(&s, test_params(), 24, 1000)
+	defer sim_destroy(&s)
+	dx := s.p.dx
+	sim_add_block(&s, {10 * dx, 10 * dx, 10 * dx}, {12 * dx, 12 * dx, 12 * dx})
+	sim_step(&s)
+	testing.expect(t, s.active_nodes > 0 && s.active_nodes < 24 * 24 * 24 / 20)
+	sim_clear(&s)
+	sim_step(&s)
+	testing.expect_value(t, s.active_nodes, 0)
+}
+
+@(test)
+a_particle_with_a_broken_velocity_stays_inside_the_grid :: proc(t: ^testing.T) {
+	s: Sim
+	sim_init(&s, test_params(), 14, 1000)
+	defer sim_destroy(&s)
+	dx := s.p.dx
+	sim_add_block(&s, {5 * dx, 5 * dx, 5 * dx}, {8 * dx, 8 * dx, 8 * dx})
+	nan := math.nan_f32()
+	s.particles[0].v = {nan, nan, nan}
+	s.particles[1].v = {1e30, -1e30, 1e30}
+	for _ in 0 ..< 20 {
+		sim_step(&s) // the grid is read through plain pointers, so this would crash if a stencil left it
+	}
+	testing.expect(t, inside_domain(&s))
+}

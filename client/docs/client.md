@@ -195,7 +195,9 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - The simulation is for the lab only: pours, splashes, and liquid in motion. The gameplay balloon does not use it.
 - The stiffness is low, a bulk modulus of 1e4 as in the paper's water examples, so the liquid is slightly squashy. Real water would need steps far too small. The step must stay under about 0.3 dx / (sound speed + fastest flow), which is about 0.3 ms for 1 cm cells.
 - Eight particles to a cell on a lattice, so a block always has the same count and a run always comes out the same on one device. Results are not meant to match between arm32 and x86, so the liquid is a visual only and the server never depends on it.
-- The walls are the outer three cells of the grid, and particles are clamped just inside, so the 27-node stencil can never leave the grid. Bounds checks stay on, so a bug is an error and not a stray write.
+- The walls are the outer three cells of the grid, and every particle position is forced into the grid each step, written so that even a NaN falls inside. That is what makes it safe to read and write the grid through plain pointers, with no bounds checks, in the hot loops.
+- Only the block of the grid that the particles touch is cleared and updated. The first phone run showed the whole 32 cell grid costing 3 ms a step, more than the liquid itself for a small splash, and this removed it. `active_nodes` says how many nodes the last step used.
+- The build the phone uses has no optimizer, so the loops are written to need none: the three nodes along z are done together, what does not depend on z is worked out once for the row, and the matrix products are rearranged to sums along the row. The tests keep the original plain version of the step and require the fast one to match it.
 - A particle's volume ratio is limited to 0.2 to 5, so one bad step cannot spread.
 - Thin glass walls, which the paper handles with CPIC, are not here yet.
 
@@ -207,7 +209,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 **Decisions:** The desktop benchmark and the sim-test scene both use it, so their numbers can be compared.
 
 ### `mpm_test.odin`
-**What it does:** A block holds two particles to a cell along each side and is cut off at the capacity. The grid receives all the mass. A block in free fall speeds up at gravity. Momentum is conserved without gravity. A block set spinning keeps its spin, which fails if the affine matrix is rebuilt at the wrong scale. A tank of liquid comes to rest, slightly compressed by its own weight. A dropped block splashes and stays inside the grid. The same start gives the same liquid bit for bit. The benchmark cube has the stated particle counts and stays finite.
+**What it does:** A block holds two particles to a cell along each side and is cut off at the capacity. The grid receives all the mass. A block in free fall speeds up at gravity. Momentum is conserved without gravity. A block set spinning keeps its spin, which fails if the affine matrix is rebuilt at the wrong scale. A tank of liquid comes to rest, slightly compressed by its own weight. A dropped block splashes and stays inside the grid. The same start gives the same liquid bit for bit. The fast step matches the plain original step to within a millimetre after 200 steps, which fails if a single term of the affine matrix is wrong. Only the block of the grid that the liquid touches is worked on. A particle with a NaN or enormous velocity stays inside the grid. The benchmark cube has the stated particle counts and stays finite.
 
 ### `lab_mesh.odin`
 **What it does:** Turns the layout into one static raylib mesh with a color for each vertex, and draws it with one call. The first texture coordinate carries how much a surface glows and the second how glossy it is.
@@ -237,7 +239,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - The button in the corner changes scenes, so the balloon lab stays reachable on a phone.
 
 ### `scene_bench.odin`
-**What it does:** The sim-test scene. It times the liquid simulation on the device itself at five particle counts, six substeps a frame so the screen keeps moving, and shows the cost for each count. When it finishes it fits a straight line through the smallest and largest count to get the cost of one particle and the fixed cost of the grid, and shows what that allows for a 125 ml splash at 1, 2, and 3 cm cells. A tap runs it again, and the button in the top right corner goes back to the lab room.
+**What it does:** The sim-test scene. It times the liquid simulation on the device itself at five particle counts, six substeps a frame so the screen keeps moving, and shows for each count the grid nodes used and the cost. When it finishes it fits a straight line through the smallest and largest count to get the cost of one particle and the fixed cost of the grid, and shows what that allows for a 125 ml splash at 1, 2, and 3 cm cells. A tap runs it again, and the button in the top right corner goes back to the lab room.
 
 **Decisions:**
 - It runs on the phone because desktop numbers say little about it. On a desktop the same code is about six times slower built with `-o:minimal`, which is what the phone build uses, than with `-o:speed`.
@@ -466,7 +468,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - The vessels were opaque pastel solids at first. They are now see-through glass with liquid, as asked after the first test on the phone.
 
 ### `mpm.odin`
-- Only a box of liquid so far: no walls thinner than a cell, no cohesion, and no coupling to the vessels. None of it has run on a phone yet, and the cost there is what the sim test is for.
+- On a desktop, the version with the active block and the unrolled loops is 2.3 times faster per particle than the first, and the grid cost is gone. Only a box of liquid so far: no walls thinner than a cell, no cohesion, and no coupling to the vessels. None of it has run on a phone yet, and the cost there is what the sim test is for.
 
 ### `scenario.odin`
 - None recorded yet.
@@ -481,7 +483,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - None recorded yet.
 
 ### `scene_bench.odin`
-- The numbers have not been seen on a phone yet. The estimate rows assume the grid cost falls with the cube of the cell size.
+- First phone run, built with `-o:minimal` on a Galaxy A13: 10.1 us for each particle and 3.0 ms for the grid, each step, so a 125 ml splash cost 736 ms a frame at 1 cm cells, 46 ms at 2 cm, and 9 ms at 3 cm. That led to the grid being limited to the block in use. The estimate rows assume the grid cost falls with the cube of the cell size. A run built with `TV_OPT=size` has not been seen yet.
 
 ### `mpm_bench.odin`
 - None recorded yet.

@@ -18,6 +18,7 @@ BENCH_FRAME_MS :: f64(6) // the share of a 16.7 ms frame the liquid may take
 
 Bench_Result :: struct {
 	particles:   int,
+	nodes:       int, // grid nodes the step touched
 	ns_per_step: f64,
 	ok:          bool, // false if the liquid blew up
 }
@@ -101,7 +102,7 @@ bench_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	b.samples[b.batches] = f64(time.duration_nanoseconds(elapsed)) / f64(BENCH_BATCH_STEPS)
 	b.batches += 1
 	if b.batches == BENCH_BATCHES {
-		b.results[b.stage] = {b.sim.count, bench_median(b), mpm.sim_finite(&b.sim)}
+		b.results[b.stage] = {b.sim.count, b.sim.active_nodes, bench_median(b), mpm.sim_finite(&b.sim)}
 		b.stage += 1
 		if b.stage < BENCH_STAGES {
 			bench_start_stage(b)
@@ -139,7 +140,7 @@ bench_draw_ui :: proc(game: ^Game, state: rawptr) {
 	row(bench_text(&buf, "liquid sim test, build %v", ODIN_OPTIMIZATION_MODE), x, &y, font, rl.RAYWHITE)
 	row(bench_text(&buf, "cell %.1f cm, step %.2f ms, real time needs %d steps a frame", p.dx * 100, p.dt * 1000, steps_per_frame), x, &y, font, dim)
 	y += font / 2
-	row("particles   ms a step   us a particle", x, &y, font, dim)
+	row("particles   nodes   ms a step   us a particle", x, &y, font, dim)
 
 	edges := mpm.BENCH_EDGES
 	for stage in 0 ..< BENCH_STAGES {
@@ -147,7 +148,7 @@ bench_draw_ui :: proc(game: ^Game, state: rawptr) {
 		if stage < b.stage {
 			per := r.ns_per_step / f64(r.particles) / 1000
 			verdict: cstring = r.ok ? "" : "  BLEW UP"
-			row(bench_text(&buf, "%-11d %-11.2f %.2f%v", r.particles, r.ns_per_step / 1e6, per, verdict), x, &y, font, rl.RAYWHITE)
+			row(bench_text(&buf, "%-11d %-8d %-11.2f %.2f%v", r.particles, r.nodes, r.ns_per_step / 1e6, per, verdict), x, &y, font, rl.RAYWHITE)
 		} else if stage == b.stage {
 			row(bench_text(&buf, "%-11d running %d of %d", edges[stage] * edges[stage] * edges[stage], b.batches, BENCH_BATCHES), x, &y, font, {60, 230, 215, 255})
 		} else {
