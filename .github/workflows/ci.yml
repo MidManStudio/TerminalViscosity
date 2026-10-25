@@ -95,6 +95,8 @@ jobs:
         run: odin test client/src/lab -vet -strict-style
       - name: Carry tests
         run: odin test client/src/carry -vet -strict-style
+      - name: Chemistry tests
+        run: odin test client/src/chem -vet -strict-style
       - name: Liquid simulation tests
         run: odin test client/src/mpm -vet -strict-style
       - name: Store tests with a stand-in DixScript library
