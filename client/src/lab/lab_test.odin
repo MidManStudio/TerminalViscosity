@@ -21,7 +21,7 @@ the_layout_fits_its_arrays_and_every_box_has_a_size :: proc(t: ^testing.T) {
 	defer free(l)
 	defer free(p)
 	testing.expect(t, l.box_count > 30 && l.box_count < MAX_BOXES)
-	testing.expect_value(t, l.collider_count, 4)
+	testing.expect_value(t, l.collider_count, 5)
 	for i in 0 ..< l.box_count {
 		b := l.boxes[i]
 		testing.expectf(t, b.size.x > 0 && b.size.y > 0 && b.size.z > 0, "box %v has no size", i)
@@ -164,4 +164,60 @@ there_is_no_jump_in_the_air :: proc(t: ^testing.T) {
 @(test)
 a_jump_is_too_low_to_clear_a_counter :: proc(t: ^testing.T) {
 	testing.expect(t, JUMP_SPEED * JUMP_SPEED / (2 * GRAVITY) < COUNTER_HEIGHT)
+}
+
+@(test)
+the_bottle_wall_fits_over_its_counter_and_in_the_room :: proc(t: ^testing.T) {
+	l := new(Layout)
+	defer free(l)
+	build(l)
+	before := l.box_count
+	colors: [DISPENSER_COUNT][4]u8
+	for i in 0 ..< DISPENSER_COUNT {
+		colors[i] = {u8(20 * i), 100, 200, 255}
+	}
+	add_dispensers(l, colors)
+	testing.expect_value(t, l.box_count, before + 1 + 4 * DISPENSER_COUNT)
+	testing.expect(t, l.box_count < MAX_BOXES)
+
+	counter := Rect{}
+	found := false
+	for i in 0 ..< l.collider_count {
+		c := l.colliders[i]
+		if c.min_x > 11 {
+			counter, found = c, true
+		}
+	}
+	testing.expect(t, found)
+	previous_z := f32(-1e9)
+	for i in 0 ..< DISPENSER_COUNT {
+		n := dispenser_nozzle(i)
+		testing.expectf(t, n.x > counter.min_x && n.x < counter.max_x, "nozzle %v is not over the counter", i)
+		testing.expectf(t, n.z > counter.min_z && n.z < counter.max_z, "nozzle %v is past the counter", i)
+		testing.expect(t, n.z - previous_z > 0.5)
+		previous_z = n.z
+		testing.expect(t, n.y > COUNTER_HEIGHT + 0.3 && n.y < 1.8)
+	}
+}
+
+@(test)
+the_east_counter_stops_the_player_but_can_be_walked_round :: proc(t: ^testing.T) {
+	l := new(Layout)
+	defer free(l)
+	p := new(Player)
+	defer free(p)
+	build(l)
+	player_init(p, l)
+	p.x, p.z = 8, 0
+	for _ in 0 ..< 240 {
+		player_move(p, l, {1, 0}, 1.0 / 60) // walk east
+	}
+	testing.expectf(t, p.x < 11.28, "the player got to x %v", p.x)
+	testing.expect(t, p.x > 10.8)
+	p.x, p.z = 8, 5.6 // past the end of the counter
+	p.yaw = 0
+	for _ in 0 ..< 240 {
+		player_move(p, l, {1, 0}, 1.0 / 60)
+	}
+	testing.expect(t, p.x > 11.3)
 }

@@ -49,8 +49,10 @@ jump_button :: proc(w, h: f32) -> [4]f32 {
 	return {g.x, g.y - height - 16, g.z, height}
 }
 
-// The mix button, just left of the grab button.
-mix_button :: proc(w, h: f32) -> [4]f32 {
+// The pour button, just left of the grab button. It says "mix" when the held
+// vessel can be poured into the one under the crosshair, "fill" under a tap, and
+// "pour" otherwise.
+pour_button :: proc(w, h: f32) -> [4]f32 {
 	g := grab_button(w, h)
 	return {g.x - g.z - 16, g.y, g.z, g.w}
 }
@@ -199,15 +201,20 @@ draw_bench_button :: proc(w, h: f32) {
 	draw_button(bench_button(w, h), "sim test", {10, 18, 28, 190}, {230, 236, 242, 200}, rl.RAYWHITE)
 }
 
-// The mix button is bright when the held vessel is over one it can pour into.
-draw_mix_button :: proc(w, h: f32, ready: bool) {
+// The pour button is held down. It is bright when there is something to pour
+// into, a vessel under the crosshair close enough or a tap, and dim when it would
+// only spill what is held.
+draw_pour_button :: proc(w, h: f32, label: cstring, ready: bool, held: bool) {
 	fill := rl.Color{10, 18, 28, 150}
 	edge := rl.Color{200, 210, 222, 110}
 	ink := rl.Color{200, 210, 222, 160}
 	if ready {
 		fill, edge, ink = {14, 74, 74, 230}, {60, 230, 215, 255}, rl.RAYWHITE
 	}
-	draw_button(mix_button(w, h), "mix", fill, edge, ink)
+	if held {
+		fill = {30, 130, 120, 245}
+	}
+	draw_button(pour_button(w, h), label, fill, edge, ink)
 }
 
 // The health bar, at the top in the middle, green when full and red when low.

@@ -4,7 +4,7 @@
 
 The Odin client: window, input, rendering, scenes, and the crafting-lab prototype. It links the Rust simulation through the C ABI in `tv_ffi`. Raylib comes from the `vendor:raylib` package that ships with the Odin compiler (raylib 6.0 in the release used here).
 
-The game is arranged in scenes, as in Unity. There are two scenes. The lab room is the chemistry lab, walked around in first person: a large open room with long counters along the walls and one in the middle. Glass vessels with colored liquid in them stand on the middle counter, ten with one of each stock liquid and the rest empty, and can be picked up, carried in the player's hands, and poured into each other, which makes the liquids react. Some reactions are violent enough to hurt the player and break the vessel. The player can also jump. The balloon lab is the balloon on its own: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The lab overlay also shows the result of a start-up check of the local database, which reads and writes DixScript through its C library. The balloon editing menu, the arena, networking, and balloon painting are not started.
+The game is arranged in scenes, as in Unity. There are two scenes. The lab room is the chemistry lab, walked around in first person: a large open room with long counters along the walls and one in the middle. Glass vessels with colored liquid in them stand on the middle counter, ten with one of each stock liquid and the rest empty, and can be picked up, carried in the player's hands, and poured into each other, which makes the liquids react: the held vessel tips over and its liquid runs out as a stream of drops, simulated, into the vessel under the crosshair. A bottle wall along the east side fills a held vessel from a tap for each stock liquid. Some reactions are violent enough to hurt the player and break the vessel, and a menu shows every reaction and which are volatile. The player can also jump. The balloon lab is the balloon on its own: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The lab overlay also shows the result of a start-up check of the local database, which reads and writes DixScript through its C library. The balloon editing menu, the arena, networking, and balloon painting are not started.
 
 Commands, run from the repository root with `cargo` and `odin` on the path:
 
@@ -18,7 +18,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - `odin test client/src/store` runs the local-database tests. Three of them need a DixScript library and skip themselves without one. `TV_MDIX_FAKE_LIB` points at the stand-in built with `cc -shared -fPIC -o libfake_mdix.so client/src/store/testdata/fake_mdix_ffi.c`, and `TV_MDIX_LIB` points at the real DixScript library.
 - `odin run client/bench -o:speed` runs the soft-body, balloon, and liquid simulation benchmarks.
 - From `build/`, `./tv_client --fixed-step --frames 240 --screenshot lab.png` runs the lab for a fixed number of frames and saves a screenshot. The screenshot path is relative to the working directory. Under a virtual display this works in CI: `xvfb-run -a ./tv_client ...`.
-- `--demo hang` and `--demo swing` script the pointer: after 90 frames the tip is grabbed and lifted, and `swing` then sways it side to side. `--fixed-step` advances the game by exactly 1/60 s per frame, so a given frame count always shows the same picture. `--size 1600x720` opens a window of that size, which is handy for trying a phone's wide screen. `--scene room`, `--scene balloon`, or `--scene bench` picks the scene to start in, and the demos only act in the balloon scene. In the lab room a desktop walks with WASD or the arrow keys and looks by dragging the mouse. A small button in the top right corner switches scenes, a button in the bottom right corner grabs the vessel under the crosshair or lets go of the one held, and a jump button sits above it. A mix button sits left of the grab button, and pours the held vessel into the vessel it is over. On a desktop E grabs, M mixes, and space jumps. A button under the scene switch opens the liquid sim test.
+- `--demo hang` and `--demo swing` script the pointer: after 90 frames the tip is grabbed and lifted, and `swing` then sways it side to side. `--fixed-step` advances the game by exactly 1/60 s per frame, so a given frame count always shows the same picture. `--size 1600x720` opens a window of that size, which is handy for trying a phone's wide screen. `--scene room`, `--scene balloon`, or `--scene bench` picks the scene to start in, and the demos only act in the balloon scene. In the lab room a desktop walks with WASD or the arrow keys and looks by dragging the mouse. A small button in the top right corner switches scenes, a button in the bottom right corner grabs the vessel under the crosshair or lets go of the one held, and a jump button sits above it. A pour button sits left of the grab button: held down it tips the held vessel over to pour into the vessel under the crosshair, and it says mix when there is one close enough, fill under a tap, and pour otherwise. On a desktop E grabs, M held pours, R opens the reaction matrix, and space jumps. A button under the sim test button opens the reaction matrix, a menu with a close button that shows which mixes are volatile. A button under the scene switch opens the liquid sim test.
 
 ## Modules
 
@@ -127,6 +127,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - The balloon is not placed yet. Its physics runs at a scale where the balloon is 2 units across, and when it is placed in the lab it will be drawn scaled down.
 
 **Tests:** `lab_test.odin`.
+- A counter along the east wall carries the bottle wall, with a way round it at each end. `add_dispensers` adds its rack: a backboard and, for each of ten taps, a bottle in the color of its liquid, an arm, and a nozzle. The colors are passed in, so the bottles match what comes out. `dispenser_nozzle` says where a nozzle tip is, and the carrying code uses it.
 
 ### `player.odin`
 **What it does:** A walker seen from above, with a view direction. `player_look` turns the view and keeps the pitch within about 70 degrees. `player_move` walks for one frame at a stick position, and `blocked` says whether a spot is inside a counter or outside the room.
@@ -140,7 +141,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - A jump is a height above the standing eye and a speed, moved by `player_update_air`, which only changes how high the view is. Walking and collision stay as they were. A jump peaks at about 46 cm, well under the 1.1 m counters, so a collision circle on the floor is still right and nothing can be climbed. A second jump cannot start in the air.
 
 ### `lab_test.odin`
-**What it does:** The layout fits its arrays and every box has a size, glow, and gloss in range. The player starts in the open. Full stick covers the walking speed. A counter stops the player at the right distance and a slanted walk slides along it. The player cannot leave the room in any of six directions. Three long frames in a row do not carry the player through the island. Looking clamps the pitch, and walking follows the view direction. A jump peaks between 40 and 50 cm and lands, there is no jump in the air, and a jump stays lower than a counter.
+**What it does:** The layout fits its arrays and every box has a size, glow, and gloss in range. The player starts in the open. Full stick covers the walking speed. A counter stops the player at the right distance and a slanted walk slides along it. The player cannot leave the room in any of six directions. Three long frames in a row do not carry the player through the island. Looking clamps the pitch, and walking follows the view direction. A jump peaks between 40 and 50 cm and lands, there is no jump in the air, and a jump stays lower than a counter. The bottle wall fits over its counter and in the room, and the east counter stops the player but can be walked round.
 
 ### `chem.odin`
 **What it does:** Package `chem`, what the lab liquids are and what happens when two of them meet. It has the compounds (ten stock liquids and eight products), the ten classes they belong to, and the reaction matrix. `react(a, b)` gives the product, the volatility from 0 to 1, and the heat, in either order. The answer has the same shape as `ChemBackend::react` in `tv_sim`, with the product added for the lab. It has no raylib dependency.
@@ -171,6 +172,7 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - This table is a stand-in. The compound database is planned as DixScript content shared with the server, and these rules will come from there.
 
 **Tests:** `chem_test.odin`.
+- `compound_cname` gives a name as a C string, for drawing text without a copy.
 
 ### `hazard.odin`
 **What it does:** What a reaction does to the player. A volatility below 0.3 is calm, 0.3 up to 0.6 spatters, and 0.6 and over is a blast. A spatter does up to 15 damage and a blast 30 to 100, the most at point blank and falling in a straight line to nothing at the edge: 1.5 m for a spatter, and 2 to 4 m for a blast, larger for a stronger one.
@@ -184,11 +186,11 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 **What it does:** The ids and the table agree, and names are unique. Every pair of classes has exactly one rule, and every product is a known compound. The outcome does not depend on the order. Nothing reacts with itself or with nothing. A reaction always makes a real compound. Water thins acids, bases, oxidizers, and dyes. The known recipes make what they should. Only the planned pairs are dangerous, two blasts and two spatters, all around the oxidizer. Damage falls with distance and grows with volatility, and the worst blast at arm's length hurts a lot but does not kill.
 
 ### `carry.odin`
-**What it does:** Package `carry`, the things in the lab room that the player can pick up, in metres. It has no raylib dependency, so it is tested without a window. A `Prop` is a vessel standing on a counter or the floor, holding one compound as an id and an amount in millilitres. Each frame `update` finds the prop under the crosshair, puts the held prop at a hold point in front of the eyes, and lets every other prop fall until it stands on something. `grab` takes the prop under the crosshair when the hands are empty and `release` lets go. `state_of` says whether the hands are idle, reaching, or holding, and that drives the hands, the crosshair, and the grab button. `props_remove` takes a vessel out when it breaks and keeps the held and aimed indices right, `focus` names the vessel the contents label is about, and `far_to_near` orders the props for drawing see-through glass. The view follows the player's eye, so it rises with a jump.
+**What it does:** Package `carry`, the things in the lab room that the player can pick up, in metres. It has no raylib dependency, so it is tested without a window. A `Prop` is a vessel standing on a counter or the floor, holding one compound as an id and an amount in millilitres. Each frame `update` finds the prop under the crosshair, puts the held prop at a hold point in front of the eyes, and lets every other prop fall until it stands on something. `grab` takes the prop under the crosshair when the hands are empty and `release` lets go. `state_of` says whether the hands are idle, reaching, or holding, and that drives the hands, the crosshair, and the grab button. `props_remove` takes a vessel out when it breaks and keeps the held and aimed indices right, `focus` names the vessel the contents label is about, and `far_to_near` orders the props for drawing see-through glass. The view follows the player's eye, so it rises with a jump. While the pour button is down the held vessel tips over, to 137 degrees, and comes back when it is released. `update` aims every frame, even while a vessel is held, so the crosshair can pick the vessel to pour into, and `pour_target` is that vessel when it is within 1.5 m and has room.
 
 **Decisions:**
 - The crosshair test is a ray from the eye against a box around each prop, padded by 5 cm, with a reach of 2 m. The padding makes small vessels easy to hit when aiming with a thumb. A counter between the eye and a prop hides it.
-- One prop is held at a time.
+- One prop is held at a time. A held vessel is held by its middle and tips about it, and is kept above the counters by how far it reaches up and down at its tilt.
 - The hold point is 0.55 m ahead, 0.17 m to the right, and 0.20 m below the eye. The held prop is kept inside the room and never lower than the counter top when any part of it is over a counter, so it rests on the counter instead of passing through it. This is a clamp and not a push, so it cannot jam.
 - A released prop falls under gravity and stops on the counter top or the floor under any part of its footprint. Props do not collide with each other yet, and a vessel that is only partly over a counter edge stays up on the counter.
 - A vessel holds one compound, and an amount above what it can hold is cut down when it is added. A vessel with no compound holds nothing.
@@ -205,19 +207,56 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - The level is worked out for an upright vessel. When pouring tilts a vessel, the surface stays flat in the world and its height has to come from the volume and the tilt, which is the next step.
 
 **Tests:** `carry_test.odin`.
+- A tipped vessel is cut by a level plane, because a liquid surface is level in the world, and the amount below the plane is found by adding up 32 slices across the inside. The capacity of a tipped vessel is what lies below the plane through its lowest rim point. The slices make the level right to within a few millilitres, which is enough to draw.
 
 ### `mixing.odin`
-**What it does:** Pouring one vessel into another and letting the liquids react. `mix_target` finds the vessel the held one is over: roughly centered over its mouth, with the base of the held vessel not far above its rim. `mix` pours as much as fits, runs `chem.react`, and applies the result. A calm reaction leaves the product in the target. A spatter loses 20% of it. A blast breaks the target and takes the liquid with it. The result says what happened and how much damage the player is to take, worked out from the distance between the eye and the target.
+**What it does:** What happens when a drop of one liquid falls into a vessel. `apply_droplet` adds the drop. When two different liquids meet, they react once for the whole pour: a `Session` remembers the vessel and what is being poured into it, until the drops stop for 0.6 s, and the contents become the product, with the drops that follow in the same pour joining the product as it is. A calm reaction leaves the product, a spatter loses 20% of it and stings, and a blast breaks the vessel and takes the liquid with it. The first drop of a meeting gives a `Mix_Result` saying what happened and how much damage the player takes, from the distance between the eye and the vessel.
 
 **Decisions:**
-- Mixing is instant and happens at the press of a button, as planned. A pour that tilts the vessel and runs into the target is the step after this one.
-- Everything in the held vessel goes in unless the target is too full, and then the rest stays in the held vessel with its own compound.
-- The reaction uses the whole contents of the target, so the product always replaces what was there, with the total amount.
-- Pouring into an empty vessel, or one with the same liquid, is not a reaction and does no harm.
-- A full vessel cannot be poured into and an empty one cannot be poured from, so neither counts as a target.
-- The held vessel stays in the hands when the target breaks, now empty or with what was left over.
+- A dangerous pair reacts on the first drop that touches it, as it would on contact, so a blast cannot be avoided by pouring slowly, and the damage does not depend on how much is poured.
+- A whole pour is one meeting, so the amount poured sets how much product there is and not how many reactions happen. Acid poured into base makes foam, and not foam turned back into acid by the next drop.
+- A second pour after a pause is a new meeting, with the product as what is in the vessel.
+- A drop into an empty vessel, or one with the same liquid, simply joins it. A drop into a full vessel is lost.
+- The vessel that was poured from is not touched by a blast, and stays in the hands.
 
 **Tests:** `carry_test.odin`.
+
+### `stream.odin`
+**What it does:** Liquid in the air: poured from a vessel or let out of a tap, falling, splashing, and either landing in a vessel, which takes it, or on a surface, where it is wiped away after a moment. Each drop is a particle of the liquid simulation, standing for 3.4 ml, in a box of 44 cells of 3 cm that is set in the world when the first drop is made, with its floor on whatever is under it. `pour_flow` lets the held vessel pour, `stream_step` runs the simulation, and `stream_capture` hands drops to the vessels they have fallen into.
+
+**Decisions:**
+- The cell size comes from the first phone benchmark. At 4.3 microseconds a particle each step, a 3 cm cell lets a pour of about twenty drops in flight run in a few milliseconds, and a finer cell does not fit. A pour never has more than 96 drops in flight. When the stream is full, the liquid waits at the lip, so a pour slows down and the frame does not.
+- A tipped vessel keeps what it can hold below its lowest rim point, found from the shape, and the rest runs over the lip, as fast as its neck allows: 150 ml a second for a beaker, 90 for a flask, 70 for a bottle. A vessel can tip to 137 degrees, because a narrow neck kept about 24 ml at 100 degrees.
+- With the crosshair on a vessel close enough, the drops leave the lip with the velocity of an arc that ends at its mouth, so the stream goes in however the lip is placed. With no target they leave forward from the lip.
+- A drop inside a column a little wider than a vessel, reaching 12 cm above its rim, goes in. That is the aim assist of a pour, and it makes a small mouth easy to hit with a thumb. A vessel being poured from does not take drops, and one held upright does, which is how a tap fills it.
+- Drops let out in one frame are spread along their way, as if let out at different moments. Two made in one place push each other apart in the simulation, which sent half a pour to the wrong place until a test showed it.
+- Liquid at the lip when the vessel is put upright runs back in, and a vessel that runs dry is emptied.
+- Puddles are not kept. A drop is wiped away after lying still for 1.2 s or after 8 s.
+- When the floor is more than a metre below the lip, the box floor is in the air, and a drop that reaches it falls out.
+
+**Tests:** `carry_test.odin`.
+
+### `station.odin`
+**What it does:** The bottle wall: a tap for each of the ten stock liquids, in the order of their ids. `dispenser_under` finds the tap the held vessel is under: roughly centered below the nozzle, upright, with room in it, and its top 0 to 55 cm below the tip. `station_flow` lets 110 ml a second out of the nozzle as drops, which fall into the vessel. `station_colors` gives the colors of the bottles, from the liquids in them.
+
+**Decisions:**
+- The supply is endless. Each tap has an `unlocked` flag that stops it giving anything, as the hook for the progression the lab is meant to have, where not everything is open from the start. Every tap is unlocked for now.
+- The pour button fills the vessel under a tap, and tips the vessel over everywhere else, so one button does both.
+
+**Tests:** `carry_test.odin`.
+
+### `stream_view.odin`
+**What it does:** Draws the liquid in the air as small diamonds in the color of the liquid, lighter on top and darker underneath. They are drawn by the batch renderer with no lighting, without back-face culling.
+
+**Decisions:** A diamond is eight triangles, so a full stream of 96 is under 2300 vertices, which is cheap on a phone. Spheres drawn one at a time would not be.
+
+### `menu_ui.odin`
+**What it does:** The reaction matrix menu, opened from the matrix button under the sim test button, or R on a desktop. It is a panel over the lab with a title, a key, and a grid of the ten stock liquids against each other. Each cell is green for no volatile, amber for a spatter, and red for volatile, which is a blast, with what the two make written in it and a tag on the dangerous ones. Two of the same liquid are gray. A red close button in the top right corner closes it. While it is open the lab is paused.
+
+**Decisions:**
+- The grid is worked out from `chem.react` and `chem.hazard_of`, the same as the game uses, so it cannot say something the game does not do.
+- Every pair is shown from the start. Hiding what the player has not found yet belongs to the lab's gameplay loop, which comes later.
+- The close button is large and red, and the panel has no other way out on a phone, so it cannot be missed.
 
 ### `health.odin`
 **What it does:** The player's health, from 0 to 100, for what the lab can do to them. A hit lowers it and makes the screen flash red, in proportion to the damage. Health comes back at 8 a second after 4 seconds without a hit, and nothing heals once it reaches zero.
@@ -243,11 +282,12 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - The grip follows the vessel's real position and not the ideal hold point, so the hand stays on a vessel that a counter has lifted.
 - Every number (wrist spots, segment lengths, curl angles) is a constant in `hand_parts`. They were set without seeing the result on a screen and are expected to need tuning on the phone.
 - Matrices are built by hand, because raylib's matrix helpers return a struct, which is not safe to call from Odin on Android.
+- A prop is placed turned to face the way the player looks and tipped over toward it, with its frame built from that, so a tipped vessel is drawn in the same pass as an upright one.
 
 **Tests:** `carry_test.odin`.
 
 ### `carry_test.odin`
-**What it does:** Every shape, the glass, the liquid, the cap, and the box, faces outward, has unit normals, has the expected number of vertices, and stays inside its vessel's size. The view is a right-handed set and rises with a jump. The default props stand on the island without overlapping, hold no more than their capacity, include one of each stock liquid, and thirteen empty vessels. The vessel under the held one is the target, and not one off to the side, far above or below, full, or when nothing is held. Pouring into an empty vessel moves the liquid, two of the same liquid add up, and only what fits is poured. Acid and base make foam and keep all the liquid, a spatter hurts a little and loses some liquid, and a blast breaks the target, hurts, and leaves the held vessel in the hands, even when the broken vessel came first in the list. Removing a vessel keeps the other indices right. Health drops, comes back, and ends at zero. A vessel cannot be filled past its capacity and holds nothing without a compound. Capacities are between 400 and 1000 ml, and a beaker's matches a hand calculation. The level never drops as the amount grows and matches the volume. See-through props are ordered far to near. The crosshair picks a prop it points at, and not one it points over or one out of reach. A counter hides what is behind it. Grabbing takes the aimed prop once. A sweep of positions and view directions near and far from the counters shows that a held prop never enters a counter or leaves the room. A vessel in open space sits at the hold point. Released props fall to a counter or the floor. The hands close and open again, every hand part is right-handed and stays near the eye, an unturned part follows the view, and a turned prop keeps a right-handed frame.
+**What it does:** Every shape, the glass, the liquid, the cap, and the box, faces outward, has unit normals, has the expected number of vertices, and stays inside its vessel's size. The view is a right-handed set and rises with a jump. The default props stand on the island without overlapping, hold no more than their capacity, include one of each stock liquid, and thirteen empty vessels. A disc is cut by a line at the right area. The geometry of a tipped vessel agrees with the upright one, holds the same liquid at the level it finds, and holds less the further it tips, nothing at full tilt. The lip is the lowest point of the rim. A tipped prop keeps a right-handed frame. The crosshair picks a second vessel while one is held, close enough and with room. A slightly tipped vessel lets nothing out. A stream goes into the vessel under the crosshair. A calm pour reacts once for the whole pour. Pouring the oxidizer into the oil blasts, hurts, and breaks the vessel. A drop starts a reaction only the first time, and only after a pause does the next start another. A drop into a full vessel is lost and a spatter loses some liquid. A vessel is found under a nozzle only in the right place, a tap fills it with its own liquid, a locked tap gives nothing, and the bottles are the colors of their liquids. A drop lands and is wiped away, one outside the box or in a full stream is refused, and a pour from high over the floor falls out. Removing a vessel keeps the other indices right. Health drops, comes back, and ends at zero. A vessel cannot be filled past its capacity and holds nothing without a compound. Capacities are between 400 and 1000 ml, and a beaker's matches a hand calculation. The level never drops as the amount grows and matches the volume. See-through props are ordered far to near. The crosshair picks a prop it points at, and not one it points over or one out of reach. A counter hides what is behind it. Grabbing takes the aimed prop once. A sweep of positions and view directions near and far from the counters shows that a held prop never enters a counter or leaves the room. A vessel in open space sits at the hold point. Released props fall to a counter or the floor. The hands close and open again, every hand part is right-handed and stays near the eye, an unturned part follows the view, and a turned prop keeps a right-handed frame.
 
 ### `mpm.odin`
 **What it does:** Package `mpm`, the liquid simulator for the lab: the Moving Least Squares Material Point Method of Hu et al. (2018) for a weakly compressible fluid, in 3D. Particles carry the liquid and a background grid works out the forces. Each substep sends mass and momentum from the particles to the grid, updates the grid with gravity and walls, and reads velocities back with the affine matrix of APIC. The stress comes from each particle's volume ratio alone and is folded into the transfer, as in section 3.4 of the paper, so no kernel gradient is ever evaluated. It has no raylib dependency. After `sim_init` nothing is allocated, so stepping never touches the allocator.
@@ -263,6 +303,7 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - Thin glass walls, which the paper handles with CPIC, are not here yet.
 
 **Tests:** `mpm_test.odin`. **Benchmarks:** `client/bench/mpm_bench.odin`.
+- `sim_add_particle` and `sim_remove_particle` add and take out one particle at a time, which is how the stream uses it. Removing moves the last particle into the gap, so the order changes.
 
 ### `scenario.odin`
 **What it does:** The one liquid every benchmark uses: a cube with 6, 8, 10, 12, or 16 particles along each side, so 216 to 4096 particles, centered in a grid of 32 cells and a little above the floor, so it drops and splashes.
@@ -270,7 +311,7 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 **Decisions:** The desktop benchmark and the sim-test scene both use it, so their numbers can be compared.
 
 ### `mpm_test.odin`
-**What it does:** A block holds two particles to a cell along each side and is cut off at the capacity. The grid receives all the mass. A block in free fall speeds up at gravity. Momentum is conserved without gravity. A block set spinning keeps its spin, which fails if the affine matrix is rebuilt at the wrong scale. A tank of liquid comes to rest, slightly compressed by its own weight. A dropped block splashes and stays inside the grid. The same start gives the same liquid bit for bit. The fast step matches the plain original step to within a millimetre after 200 steps, which fails if a single term of the affine matrix is wrong. Only the block of the grid that the liquid touches is worked on. A particle with a NaN or enormous velocity stays inside the grid. The benchmark cube has the stated particle counts and stays finite.
+**What it does:** A block holds two particles to a cell along each side and is cut off at the capacity. The grid receives all the mass. A block in free fall speeds up at gravity. Momentum is conserved without gravity. A block set spinning keeps its spin, which fails if the affine matrix is rebuilt at the wrong scale. A tank of liquid comes to rest, slightly compressed by its own weight. A dropped block splashes and stays inside the grid. The same start gives the same liquid bit for bit. The fast step matches the plain original step to within a millimetre after 200 steps, which fails if a single term of the affine matrix is wrong. Only the block of the grid that the liquid touches is worked on. A particle with a NaN or enormous velocity stays inside the grid. The benchmark cube has the stated particle counts and stays finite. Particles can be added and taken out one at a time.
 
 ### `lab_mesh.odin`
 **What it does:** Turns the layout into one static raylib mesh with a color for each vertex, and draws it with one call. The first texture coordinate carries how much a surface glows and the second how glossy it is.
@@ -290,14 +331,17 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - The joystick is floating, so a thumb does not have to find a fixed spot. A faint ring shows where it starts.
 - A finger that was already down last frame is never re-assigned a role. The same goes for a finger that was already down when the scene started, so the tap that switched scenes cannot press the button of the new one.
 - Touch positions on Android come from the C wrapper in `android/entry.c`.
+- `held` says which button a finger is still down on, for the pour button, which does its work while it is held. `pressed` is still only the frame a finger lands.
 
 ### `scene_room.odin`
-**What it does:** The lab room scene. It owns the layout, the player, the room mesh, the controls, the props, the hands, and their meshes. Each frame it reads the pointers, turns the view by the look drag, and walks by the joystick or the keyboard, then runs the carrying step and moves the hands. The grab button, or E on a desktop, grabs or releases, and the jump button, or space, jumps. The button under the scene switch opens the sim test. The mix button, or M, pours the held vessel into the one under it, shows what it made, and takes any damage. At zero health the player is knocked out and the lab is put back as it was. The room is drawn first, then the hands and the bottle caps, then the liquid, then the glass blended over it all. The crosshair, hand icon, contents line, and buttons are drawn on the screen afterwards. The camera is at eye height, 1.6 m, with a 70 degree field of view.
+**What it does:** The lab room scene. It owns the layout, the player, the room mesh, the controls, the props, the hands, the stream of liquid, the bottle wall, and the health. Each frame it reads the pointers, turns the view by the look drag, and walks by the joystick or the keyboard. The pour button held down either fills the held vessel from the tap it is under or tips it over to pour. The liquid is let out, simulated, and taken by the vessels it falls into, and a reaction that a pour starts is shown and takes its damage. The grab button, or E on a desktop, grabs or releases, and the jump button, or space, jumps. The matrix button, or R, opens the reaction matrix and pauses the lab until it is closed. The room is drawn first, then the hands and the bottle caps, then the liquid in the air, then the liquid in the vessels, then the glass blended over it all. The camera is at eye height, 1.6 m, with a 70 degree field of view. At zero health the player is knocked out and the lab is put back as it was.
 
 **Decisions:**
-- First person with a joystick, so the room can be crossed without a pointer tap on a floor spot and so later stations can be reached by walking.
+- First person with a joystick, so the room can be crossed without a pointer tap on a floor spot and so stations can be reached by walking.
 - The clip planes are 0.08 to 70 for the room. The default far plane of 4000 gives a 16-bit depth buffer almost no precision.
 - The button in the corner changes scenes, so the balloon lab stays reachable on a phone.
+- The liquid takes as many substeps as a real-time frame needs, or fewer if they would take more than 5 ms, going by how long a step took lately. Then the liquid runs a little slower than real time and the frame is not late.
+- With the matrix menu open nothing in the lab moves, and the finger that closes it is ignored until it lifts, so closing the menu does not start the player walking.
 
 ### `scene_bench.odin`
 **What it does:** The sim-test scene. It times the liquid simulation on the device itself at five particle counts, six substeps a frame so the screen keeps moving, and shows for each count the grid nodes used and the cost. When it finishes it fits a straight line through the smallest and largest count to get the cost of one particle and the fixed cost of the grid, and shows what that allows for a 125 ml splash at 1, 2, and 3 cm cells. A tap runs it again, and the button in the top right corner goes back to the lab room.
@@ -321,14 +365,15 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - The liquid is drawn opaque, so it needs no sorting.
 
 ### `interact_ui.odin`
-**What it does:** The 2D pieces of carrying and jumping: the crosshair dot with a hand icon under it, a line about the vessel in view or in hand, the grab button in the bottom right corner, and the jump button above it. The icon is an open hand in white while nothing is in reach, in teal when something is, and a closed fist while holding. The line names the liquid and says how full the vessel is. The grab button says grab, and release while holding, and it is dimmer when nothing is in reach. The jump button is dimmer while the player is in the air. The mix button, left of grab, is bright when the held vessel is over one it can pour into, and the contents lines then add what is in that vessel. At the top are a health bar and, for a moment after a hit, a red flash over the whole screen, a white-hot one for a blast or spatter, and a message saying what a mix made. A small button under the scene switch opens the liquid sim test.
+**What it does:** The 2D pieces of carrying, pouring, and jumping: the crosshair dot with a hand icon under it, lines about the vessel in view or in hand, the grab button in the bottom right corner, the jump button above it, and the pour button to its left. The icon is an open hand in white while nothing is in reach, in teal when something is, and a closed fist while holding. The lines name the liquid and say how full the vessel is, and with a vessel held and another under the crosshair, close enough, they add what is in that one. The grab button says grab, and release while holding, and is dimmer when nothing is in reach. The pour button is held down. It says mix and is bright when there is a vessel to pour into, fill under a tap, and pour and dim when it would only spill. The jump button is dimmer in the air. At the top are a health bar and, for a moment after a hit, a red flash over the whole screen, a white-hot one for a blast or spatter, and a message saying what a mix made. A small button under the scene switch opens the liquid sim test.
 
 **Decisions:**
 - Grabbing on a phone is a button that turns into the release button while holding, as decided in the design discussion.
+- Pouring is a held button. The target is the vessel under the crosshair within 1.5 m, and that is what makes the button bright. The first version asked for the held vessel to be directly over the target, which was hard to line up and gave no hint, so it was changed.
 - Buttons have a dark backing, a bright edge, and a shadowed label, so they read on the light floor and walls as well as on the dark counters.
 - The icons are drawn from rounded rectangles in code, so no image files have to be packaged into the APK.
 - The icons are opaque with a dark outline, so overlapping pieces do not blend twice and the icon reads on light and dark surfaces.
-- The contents line is built in a buffer on the stack, so nothing is allocated each frame.
+- The contents lines are built in a buffer on the stack, so nothing is allocated each frame.
 
 ### `lab.vs`
 **What it does:** Vertex shader for the room, the vessels, and the hands. The room mesh is in world space and is drawn with an identity model matrix, so its positions and normals pass straight through. Vessels and hands are drawn with a model matrix that moves them, and the shader applies it so the lighting and fog work on world positions. The vertex color and the glow and gloss values are passed on. There are two versions, `shaders/glsl330/` and `shaders/glsl100/`.
@@ -535,10 +580,23 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - The stock liquid table is a stand-in with fictional names. The compound database will replace it, and the level is only right for an upright vessel until pouring is added.
 
 ### `mixing.odin`
-- Mixing is a button press with no pour yet, so a vessel is never seen tipping. A blast removes the vessel with no shards or spill.
+- The first version mixed with a button press and wanted the held vessel exactly over the target, which was hard to do and never showed it was ready. It was replaced by the pour, aimed with the crosshair. A blast removes the vessel with no shards or spill.
 
 ### `health.odin`
 - The knock-out rule, which resets the lab, is an assumption.
+
+### `stream.odin`
+- The first pours lost most of their liquid. Drops let out in the same frame were made in the same place and pushed each other apart in the simulation, and the vessel was allowed to tip so far that its lip was inside the counter. Both were found with a test that pours into a vessel and counts what arrives.
+- Nothing has run on a phone yet. The drops use the liquid simulation at 3 cm cells, which the benchmark said fits.
+
+### `station.odin`
+- None recorded yet. Every tap is unlocked, and nothing takes a cost for the liquid.
+
+### `stream_view.odin`
+- None recorded yet.
+
+### `menu_ui.odin`
+- None recorded yet.
 
 ### `shapes.odin`
 - The vessels were opaque pastel solids at first. They are now see-through glass with liquid, as asked after the first test on the phone.

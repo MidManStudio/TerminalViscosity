@@ -40,6 +40,8 @@
 - **Open: ceiling.** The ceiling is flat with straight light panels. The hexagon panels in one reference are not done.
 - **Decided: a violent mix hurts.** A blast damages the player and breaks the container, and a spatter stings and spills some liquid. Mixing is a button pressed with one vessel held over another.
 - **Decided: the liquid simulation is for the lab only.** The gameplay balloon does not use it. On the first phone runs the simulation cost 4.3 microseconds a particle each step, so a 125 ml splash fits the frame budget at 3 cm cells and not at 2 cm.
+- **Decided: pouring is aimed with the crosshair.** The held vessel tips over while a button is held, and the stream goes into the vessel under the crosshair if it is within 1.5 m. Under a tap on the bottle wall the same button fills the vessel.
+- **Open: the lab's gameplay loop.** The lab is to have its own enjoyable loop. Not everything is open from the start, and there will be a store and things earned by playing, but that comes later, once the lab feels right. The taps already have an `unlocked` flag as the place for it, and the reaction matrix menu shows every pair for now, where later it could show only what has been found.
 - **Open: the numbers of a bad mix.** The reaction matrix, how much a blast and a spatter hurt, how fast health comes back, and the reset of the lab when the player is knocked out are first guesses to tune by playing.
 
 ### Local data

@@ -18,6 +18,13 @@ ROOM_D :: f32(16) // along z
 ROOM_H :: f32(3.6)
 COUNTER_HEIGHT :: f32(1.1)
 
+// The bottle wall on the east side: ten dispensers in a row above a counter,
+// each with a nozzle that a held vessel can be put under.
+DISPENSER_COUNT :: 10
+DISPENSER_SPACING :: f32(0.9)
+DISPENSER_NOZZLE_X :: f32(11.55)
+DISPENSER_NOZZLE_Y :: f32(1.61) // height of the tip of a nozzle
+
 // A box to draw. `emissive` is how much it glows by its own light, from 0 to
 // 1, and `gloss` is how much it reflects the room, from 0 to 1.
 Box :: struct {
@@ -77,9 +84,30 @@ add_counter :: proc(l: ^Layout, area: Rect) {
 	}
 }
 
-// Fills the layout: a large open room with long counters along three walls, one
-// island in the middle, and rows of ceiling lights. The east wall is left
-// clear so there is a way in.
+// Where the tip of nozzle `i` of the bottle wall is, counting from the south.
+dispenser_nozzle :: proc(i: int) -> Vec3 {
+	return {DISPENSER_NOZZLE_X, DISPENSER_NOZZLE_Y, (f32(i) - 4.5) * DISPENSER_SPACING}
+}
+
+// Adds the rack of the bottle wall: a backboard, and for each dispenser a bottle
+// in the color of its liquid, an arm, and a nozzle. The colors are given so the
+// bottles match what comes out of them.
+add_dispensers :: proc(l: ^Layout, colors: [DISPENSER_COUNT][4]u8) {
+	x_wall := ROOM_W * 0.5
+	add_box(l, {x_wall - 0.04, 1.9, 0}, {0.08, 1.8, 9.7}, COLOR_COUNTER)
+	metal := [4]u8{70, 78, 90, 255}
+	for i in 0 ..< DISPENSER_COUNT {
+		z := dispenser_nozzle(i).z
+		add_box(l, {x_wall - 0.14, 2.15, z}, {0.2, 0.5, 0.2}, colors[i], 0.3, 0.5) // the bottle
+		add_box(l, {x_wall - 0.14, 2.43, z}, {0.12, 0.06, 0.12}, metal, 0, 0.5) // its cap
+		add_box(l, {(x_wall - 0.14 + DISPENSER_NOZZLE_X) * 0.5, 1.84, z}, {x_wall - 0.14 - DISPENSER_NOZZLE_X, 0.05, 0.05}, metal, 0, 0.5) // the arm
+		add_box(l, {DISPENSER_NOZZLE_X, DISPENSER_NOZZLE_Y + 0.11, z}, {0.06, 0.22, 0.06}, metal, 0, 0.5) // the nozzle
+	}
+}
+
+// Fills the layout: a large open room with long counters along the north, south,
+// and west walls, a counter for the bottle wall on the east wall with a way
+// round it at each end, an island in the middle, and rows of ceiling lights.
 build :: proc(l: ^Layout) {
 	l^ = {}
 	half_w := ROOM_W * 0.5
@@ -107,6 +135,7 @@ build :: proc(l: ^Layout) {
 	add_counter(l, {-half_w + 0.5, half_d - 0.7 - gap, half_w - 0.5, half_d - gap}) // south wall
 	add_counter(l, {-half_w + gap, -half_d + 1.2, -half_w + 0.7 + gap, half_d - 1.2}) // west wall
 	add_counter(l, {-5, -0.7, 5, 0.7}) // the island
+	add_counter(l, {half_w - 0.7 - gap, -4.8, half_w - gap, 4.8}) // the bottle wall
 
 	l.spawn = {0, 0, 4.5}
 	l.spawn_yaw = 0

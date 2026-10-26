@@ -391,3 +391,23 @@ a_particle_with_a_broken_velocity_stays_inside_the_grid :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, inside_domain(&s))
 }
+
+@(test)
+particles_can_be_added_and_taken_out_one_at_a_time :: proc(t: ^testing.T) {
+	s: Sim
+	sim_init(&s, test_params(), 14, 3)
+	defer sim_destroy(&s)
+	testing.expect(t, sim_add_particle(&s, {0.2, 0.3, 0.2}, {1, 0, 0}))
+	testing.expect(t, sim_add_particle(&s, {0.25, 0.3, 0.2}, {2, 0, 0}))
+	testing.expect(t, sim_add_particle(&s, {-5, 99, 0.2}, {3, 0, 0})) // far outside, so it is pulled in
+	testing.expect(t, !sim_add_particle(&s, {0.2, 0.3, 0.2}, {})) // full
+	testing.expect(t, inside_domain(&s))
+	sim_remove_particle(&s, 0)
+	testing.expect_value(t, s.count, 2)
+	testing.expect_value(t, s.particles[0].v.x, 3) // the last one took its place
+	testing.expect_value(t, s.particles[1].v.x, 2)
+	sim_remove_particle(&s, 1)
+	sim_remove_particle(&s, 0)
+	testing.expect_value(t, s.count, 0)
+	sim_step(&s) // an empty sim steps without trouble
+}

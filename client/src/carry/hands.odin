@@ -152,8 +152,16 @@ hands_place :: proc(h: ^Hands, v: View, grip: Vec3, radius: f32, out: ^[MAX_HAND
 	return n
 }
 
-// A prop in the world: turned about the vertical axis and moved to its place.
+// The three axes of a prop: to its right, along its length from base to mouth,
+// and the one that completes a right-handed set. It faces the way a player
+// looking along `yaw` faces, and is tipped over toward that way by `tilt`.
+prop_axes :: proc(yaw, tilt: f32) -> [3]Vec3 {
+	right := Vec3{math.cos(yaw), 0, math.sin(yaw)}
+	axis, _ := tilt_axis(pour_dir(yaw), tilt)
+	return {right, axis, cross(right, axis)}
+}
+
+// A prop in the world, turned and tipped, with its base at its position.
 prop_placed :: proc(pr: ^Prop) -> Placed {
-	c, s := math.cos(pr.yaw), math.sin(pr.yaw)
-	return {axes = {{c, 0, -s}, {0, 1, 0}, {s, 0, c}}, origin = pr.pos}
+	return {axes = prop_axes(pr.yaw, pr.tilt), origin = pr.pos}
 }

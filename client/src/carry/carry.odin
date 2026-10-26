@@ -18,6 +18,7 @@ Vec3 :: [3]f32
 
 MAX_PROPS :: 24
 REACH :: f32(2.0) // how far from the eye a prop can be grabbed
+POUR_REACH :: f32(1.5) // how close a vessel must be to pour into it
 AIM_PAD :: f32(0.05) // extra width around a prop for the crosshair test, so small things are easy to hit
 HOLD_AHEAD :: f32(0.55) // where a held vessel sits, measured from the eye
 HOLD_RIGHT :: f32(0.17)
@@ -58,13 +59,32 @@ Prop :: struct {
 	vy:       f32, // how fast it is falling, in metres per second, while it settles
 	compound: u16,
 	ml:       f32,
+	tilt:     f32, // how far it is tipped over toward the way it faces, in radians
+	flow_acc: f32, // liquid that has run over the lip and not yet left as drops, in ml
+}
+
+TILT_MAX :: f32(2.4) // about 137 degrees, nearly upside down, so a narrow neck can empty
+TILT_RATE_IN :: f32(1.3) // radians a second while tipping it over
+TILT_RATE_OUT :: f32(2.6) // and while putting it back
+
+// A pour that is making two liquids meet. While drops of `src` keep arriving in
+// vessel `target`, they join the product at once instead of reacting again, so a
+// whole pour is one meeting. It ends when the drops stop for a moment.
+Session :: struct {
+	target:  int, // index of the vessel, or -1
+	src:     u16,
+	product: u16,
+	timer:   f32, // seconds left before the pour counts as over
 }
 
 Props :: struct {
-	items: [MAX_PROPS]Prop,
-	count: int,
-	held:  int, // index of the prop in the hands, or -1
-	aimed: int, // index of the prop under the crosshair, or -1
+	items:   [MAX_PROPS]Prop,
+	count:   int,
+	held:    int, // index of the prop in the hands, or -1
+	aimed:   int, // index of the prop under the crosshair, or -1
+	aimed_t: f32, // how far along the view that prop is, in metres
+	pouring: bool, // the pour button is down, so the held vessel is tipping over
+	session: Session,
 }
 
 // What the hands are doing, which also drives the crosshair and the button.
@@ -104,6 +124,12 @@ props_init :: proc(props: ^Props) {
 	props^ = {}
 	props.held = -1
 	props.aimed = -1
+	props.session.target = -1
+}
+
+// The horizontal direction a vessel pours toward when held by a player facing `yaw`.
+pour_dir :: proc(yaw: f32) -> Vec3 {
+	return {math.sin(yaw), 0, -math.cos(yaw)}
 }
 
 // Height of whatever a vessel at (x, z) would stand on: the counter top if any
@@ -151,6 +177,11 @@ props_remove :: proc(props: ^Props, i: int) {
 		props.aimed = -1
 	} else if props.aimed > i {
 		props.aimed -= 1
+	}
+	if props.session.target == i {
+		props.session.target = -1
+	} else if props.session.target > i {
+		props.session.target -= 1
 	}
 }
 
@@ -254,7 +285,7 @@ hidden_by_counter :: proc(l: ^lab.Layout, eye, dir: Vec3, t: f32) -> bool {
 
 // The nearest prop under the crosshair within reach and not hidden behind a
 // counter, or -1. The prop being held is never a candidate.
-aim :: proc(props: ^Props, l: ^lab.Layout, v: View) -> int {
+aim :: proc(props: ^Props, l: ^lab.Layout, v: View) -> (index: int, distance: f32) {
 	dir := -v.back
 	best := -1
 	best_t := REACH
@@ -273,7 +304,7 @@ aim :: proc(props: ^Props, l: ^lab.Layout, v: View) -> int {
 			best_t = t
 		}
 	}
-	return best
+	return best, best_t
 }
 
 // Takes the prop under the crosshair, if the hands are empty.
@@ -288,22 +319,32 @@ grab :: proc(props: ^Props) -> bool {
 
 // Lets go. The prop stays where it is and falls until something holds it up.
 release :: proc(props: ^Props) {
+	if props.held != -1 {
+		props.items[props.held].tilt = 0
+	}
 	props.held = -1
+	props.pouring = false
 }
 
-// Puts the held prop at the hold point in front of the eyes, then keeps it
-// out of the walls and the counters: inside the room, and never lower than the
-// counter top when any of it is over a counter.
+// Puts the held prop at the hold point in front of the eyes, tilted as far as
+// it is, then keeps it out of the walls and the counters: inside the room, and
+// never lower than the counter top when any of it is over a counter. It tips
+// about its middle, so the middle stays where the hands are.
 hold :: proc(pr: ^Prop, l: ^lab.Layout, v: View, yaw: f32) {
 	d := kind_dims(pr.kind)
+	sin_t, cos_t := math.sin(pr.tilt), math.cos(pr.tilt)
+	half := d.height * 0.5
+	reach_y := half * abs(cos_t) + d.radius * abs(sin_t) // how far it reaches up and down from its middle
+	reach_xz := half * abs(sin_t) + d.radius * abs(cos_t) // and sideways
 	centre := v.eye - v.back * HOLD_AHEAD + v.right * HOLD_RIGHT - v.up * HOLD_DOWN
-	pos := Vec3{centre.x, centre.y - d.height * 0.5, centre.z}
-	limit_x := lab.ROOM_W * 0.5 - d.radius
-	limit_z := lab.ROOM_D * 0.5 - d.radius
-	pos.x = clamp(pos.x, -limit_x, limit_x)
-	pos.z = clamp(pos.z, -limit_z, limit_z)
-	pos.y = clamp(max(pos.y, support_height(l, pos.x, pos.z, d.radius)), 0, lab.ROOM_H - d.height)
-	pr.pos = pos
+	limit_x := lab.ROOM_W * 0.5 - reach_xz
+	limit_z := lab.ROOM_D * 0.5 - reach_xz
+	centre.x = clamp(centre.x, -limit_x, limit_x)
+	centre.z = clamp(centre.z, -limit_z, limit_z)
+	floor := support_height(l, centre.x, centre.z, reach_xz)
+	centre.y = clamp(max(centre.y, floor + reach_y), reach_y, lab.ROOM_H - reach_y)
+	axis, _ := tilt_axis(pour_dir(yaw), pr.tilt)
+	pr.pos = centre - axis * half
 	pr.yaw = yaw
 	pr.vy = 0
 }
@@ -326,7 +367,17 @@ settle :: proc(pr: ^Prop, l: ^lab.Layout, dt: f32) {
 // One step of the carrying system. Call it after the player has moved.
 update :: proc(props: ^Props, l: ^lab.Layout, p: ^lab.Player, dt: f32) {
 	v := view_of(p)
-	props.aimed = props.held == -1 ? aim(props, l, v) : -1
+	props.aimed, props.aimed_t = aim(props, l, v)
+	props.session.timer -= dt
+	if props.held != -1 {
+		pr := &props.items[props.held]
+		target := props.pouring ? TILT_MAX : 0
+		if pr.tilt < target {
+			pr.tilt = min(pr.tilt + TILT_RATE_IN * dt, target)
+		} else {
+			pr.tilt = max(pr.tilt - TILT_RATE_OUT * dt, target)
+		}
+	}
 	for i in 0 ..< props.count {
 		pr := &props.items[i]
 		if i == props.held {
@@ -347,6 +398,19 @@ state_of :: proc(props: ^Props) -> State {
 	return .Idle
 }
 
+// The vessel to pour the held one into, or -1: the one under the crosshair, close
+// enough, and with room in it. This is what the pour button needs to be ready.
+pour_target :: proc(props: ^Props) -> int {
+	if props.held == -1 || props.aimed == -1 || props.aimed_t > POUR_REACH {
+		return -1
+	}
+	t := props.items[props.aimed]
+	if t.ml >= capacity_ml(t.kind) - 0.5 {
+		return -1
+	}
+	return props.aimed
+}
+
 // Where the held vessel's middle is as seen from the eye (x right, y up, z
 // toward the viewer, so ahead is negative), and how wide it is. With nothing
 // held it is the spot where the hands would hold something.
@@ -354,7 +418,8 @@ grip_of :: proc(props: ^Props, v: View) -> (grip: Vec3, radius: f32) {
 	if props.held != -1 {
 		pr := props.items[props.held]
 		d := kind_dims(pr.kind)
-		c := Vec3{pr.pos.x, pr.pos.y + d.height * 0.5, pr.pos.z} - v.eye
+		axis, _ := tilt_axis(pour_dir(pr.yaw), pr.tilt)
+		c := pr.pos + axis * (d.height * 0.5) - v.eye
 		return {dot(c, v.right), dot(c, v.up), dot(c, v.back)}, d.radius
 	}
 	return {HOLD_RIGHT, -HOLD_DOWN, -HOLD_AHEAD}, 0.05

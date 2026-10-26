@@ -439,159 +439,6 @@ a_turned_prop_keeps_a_right_handed_frame :: proc(t: ^testing.T) {
 	}
 }
 
-// Two vessels on the island: the first held, just over the second.
-mix_setup :: proc(props: ^Props, l: ^lab.Layout, held, target: chem.Id, held_ml, target_ml: f32) {
-	props_init(props)
-	props_add(props, l, .Beaker, 0, 0.35, u16(held), held_ml)
-	props_add(props, l, .Beaker, 0.02, 0.35, u16(target), target_ml)
-	props.held = 0
-	props.items[0].pos.y = lab.COUNTER_HEIGHT + kind_dims(.Beaker).height + 0.05
-}
-
-// An eye 0.8 m from the middle of the target, about where a player holding
-// something over it would be.
-mix_eye :: proc(props: ^Props) -> Vec3 {
-	t := props.items[1]
-	return {t.pos.x, t.pos.y + 0.07, t.pos.z + 0.8}
-}
-
-@(test)
-the_vessel_under_the_held_one_is_the_target :: proc(t: ^testing.T) {
-	l, p, props := make_scene()
-	defer free_scene(l, p, props)
-	mix_setup(props, l, .Water, .Slick, 200, 100)
-	testing.expect_value(t, mix_target(props), 1)
-
-	props.items[0].pos.x = 0.5 // off to the side
-	testing.expect_value(t, mix_target(props), -1)
-	props.items[0].pos.x = 0
-	props.items[0].pos.y = lab.COUNTER_HEIGHT + 0.9 // far above
-	testing.expect_value(t, mix_target(props), -1)
-	props.items[0].pos.y = lab.COUNTER_HEIGHT - 0.3 // far below
-	testing.expect_value(t, mix_target(props), -1)
-
-	mix_setup(props, l, .Water, .Slick, 200, 100)
-	props.items[0].ml = 0 // nothing to pour
-	testing.expect_value(t, mix_target(props), -1)
-	mix_setup(props, l, .Water, .Slick, 200, capacity_ml(.Beaker)) // nowhere to pour
-	testing.expect_value(t, mix_target(props), -1)
-	mix_setup(props, l, .Water, .Slick, 200, 100)
-	props.held = -1
-	testing.expect_value(t, mix_target(props), -1)
-}
-
-@(test)
-pouring_into_an_empty_vessel_moves_the_liquid :: proc(t: ^testing.T) {
-	l, p, props := make_scene()
-	defer free_scene(l, p, props)
-	mix_setup(props, l, .Dye_Red, .None, 300, 0)
-	r := mix(props, mix_eye(props))
-	testing.expect_value(t, r.kind, Mix_Kind.Poured)
-	testing.expect_value(t, props.items[1].compound, u16(chem.Id.Dye_Red))
-	testing.expect_value(t, props.items[1].ml, 300)
-	testing.expect_value(t, props.items[0].ml, 0)
-	testing.expect_value(t, props.items[0].compound, 0)
-	testing.expect_value(t, r.damage, 0)
-}
-
-@(test)
-two_of_the_same_liquid_just_add_up :: proc(t: ^testing.T) {
-	l, p, props := make_scene()
-	defer free_scene(l, p, props)
-	mix_setup(props, l, .Water, .Water, 200, 300)
-	r := mix(props, mix_eye(props))
-	testing.expect_value(t, r.kind, Mix_Kind.Poured)
-	testing.expect_value(t, props.items[1].ml, 500)
-	testing.expect_value(t, props.items[1].compound, u16(chem.Id.Water))
-}
-
-@(test)
-only_what_fits_is_poured_and_the_rest_stays :: proc(t: ^testing.T) {
-	l, p, props := make_scene()
-	defer free_scene(l, p, props)
-	full := capacity_ml(.Beaker)
-	mix_setup(props, l, .Dye_Red, .None, 300, 0)
-	props_init(props)
-	props_add(props, l, .Beaker, 0, 0.35, u16(chem.Id.Dye_Red), 300)
-	props_add(props, l, .Beaker, 0.02, 0.35, u16(chem.Id.Dye_Red), full - 100)
-	props.held = 0
-	props.items[0].pos.y = lab.COUNTER_HEIGHT + 0.18
-	mix(props, mix_eye(props))
-	testing.expect(t, abs(props.items[1].ml - full) < 0.01)
-	testing.expect(t, abs(props.items[0].ml - 200) < 0.01)
-	testing.expect_value(t, props.items[0].compound, u16(chem.Id.Dye_Red))
-}
-
-@(test)
-acid_and_base_make_foam_and_keep_all_the_liquid :: proc(t: ^testing.T) {
-	l, p, props := make_scene()
-	defer free_scene(l, p, props)
-	mix_setup(props, l, .Fizz_Acid, .Soda_Base, 200, 300)
-	r := mix(props, mix_eye(props))
-	testing.expect_value(t, r.kind, Mix_Kind.Mixed)
-	testing.expect_value(t, props.items[1].compound, u16(chem.Id.Neutral_Foam))
-	testing.expect_value(t, props.items[1].ml, 500)
-	testing.expect_value(t, r.damage, 0)
-	testing.expect_value(t, props.count, 2)
-}
-
-@(test)
-a_spatter_hurts_a_little_and_loses_some_liquid :: proc(t: ^testing.T) {
-	l, p, props := make_scene()
-	defer free_scene(l, p, props)
-	mix_setup(props, l, .Spark_Blue, .Soda_Base, 200, 300)
-	r := mix(props, mix_eye(props))
-	testing.expect_value(t, r.kind, Mix_Kind.Spatter)
-	testing.expect(t, abs(props.items[1].ml - 500 * (1 - chem.SPATTER_LOSS)) < 0.01)
-	testing.expect_value(t, props.items[1].compound, u16(chem.Id.Acrid_Brew))
-	testing.expect(t, r.damage > 0 && r.damage < 10)
-	testing.expect_value(t, props.count, 2)
-}
-
-@(test)
-a_blast_breaks_the_target_and_hurts :: proc(t: ^testing.T) {
-	l, p, props := make_scene()
-	defer free_scene(l, p, props)
-	mix_setup(props, l, .Spark_Blue, .Ember_Oil, 200, 300)
-	r := mix(props, mix_eye(props))
-	testing.expect_value(t, r.kind, Mix_Kind.Blast)
-	testing.expect_value(t, props.count, 1) // the target is gone
-	testing.expect_value(t, props.held, 0) // and the held vessel is still in the hands
-	testing.expect_value(t, props.items[0].ml, 0) // emptied by the pour
-	testing.expect_value(t, r.product, u16(chem.Id.Char))
-	testing.expectf(t, r.damage >= 60 && r.damage < 100, "the blast did %v", r.damage)
-}
-
-@(test)
-the_held_vessel_is_still_held_when_a_vessel_before_it_breaks :: proc(t: ^testing.T) {
-	l, p, props := make_scene()
-	defer free_scene(l, p, props)
-	props_init(props)
-	props_add(props, l, .Beaker, 0.02, 0.35, u16(chem.Id.Ember_Oil), 300) // the target comes first
-	props_add(props, l, .Beaker, 0, 0.35, u16(chem.Id.Spark_Blue), 200)
-	props.held = 1
-	props.items[1].pos.y = lab.COUNTER_HEIGHT + 0.18
-	t0 := props.items[0].pos
-	eye := Vec3{t0.x, t0.y + 0.07, t0.z + 0.8}
-	r := mix(props, eye)
-	testing.expect_value(t, r.kind, Mix_Kind.Blast)
-	testing.expect_value(t, props.count, 1)
-	testing.expect_value(t, props.held, 0)
-	testing.expect_value(t, props.items[0].compound, 0) // it is the emptied one
-}
-
-@(test)
-nothing_happens_without_a_target :: proc(t: ^testing.T) {
-	l, p, props := make_scene()
-	defer free_scene(l, p, props)
-	props_init(props)
-	testing.expect_value(t, mix(props, {0, 1.6, 0}).kind, Mix_Kind.Nothing)
-	props_add(props, l, .Beaker, 0, 0.35, u16(chem.Id.Water), 100)
-	props.held = 0
-	testing.expect_value(t, mix(props, {0, 1.6, 0}).kind, Mix_Kind.Nothing)
-	testing.expect_value(t, props.items[0].ml, 100)
-}
-
 @(test)
 removing_a_prop_keeps_the_other_indices_right :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
@@ -637,4 +484,390 @@ health_drops_comes_back_and_ends_at_zero :: proc(t: ^testing.T) {
 	testing.expect(t, health_dead(&h))
 	health_update(&h, 10) // the dead do not heal
 	testing.expect_value(t, h.hp, 0)
+}
+
+// ---- tipped vessels ----
+
+@(test)
+a_disc_is_cut_by_a_line_at_the_right_area :: proc(t: ^testing.T) {
+	r := f32(0.05)
+	disc := math.PI * r * r
+	testing.expect_value(t, area_below(r, -r), 0)
+	testing.expect_value(t, area_below(r, r), disc)
+	testing.expect(t, abs(area_below(r, 0) - disc * 0.5) < 1e-7)
+	previous := f32(-1)
+	for c := -r; c <= r; c += r / 10 {
+		a := area_below(r, c)
+		testing.expect(t, a >= previous)
+		previous = a
+	}
+	testing.expect_value(t, area_below(0, 0), 0)
+}
+
+@(test)
+tipped_vessel_geometry_agrees_with_the_upright_one :: proc(t: ^testing.T) {
+	for k in Kind {
+		sl := slices_of(k)
+		for fraction in ([]f32{0.2, 0.5, 0.8}) {
+			plane := VESSEL_WALL + (brim_height(k) - VESSEL_WALL) * fraction
+			exact := interior_volume(k, plane)
+			approx := volume_in_slices(&sl, 0, plane)
+			testing.expectf(t, abs(approx - exact) < capacity_ml(k) * 0.03, "%v: %v ml against %v", k, approx, exact)
+		}
+		testing.expect_value(t, capacity_at_tilt(k, 0), capacity_ml(k))
+		testing.expect_value(t, fill_level_tilted(k, 200, 0), fill_height(k, 200))
+	}
+}
+
+@(test)
+the_level_in_a_tipped_vessel_holds_the_same_liquid :: proc(t: ^testing.T) {
+	for k in Kind {
+		sl := slices_of(k)
+		for tilt in ([]f32{0.3, 0.7, 1.1}) {
+			ml := capacity_ml(k) * 0.3
+			level := fill_level_tilted(k, ml, tilt)
+			testing.expectf(t, abs(volume_in_slices(&sl, tilt, level) - ml) < 2, "%v at %v holds %v ml", k, tilt, volume_in_slices(&sl, tilt, level))
+		}
+	}
+}
+
+@(test)
+a_vessel_holds_less_the_further_it_tips :: proc(t: ^testing.T) {
+	for k in Kind {
+		previous := capacity_ml(k) + 1
+		for tilt := f32(0); tilt <= TILT_MAX; tilt += 0.1 {
+			c := capacity_at_tilt(k, tilt)
+			testing.expectf(t, c <= previous + 0.5, "%v holds more at %v than before", k, tilt)
+			previous = c
+		}
+		testing.expectf(t, capacity_at_tilt(k, TILT_MAX) < 5, "%v still holds %v ml at full tilt", k, capacity_at_tilt(k, TILT_MAX))
+	}
+}
+
+@(test)
+the_lip_is_the_lowest_point_of_the_rim :: proc(t: ^testing.T) {
+	d := Vec3{0, 0, -1}
+	for k in Kind {
+		up := lip_offset(k, 0, d)
+		testing.expect(t, abs(up.y - brim_height(k)) < 1e-5)
+		side := lip_offset(k, math.PI / 2, d)
+		testing.expect(t, abs(side.y + mouth_radius(k)) < 1e-5)
+		testing.expect(t, abs(side.z + brim_height(k)) < 1e-5)
+	}
+}
+
+@(test)
+a_tipped_prop_keeps_a_right_handed_frame :: proc(t: ^testing.T) {
+	for yaw := f32(-3); yaw < 3.2; yaw += 0.7 {
+		for tilt := f32(0); tilt <= TILT_MAX; tilt += 0.25 {
+			a := prop_axes(yaw, tilt)
+			testing.expect(t, dot(cross(a[0], a[1]), a[2]) > 0.999)
+			testing.expect(t, abs(length(a[1]) - 1) < 1e-5)
+		}
+	}
+}
+
+// ---- pouring ----
+
+PourScene :: struct {
+	l:     ^lab.Layout,
+	p:     ^lab.Player,
+	props: ^Props,
+	st:    ^Stream,
+}
+
+pour_scene :: proc() -> PourScene {
+	l, p, props := make_scene()
+	st := new(Stream)
+	stream_init(st)
+	return {l, p, props, st}
+}
+
+free_pour_scene :: proc(s: PourScene) {
+	stream_destroy(s.st)
+	free(s.st)
+	free_scene(s.l, s.p, s.props)
+}
+
+// One frame of everything that happens while pouring: the player and vessels,
+// the liquid leaving, the simulation, and the vessels taking what falls.
+pour_frame :: proc(s: PourScene, events: ^[MAX_EVENTS]Mix_Result, found: ^[dynamic]Mix_Result) {
+	dt := f32(1.0 / 60)
+	update(s.props, s.l, s.p, dt)
+	pour_flow(s.props, s.st, s.l, dt)
+	stream_step(s.st, 21)
+	n := stream_capture(s.st, s.props, view_of(s.p).eye, events)
+	for i in 0 ..< n {
+		append(found, events[i])
+	}
+}
+
+// A vessel held in the hands, pouring, with another one under the crosshair.
+pour_setup :: proc(s: PourScene, held, target: chem.Id, held_ml, target_ml: f32) {
+	props_init(s.props)
+	props_add(s.props, s.l, .Beaker, 0, 0.9, u16(held), held_ml)
+	props_add(s.props, s.l, .Beaker, 0, 0.35, u16(target), target_ml)
+	s.props.held = 0
+	s.props.pouring = true
+	look_at(s.p, {0, lab.COUNTER_HEIGHT + kind_dims(.Beaker).height * 0.5, 0.35})
+}
+
+@(test)
+the_crosshair_picks_a_second_vessel_while_one_is_held :: proc(t: ^testing.T) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	pour_setup(s, .Water, .None, 300, 0)
+	s.props.pouring = false
+	update(s.props, s.l, s.p, 1.0 / 60)
+	testing.expect_value(t, s.props.aimed, 1)
+	testing.expect_value(t, pour_target(s.props), 1)
+	testing.expect(t, s.props.aimed_t < POUR_REACH)
+
+	s.p.z = 3.0 // too far to pour into
+	look_at(s.p, {0, lab.COUNTER_HEIGHT + 0.065, 0.35})
+	update(s.props, s.l, s.p, 1.0 / 60)
+	testing.expect_value(t, pour_target(s.props), -1)
+
+	s.p.z = 1.2
+	look_at(s.p, {0, lab.COUNTER_HEIGHT + 0.065, 0.35})
+	s.props.items[1].ml = capacity_ml(.Beaker) // a full one cannot be poured into
+	s.props.items[1].compound = u16(chem.Id.Water)
+	update(s.props, s.l, s.p, 1.0 / 60)
+	testing.expect_value(t, pour_target(s.props), -1)
+}
+
+@(test)
+nothing_leaves_a_vessel_that_is_only_slightly_tipped :: proc(t: ^testing.T) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	pour_setup(s, .Water, .None, 300, 0)
+	events: [MAX_EVENTS]Mix_Result
+	found: [dynamic]Mix_Result
+	defer delete(found)
+	for _ in 0 ..< 4 {
+		pour_frame(s, &events, &found)
+	}
+	testing.expect(t, s.props.items[0].tilt > 0.05 && s.props.items[0].tilt < 0.5)
+	testing.expect_value(t, s.props.items[0].ml, 300)
+	testing.expect_value(t, s.st.sim.count, 0)
+}
+
+@(test)
+the_stream_goes_into_the_vessel_under_the_crosshair :: proc(t: ^testing.T) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	pour_setup(s, .Water, .None, 300, 0)
+	events: [MAX_EVENTS]Mix_Result
+	found: [dynamic]Mix_Result
+	defer delete(found)
+	for _ in 0 ..< 360 {
+		pour_frame(s, &events, &found)
+	}
+	testing.expect_value(t, s.props.items[0].ml, 0) // poured out
+	testing.expect_value(t, s.props.items[0].compound, 0)
+	target := s.props.items[1]
+	testing.expectf(t, target.ml > 240 && target.ml <= 300.5, "the target holds %v ml", target.ml)
+	testing.expect_value(t, target.compound, u16(chem.Id.Water))
+	testing.expect_value(t, len(found), 0) // water into nothing is no reaction
+}
+
+@(test)
+a_calm_pour_reacts_once_for_the_whole_pour :: proc(t: ^testing.T) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	pour_setup(s, .Fizz_Acid, .Soda_Base, 300, 200)
+	events: [MAX_EVENTS]Mix_Result
+	found: [dynamic]Mix_Result
+	defer delete(found)
+	for _ in 0 ..< 360 {
+		pour_frame(s, &events, &found)
+	}
+	testing.expect_value(t, len(found), 1)
+	if len(found) == 1 {
+		testing.expect_value(t, found[0].kind, Mix_Kind.Mixed)
+		testing.expect_value(t, found[0].product, u16(chem.Id.Neutral_Foam))
+	}
+	target := s.props.items[1]
+	testing.expect_value(t, target.compound, u16(chem.Id.Neutral_Foam))
+	testing.expectf(t, target.ml > 400, "the foam is %v ml", target.ml)
+}
+
+@(test)
+pouring_the_oxidizer_into_the_oil_blasts_and_breaks_the_vessel :: proc(t: ^testing.T) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	pour_setup(s, .Spark_Blue, .Ember_Oil, 300, 200)
+	events: [MAX_EVENTS]Mix_Result
+	found: [dynamic]Mix_Result
+	defer delete(found)
+	for _ in 0 ..< 360 {
+		pour_frame(s, &events, &found)
+	}
+	testing.expect_value(t, len(found), 1)
+	if len(found) == 1 {
+		testing.expect_value(t, found[0].kind, Mix_Kind.Blast)
+		testing.expectf(t, found[0].damage > 40 && found[0].damage < 100, "the blast did %v", found[0].damage)
+	}
+	testing.expect_value(t, s.props.count, 1) // the target broke
+	testing.expect_value(t, s.props.session.target, -1)
+}
+
+@(test)
+a_drop_joins_a_vessel_and_only_the_first_starts_a_reaction :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	eye := Vec3{0, 1.6, 1.2}
+	props_init(props)
+	props_add(props, l, .Beaker, 0, 0.35, u16(chem.Id.Fizz_Acid), 100)
+	r := apply_droplet(props, 0, u16(chem.Id.Soda_Base), 3.375, eye)
+	testing.expect_value(t, r.kind, Mix_Kind.Mixed)
+	testing.expect_value(t, props.items[0].compound, u16(chem.Id.Neutral_Foam))
+	testing.expect_value(t, props.items[0].ml, 103.375)
+	again := apply_droplet(props, 0, u16(chem.Id.Soda_Base), 3.375, eye)
+	testing.expect_value(t, again.kind, Mix_Kind.Nothing)
+	testing.expect_value(t, props.items[0].ml, 106.75)
+	testing.expect_value(t, props.items[0].compound, u16(chem.Id.Neutral_Foam))
+	props.session.timer = 0 // the pour is over, so the next drop is a new meeting
+	later := apply_droplet(props, 0, u16(chem.Id.Soda_Base), 3.375, eye)
+	testing.expect_value(t, later.kind, Mix_Kind.Mixed)
+	testing.expect_value(t, later.a, u16(chem.Id.Neutral_Foam))
+}
+
+@(test)
+a_drop_into_a_full_vessel_is_lost_and_a_spatter_loses_some_liquid :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	eye := Vec3{0, 1.6, 1.2}
+	props_init(props)
+	props_add(props, l, .Beaker, 0, 0.35, u16(chem.Id.Water), 1e6)
+	testing.expect_value(t, apply_droplet(props, 0, u16(chem.Id.Ember_Oil), 3.375, eye).kind, Mix_Kind.Nothing)
+	testing.expect_value(t, props.items[0].compound, u16(chem.Id.Water))
+
+	props_init(props)
+	props_add(props, l, .Beaker, 0, 0.35, u16(chem.Id.Soda_Base), 100)
+	r := apply_droplet(props, 0, u16(chem.Id.Spark_Blue), 3.375, eye)
+	testing.expect_value(t, r.kind, Mix_Kind.Spatter)
+	testing.expect(t, abs(props.items[0].ml - 103.375 * (1 - chem.SPATTER_LOSS)) < 0.001)
+	testing.expect(t, r.damage > 0 && r.damage < 10)
+}
+
+// ---- the bottle wall ----
+
+@(test)
+a_vessel_under_a_nozzle_is_found_only_when_it_is_in_the_right_place :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	st: Station
+	station_init(&st)
+	props_init(props)
+	props_add(props, l, .Beaker, 11.5, 0.0, 0, 0)
+	props.held = 0
+	nozzle := lab.dispenser_nozzle(3)
+	place :: proc(props: ^Props, x, y, z: f32) {
+		props.items[0].pos = {x, y, z}
+	}
+	under := nozzle.y - 0.2 - kind_dims(.Beaker).height
+	place(props, nozzle.x, under, nozzle.z)
+	testing.expect_value(t, dispenser_under(&st, props), 3)
+	place(props, nozzle.x, under, nozzle.z + 0.3)
+	testing.expect_value(t, dispenser_under(&st, props), -1) // off to the side
+	place(props, nozzle.x, nozzle.y + 0.1, nozzle.z)
+	testing.expect_value(t, dispenser_under(&st, props), -1) // above the tip
+	place(props, nozzle.x, nozzle.y - 1.0, nozzle.z)
+	testing.expect_value(t, dispenser_under(&st, props), -1) // far below
+	place(props, nozzle.x, under, nozzle.z)
+	props.items[0].tilt = 0.8
+	testing.expect_value(t, dispenser_under(&st, props), -1) // tipped over
+	props.items[0].tilt = 0
+	props.items[0].compound, props.items[0].ml = u16(chem.Id.Water), capacity_ml(.Beaker)
+	testing.expect_value(t, dispenser_under(&st, props), -1) // already full
+	props.items[0].compound, props.items[0].ml = 0, 0
+	props.held = -1
+	testing.expect_value(t, dispenser_under(&st, props), -1) // nothing held
+}
+
+@(test)
+a_tap_fills_the_vessel_under_it_with_its_own_liquid :: proc(t: ^testing.T) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	st: Station
+	station_init(&st)
+	props_init(s.props)
+	props_add(s.props, s.l, .Beaker, 11.5, 0, 0, 0)
+	s.props.held = 0
+	nozzle := lab.dispenser_nozzle(2)
+	s.props.items[0].pos = {nozzle.x, nozzle.y - 0.2 - kind_dims(.Beaker).height, nozzle.z}
+	events: [MAX_EVENTS]Mix_Result
+	for _ in 0 ..< 150 { // two and a half seconds
+		station_flow(&st, s.st, s.l, 2, 1.0 / 60)
+		stream_step(s.st, 21)
+		stream_capture(s.st, s.props, {0, 1.6, 0}, &events)
+	}
+	v := s.props.items[0]
+	testing.expect_value(t, v.compound, u16(chem.Id.Soda_Base)) // the third tap
+	testing.expectf(t, v.ml > 200 && v.ml < 300, "the vessel holds %v ml", v.ml)
+}
+
+@(test)
+a_locked_tap_gives_nothing :: proc(t: ^testing.T) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	st: Station
+	station_init(&st)
+	st.items[4].unlocked = false
+	for _ in 0 ..< 30 {
+		testing.expect(t, !station_flow(&st, s.st, s.l, 4, 1.0 / 60))
+	}
+	testing.expect_value(t, s.st.sim.count, 0)
+	testing.expect(t, station_flow(&st, s.st, s.l, 5, 1.0 / 60))
+}
+
+@(test)
+the_bottles_are_the_color_of_their_liquid :: proc(t: ^testing.T) {
+	colors := station_colors()
+	for i in 0 ..< lab.DISPENSER_COUNT {
+		c := chem.compound_color(u16(i + 1))
+		testing.expect(t, abs(f32(colors[i].r) / 255 - c.r) < 0.01)
+		testing.expect(t, abs(f32(colors[i].b) / 255 - c.b) < 0.01)
+	}
+}
+
+// ---- the stream of drops ----
+
+@(test)
+a_drop_lands_wipes_away_and_the_box_sits_on_the_surface_under_it :: proc(t: ^testing.T) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	testing.expect(t, stream_spawn(s.st, s.l, {0, 1.4, 0}, {0, 0, 0}, u16(chem.Id.Water)))
+	testing.expect(t, abs(s.st.origin.y - (lab.COUNTER_HEIGHT - 2.9 * STREAM_DX)) < 1e-4)
+	testing.expect(t, !s.st.air_floor)
+	for _ in 0 ..< 600 {
+		stream_step(s.st, 21)
+	}
+	testing.expect_value(t, s.st.sim.count, 0)
+}
+
+@(test)
+a_drop_outside_the_box_or_in_a_full_stream_is_refused :: proc(t: ^testing.T) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	testing.expect(t, stream_spawn(s.st, s.l, {0, 1.4, 0}, {}, 1))
+	testing.expect(t, !stream_spawn(s.st, s.l, {5, 1.4, 0}, {}, 1)) // far from the box
+	testing.expect(t, !stream_spawn(s.st, s.l, {0, 0.2, 0}, {}, 1)) // below its floor
+	for i in 1 ..< MAX_STREAM {
+		testing.expect(t, stream_spawn(s.st, s.l, {f32(i % 7) * 0.05 - 0.15, 1.4 + f32(i / 7) * 0.04, 0}, {}, 1))
+	}
+	testing.expect(t, !stream_spawn(s.st, s.l, {0, 1.4, 0.2}, {}, 1))
+}
+
+@(test)
+a_pour_from_high_over_the_floor_has_its_box_in_the_air_and_drops_fall_out :: proc(t: ^testing.T) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	testing.expect(t, stream_spawn(s.st, s.l, {-8, 2.2, 3}, {0, 0, 0}, 1))
+	testing.expect(t, s.st.air_floor)
+	for _ in 0 ..< 300 {
+		stream_step(s.st, 21)
+	}
+	testing.expect_value(t, s.st.sim.count, 0)
 }

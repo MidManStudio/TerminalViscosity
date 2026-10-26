@@ -33,7 +33,7 @@ the_ids_and_the_table_agree :: proc(t: ^testing.T) {
 	table := COMPOUNDS
 	for i in 0 ..< len(table) {
 		for j in i + 1 ..< len(table) {
-			testing.expectf(t, table[i].name != table[j].name, "two compounds are called %v", table[i].name)
+			testing.expectf(t, string(table[i].name) != string(table[j].name), "two compounds are called %v", table[i].name)
 		}
 	}
 	testing.expect_value(t, compound_name(u16(Id.Spark_Blue)), "Spark Blue")

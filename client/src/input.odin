@@ -36,6 +36,7 @@ Controls :: struct {
 	look_delta:   [2]f32, // pixels moved this frame
 	button_id:    int, // a finger that landed on the button, kept out of the controls until it lifts
 	pressed:      int, // index of the button pressed this frame, or -1
+	held:         int, // index of the button a finger is still down on, or -1
 	// Which ids were down last frame, to tell a new finger from a held one.
 	known:        [MAX_POINTERS]int,
 	known_count:  int,
@@ -52,6 +53,7 @@ controls_init :: proc(c: ^Controls, pointers: ^Pointers) {
 	c.look_id = -1
 	c.button_id = -1
 	c.pressed = -1
+	c.held = -1
 	c.known_count = pointers.count
 	for i in 0 ..< pointers.count {
 		c.known[i] = pointers.items[i].id
@@ -87,6 +89,7 @@ controls_update :: proc(c: ^Controls, pointers: ^Pointers, w, h: f32, buttons: [
 	}
 	if c.button_id != -1 && !still_down(pointers, c.button_id) {
 		c.button_id = -1
+		c.held = -1
 	}
 
 	touch_layout := true
@@ -112,6 +115,7 @@ controls_update :: proc(c: ^Controls, pointers: ^Pointers, w, h: f32, buttons: [
 			if hit != -1 {
 				c.button_id = p.id
 				c.pressed = hit
+				c.held = hit
 			} else if touch_layout && c.stick_id == -1 && p.pos.x < w * STICK_SIDE {
 				c.stick_id = p.id
 				c.stick_origin = p.pos

@@ -55,7 +55,7 @@ Id :: enum u16 {
 STOCK_COUNT :: 10 // the first ten ids are the liquids on the shelf
 
 Compound :: struct {
-	name:  string,
+	name:  cstring,
 	class: Class,
 	color: [3]u8,
 }
@@ -87,6 +87,11 @@ compound_count :: proc() -> int {
 }
 
 compound_name :: proc(id: u16) -> string {
+	return string(compound_cname(id))
+}
+
+// The same name as a C string, for drawing text without making a copy.
+compound_cname :: proc(id: u16) -> cstring {
 	table := COMPOUNDS
 	if id == 0 || int(id) > len(table) {
 		return "Empty"

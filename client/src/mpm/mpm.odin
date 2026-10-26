@@ -103,6 +103,30 @@ sim_add_block :: proc(s: ^Sim, lo, hi: Vec3, v: Vec3 = {}) -> int {
 	return added
 }
 
+// Adds one particle at `x`, moving at `v`, and says whether there was room. The
+// position is forced inside the grid, the same as every step does.
+sim_add_particle :: proc(s: ^Sim, x, v: Vec3) -> bool {
+	if s.count == len(s.particles) {
+		return false
+	}
+	lo := s.p.dx
+	hi := s.p.dx * f32(s.n - 2)
+	s.particles[s.count] = {
+		x = {clamp(x.x, lo, hi), clamp(x.y, lo, hi), clamp(x.z, lo, hi)},
+		v = v,
+		j = 1,
+	}
+	s.count += 1
+	return true
+}
+
+// Takes particle `i` out by moving the last one into its place, so the order of
+// the particles changes.
+sim_remove_particle :: proc(s: ^Sim, i: int) {
+	s.count -= 1
+	s.particles[i] = s.particles[s.count]
+}
+
 // Advances the liquid by one substep: particles to grid, grid update with
 // gravity and walls, grid to particles. This is the paper's section 4, with the
 // force of section 3.4 folded into the transfer so no kernel gradient is ever

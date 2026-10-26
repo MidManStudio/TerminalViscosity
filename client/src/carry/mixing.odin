@@ -7,114 +7,81 @@ package carry
 
 import "../chem"
 
-MIX_SLACK :: f32(0.06) // how far off center the held vessel may be, beyond the target's radius
-MIX_BELOW :: f32(0.10) // how far the base of the held vessel may be below the target's rim
-MIX_ABOVE :: f32(0.35) // and how far above it
+SESSION_HOLD :: f32(0.6) // how long after the last drop a pour still counts as the same pour
 
 Mix_Kind :: enum {
-	Nothing, // there was nothing to pour, or nowhere to pour it
-	Poured, // into an empty vessel, or one with the same liquid, so no reaction
+	Nothing, // nothing worth saying: a drop joined a vessel, or fell in one that was full
 	Mixed, // two liquids met and made something calm
 	Spatter, // a violent reaction: some liquid thrown out, and it stings
-	Blast, // a very violent one: the target broke
+	Blast, // a very violent one: the vessel broke
 }
 
-// What one press of the mix button did. `a` is what the target held and `b`
-// what was poured in. `damage` is what the player is to take.
+// What a meeting of two liquids did. `a` is what the vessel held and `b` what
+// was poured in. `damage` is what the player is to take.
 Mix_Result :: struct {
 	kind:       Mix_Kind,
 	a, b:       u16,
 	product:    u16,
-	ml:         f32,
 	volatility: f32,
 	heat:       f32,
 	damage:     f32,
 }
 
-// The vessel the held one is over, or -1: close to centered over its mouth, with
-// the base of the held vessel not far above its rim. A full vessel cannot be
-// poured into, and an empty one cannot be poured from.
-mix_target :: proc(props: ^Props) -> int {
-	if props.held == -1 || props.items[props.held].ml <= 0 {
-		return -1
+// A drop of `compound`, `ml` millilitres, falls into vessel `target`. A drop into
+// an empty vessel, or one with the same liquid, simply joins it. When two
+// different liquids meet, they react once for the whole pour: the contents of
+// the vessel become the product, and drops that follow in the same pour join
+// that product as it is. A calm reaction leaves the product, a spatter loses a
+// share of it and stings, and a blast breaks the vessel and takes the liquid.
+// `eye` is where the player's eye is, for how hard a violent reaction hits. The
+// result is `.Nothing` except for the drop that starts a meeting.
+apply_droplet :: proc(props: ^Props, target: int, compound: u16, ml: f32, eye: Vec3) -> Mix_Result {
+	t := &props.items[target]
+	room := capacity_ml(t.kind) - t.ml
+	if room <= 0.001 {
+		return {} // the vessel is full, so the drop is lost
 	}
-	src := props.items[props.held]
-	best := -1
-	best_gap := f32(1e9)
-	for i in 0 ..< props.count {
-		if i == props.held {
-			continue
-		}
-		t := props.items[i]
-		td := kind_dims(t.kind)
-		dx, dz := src.pos.x - t.pos.x, src.pos.z - t.pos.z
-		reach := td.radius + MIX_SLACK
-		if dx * dx + dz * dz > reach * reach {
-			continue
-		}
-		gap := src.pos.y - (t.pos.y + td.height)
-		if gap < -MIX_BELOW || gap > MIX_ABOVE {
-			continue
-		}
-		if t.ml >= capacity_ml(t.kind) - 0.5 {
-			continue
-		}
-		if gap < best_gap {
-			best, best_gap = i, gap
-		}
-	}
-	return best
-}
+	amount := min(ml, room)
 
-// Pours the held vessel into the one under it, as much as fits, and lets the
-// two liquids react. `eye` is where the player's eye is, for how hard a violent
-// reaction hits. A calm reaction leaves the product in the target. A spatter
-// loses part of it. A blast breaks the target and takes the liquid with it.
-mix :: proc(props: ^Props, eye: Vec3) -> Mix_Result {
-	target := mix_target(props)
-	if target == -1 {
+	s := &props.session
+	if s.target == target && s.src == compound && s.timer > 0 {
+		t.ml += amount
+		s.timer = SESSION_HOLD
 		return {}
 	}
-	src := &props.items[props.held]
-	dst := &props.items[target]
-	td := kind_dims(dst.kind)
-	moved := min(src.ml, capacity_ml(dst.kind) - dst.ml)
+	if t.compound == 0 || t.compound == compound {
+		t.compound = compound
+		t.ml += amount
+		return {}
+	}
+
+	outcome := chem.react(t.compound, compound)
 	result := Mix_Result {
-		a  = dst.compound,
-		b  = src.compound,
-		ml = moved,
+		a          = t.compound,
+		b          = compound,
+		product    = outcome.product,
+		volatility = outcome.volatility,
+		heat       = outcome.heat,
 	}
-
-	outcome := chem.react(dst.compound, src.compound)
-	result.product = outcome.product
-	result.volatility = outcome.volatility
-	result.heat = outcome.heat
-	total := dst.ml + moved
-
-	src.ml -= moved
-	if src.ml < 0.01 {
-		src.ml = 0
-		src.compound = 0
-	}
-
-	if !outcome.reacted {
-		dst.compound = outcome.product
-		dst.ml = total
-		result.kind = .Poured
-		return result
-	}
-
-	middle := Vec3{dst.pos.x, dst.pos.y + td.height * 0.5, dst.pos.z}
+	td := kind_dims(t.kind)
+	middle := Vec3{t.pos.x, t.pos.y + td.height * 0.5, t.pos.z}
 	d := middle - eye
 	result.damage = chem.damage_of(outcome.volatility, sqrt_f32(dot(d, d)))
+	total := t.ml + amount
+	props.session = {
+		target  = target,
+		src     = compound,
+		product = outcome.product,
+		timer   = SESSION_HOLD,
+	}
 	switch chem.hazard_of(outcome.volatility) {
 	case .Calm:
-		dst.compound = outcome.product
-		dst.ml = total
+		t.compound = outcome.product
+		t.ml = total
 		result.kind = .Mixed
 	case .Spatter:
-		dst.compound = outcome.product
-		dst.ml = total * (1 - chem.SPATTER_LOSS)
+		t.compound = outcome.product
+		t.ml = total * (1 - chem.SPATTER_LOSS)
 		result.kind = .Spatter
 	case .Blast:
 		props_remove(props, target)
