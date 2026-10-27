@@ -186,6 +186,13 @@ arc_to :: proc(from, to: Vec3) -> Vec3 {
 // lip and move the way it faces. If the stream is full, the liquid waits at the
 // lip, and the vessel pours no faster than the simulation can show.
 pour_flow :: proc(props: ^Props, st: ^Stream, l: ^lab.Layout, dt: f32) {
+	pour_flow_to(props, st, l, dt, {}, false)
+}
+
+// The same, and with no vessel under the crosshair to aim at, the stream is aimed at
+// `mouth` when `has_mouth` is set. That is how a pour goes into the funnel of the
+// balloon fill station.
+pour_flow_to :: proc(props: ^Props, st: ^Stream, l: ^lab.Layout, dt: f32, mouth: Vec3, has_mouth: bool) {
 	if props.held == -1 {
 		return
 	}
@@ -215,6 +222,8 @@ pour_flow :: proc(props: ^Props, st: ^Stream, l: ^lab.Layout, dt: f32) {
 	if target := pour_target(props); target != -1 {
 		t := props.items[target]
 		vel = arc_to(lip, {t.pos.x, t.pos.y + kind_dims(t.kind).height + 0.03, t.pos.z})
+	} else if has_mouth {
+		vel = arc_to(lip, mouth)
 	}
 	// Drops let out in one frame are spread along their way, as if let out at
 	// different moments, because two made in one place would push each other apart.

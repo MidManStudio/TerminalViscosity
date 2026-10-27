@@ -36,12 +36,15 @@
 - **Decided: first person with a floating joystick and a look drag.** A pointer-tap walk was the alternative.
 - **Decided: the room is in metres.** The balloon's physics runs at a scale where it is 2 units across, so in the lab it will be drawn scaled down. The ratio is not chosen.
 - **Open: the look.** It is a clean light room with dark counters and teal glow, a mix of the dark teal and white clinical references. Palette and glow are constants at the top of `layout.odin`.
-- **Open: where the stations go.** The chem bench, the chamber machine, and the clamp station have no place in the room yet, and the island counter and the long counters are bare.
+- **Open: where the other stations go.** A sink with a drain is on the west counter, a fume hood on the north counter, and the balloon fill station on the south counter. The chamber machine, the hot plate and ice bath, the scale, the storage racks, the recipe terminal, and the loadout rack have no place yet.
 - **Open: ceiling.** The ceiling is flat with straight light panels. The hexagon panels in one reference are not done.
 - **Decided: a violent mix hurts.** A blast damages the player and breaks the container, and a spatter stings and spills some liquid. Mixing is a button pressed with one vessel held over another.
 - **Decided: the liquid simulation is for the lab only.** The gameplay balloon does not use it. On the first phone runs the simulation cost 4.3 microseconds a particle each step, so a 125 ml splash fits the frame budget at 3 cm cells and not at 2 cm.
 - **Decided: pouring is aimed with the crosshair.** The held vessel tips over while a button is held, and the stream goes into the vessel under the crosshair if it is within 1.5 m. Under a tap on the bottle wall the same button fills the vessel.
 - **Open: the lab's gameplay loop.** The lab is to have its own enjoyable loop. Not everything is open from the start, and there will be a store and things earned by playing, but that comes later, once the lab feels right. The taps already have an `unlocked` flag as the place for it, and the reaction matrix menu shows every pair for now, where later it could show only what has been found.
+- **Open: the numbers of the workstations.** The fume hood stops four fifths of a blast's damage, a balloon holds 1000 ml at its natural size and bursts at 1.35 times that, a fresh one is clamped two seconds after one is lost, and an overfill hurts nobody. All are first guesses to tune by playing. A reaction in the balloon hurts as in a vessel.
+- **Open: what a filled balloon becomes.** It cannot be taken off the clamp yet. That needs the loadout rack, and the tie that gives it its knot.
+- **Open: the look of a blast.** Particles, a ring, a flash of light on the room, a knock to the view, and a wobble of the picture, scaled by the power of the blast and smaller in the hood. Sizes, counts, and timings are first guesses, and none of it has been seen on a phone. Scorch marks, per-liquid looks, and sound are not done.
 - **Open: the numbers of a bad mix.** The reaction matrix, how much a blast and a spatter hurt, how fast health comes back, and the reset of the lab when the player is knocked out are first guesses to tune by playing.
 
 ### Local data

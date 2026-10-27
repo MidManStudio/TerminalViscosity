@@ -11,6 +11,7 @@ import "carry"
 import "chem"
 import "core:fmt"
 import "core:time"
+import "effects"
 import "lab"
 
 LOOK_SPEED :: f32(0.0045) // radians of turn for each pixel dragged
@@ -38,6 +39,10 @@ Room :: struct {
 	step_us:     f32, // how long one step of the liquid took lately, in microseconds
 	menu_open:   bool, // the reaction matrix is showing, and the lab is paused
 	blast_flash: f32, // how white the screen is from a blast, fading
+	fx:          effects.Effects, // the look of blasts, spatters, and burst balloons
+	fx_view:     Effects_View,
+	filler:      carry.Filler, // the balloon fill station
+	filler_view: Filler_View,
 	toast:       [96]u8, // what the last mix did, as text
 	toast_timer: f32,
 }
@@ -57,25 +62,54 @@ room_reset :: proc(room: ^Room) {
 	carry.props_init(&room.props)
 	carry.props_place_defaults(&room.props, &room.layout)
 	carry.health_init(&room.health)
+	carry.filler_init(&room.filler)
+	effects.reset(&room.fx)
+	room.blast_flash = 0
 	room.pour_target = -1
 	room.valve = -1
 }
 
-// A reaction that a pour started: shows what came of it, and takes the damage.
+// A reaction that a pour started: shows what came of it, and takes the damage, less
+// what the fume hood stops. The look of it comes from the effects: a spatter throws
+// drops of the liquid, and a blast is fire, sparks, smoke, a ring, a flash of light
+// on the room, a knock to the view, and a wobble of the picture, smaller in the hood.
 room_react :: proc(room: ^Room, r: carry.Mix_Result) {
 	a, b, product := chem.compound_name(r.a), chem.compound_name(r.b), chem.compound_name(r.product)
+	open := carry.openness(r)
+	floor := carry.support_height(&room.layout, r.at.x, r.at.z, 0.1)
+	color_a, color_b := chem.compound_color(r.a), chem.compound_color(r.b)
 	switch r.kind {
 	case .Nothing:
 	case .Mixed:
 		room_toast(room, "%v + %v made %v", a, b, product)
 	case .Spatter:
 		room.blast_flash = 0.4
+		effects.spatter(&room.fx, r.at, effects.mix_color(color_a, color_b, 0.5), floor)
 		room_toast(room, "SPATTER! %v + %v made %v", a, b, product)
 	case .Blast:
-		room.blast_flash = 1
-		room_toast(room, "BLAST! %v + %v", a, b)
+		room.blast_flash = 0.4 + 0.6 * open
+		effects.blast(&room.fx, r.at, chem.blast_power(r.volatility), open, color_a, color_b, floor)
+		if open == 0 {
+			room_toast(room, "BLAST in the hood! %v + %v", a, b)
+		} else {
+			room_toast(room, "BLAST! %v + %v", a, b)
+		}
 	}
-	carry.health_hurt(&room.health, r.damage)
+	carry.health_hurt(&room.health, carry.felt_damage(r))
+}
+
+// What a drop into the balloon did: a reaction, shown as for a vessel, and a burst
+// from overfilling, which sends the liquid flying but hurts nobody.
+room_fill_event :: proc(room: ^Room, e: carry.Fill_Result) {
+	if e.mix.kind != .Nothing {
+		room_react(room, e.mix)
+	}
+	if e.popped {
+		at := lab.filler_center()
+		floor := carry.support_height(&room.layout, at.x, at.z, 0.1)
+		effects.pop(&room.fx, at, chem.compound_color(e.lost), 1, floor)
+		room_toast(room, "POP! the balloon was overfilled")
+	}
 }
 
 // Runs the liquid for this frame. It takes as many substeps as a real-time frame
@@ -97,6 +131,7 @@ room_load :: proc(game: ^Game) -> rawptr {
 	room := new(Room)
 	lab.build(&room.layout)
 	lab.add_dispensers(&room.layout, carry.station_colors())
+	lab.add_apparatus(&room.layout)
 	lab.player_init(&room.player, &room.layout)
 	shader, ok := load_lab_shader()
 	lab_mesh_init(&room.mesh, &room.layout, shader, ok)
@@ -106,6 +141,11 @@ room_load :: proc(game: ^Game) -> rawptr {
 	carry.station_init(&room.station)
 	prop_meshes_init(&room.meshes)
 	carry.health_init(&room.health)
+	carry.filler_init(&room.filler)
+	effects.init(&room.fx)
+	effects_view_init(&room.fx_view)
+	balloon_shader, balloon_ok := load_balloon_shader()
+	filler_view_init(&room.filler_view, balloon_shader, balloon_ok)
 	room.pour_target = -1
 	room.valve = -1
 	pointers: Pointers
@@ -120,6 +160,9 @@ room_load :: proc(game: ^Game) -> rawptr {
 room_unload :: proc(game: ^Game, state: rawptr) {
 	room := cast(^Room)state
 	rlgl.SetClipPlanes(0.05, 4000)
+	game.heat_strength = 0
+	filler_view_unload(&room.filler_view)
+	effects_view_unload(&room.fx_view)
 	prop_meshes_unload(&room.meshes)
 	carry.stream_destroy(&room.stream)
 	lab_mesh_unload(&room.mesh)
@@ -228,6 +271,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	}
 	carry.hands_update(&room.hands, carry.state_of(&room.props), dt)
 	room.pour_target = carry.pour_target(&room.props)
+	carry.filler_aim(&room.filler, &room.props, carry.view_of(&room.player))
 
 	// Liquid: let out of a tap or over the lip of the held vessel, simulated, and
 	// taken by the vessels it lands in.
@@ -236,6 +280,8 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 		if !carry.station_flow(&room.station, &room.stream, &room.layout, room.valve, dt) {
 			room_toast(room, "that tap is locked")
 		}
+	} else if carry.filler_pour_ready(&room.filler, &room.props) {
+		carry.pour_flow_to(&room.props, &room.stream, &room.layout, dt, carry.filler_mouth(), true)
 	} else {
 		carry.pour_flow(&room.props, &room.stream, &room.layout, dt)
 	}
@@ -244,6 +290,15 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	for i in 0 ..< carry.stream_capture(&room.stream, &room.props, eye, &events) {
 		room_react(room, events[i])
 	}
+	fill_events: [carry.MAX_EVENTS]carry.Fill_Result
+	for i in 0 ..< carry.filler_capture(&room.stream, &room.filler, eye, &fill_events) {
+		room_fill_event(room, fill_events[i])
+	}
+	carry.stream_drain(&room.stream)
+	carry.filler_update(&room.filler, dt)
+	filler_view_update(&room.filler_view, &room.filler, dt)
+	effects.step(&room.fx, dt)
+	game.heat_strength = room.fx.heat
 
 	carry.health_update(&room.health, dt)
 	room.blast_flash *= 1 - min(dt * 4, 1)
@@ -257,13 +312,23 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 room_camera :: proc(room: ^Room) -> rl.Camera3D {
 	p := &room.player
 	eye := Vec3{p.x, lab.player_eye_y(p), p.z}
-	return rl.Camera3D{position = eye, target = eye + lab.player_forward(p), up = {0, 1, 0}, fovy = ROOM_FOV, projection = .PERSPECTIVE}
+	// A blast knocks the view a little to the side and up, and it settles again.
+	v := carry.view_of(p)
+	knock := effects.look_shake(&room.fx)
+	forward := lab.player_forward(p) + v.right * knock.x + v.up * knock.y
+	return rl.Camera3D{position = eye, target = eye + forward, up = {0, 1, 0}, fovy = ROOM_FOV, projection = .PERSPECTIVE}
 }
 
 room_draw :: proc(game: ^Game, state: rawptr) {
 	room := cast(^Room)state
 	rl.ClearBackground(FOG_COLOR)
 	camera := room_camera(room)
+	if room.mesh.lit {
+		blast_light_set(room.mesh.material.shader, room.mesh.blast, &room.fx)
+	}
+	if room.meshes.vessel_ok {
+		blast_light_set(room.meshes.vessel.shader, room.meshes.blast, &room.fx)
+	}
 	rl.BeginMode3D(camera)
 	lab_mesh_draw(&room.mesh, camera.position)
 	view := carry.view_of(&room.player)
@@ -275,7 +340,10 @@ room_draw :: proc(game: ^Game, state: rawptr) {
 	props_draw_caps(&room.meshes, room.mesh.material, &room.props)
 	stream_draw(&room.stream)
 	props_draw_liquids(&room.meshes, &room.props, camera.position)
+	filler_view_draw(&room.filler_view, &room.filler, camera.position)
 	props_draw_glass(&room.meshes, room.mesh.material, &room.props, camera.position)
+	stations_draw(&room.filler)
+	effects_draw(&room.fx_view, &room.fx, view.right, view.up)
 	rl.EndMode3D()
 }
 
@@ -301,6 +369,9 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 		}
 		draw_contents(w, h, &room.props.items[focus], target)
 	}
+	if room.filler.aimed && room.pour_target == -1 {
+		draw_filler_readout(w, h, &room.filler, carry.focus(&room.props) != -1 ? 1 : 0)
+	}
 	draw_health(w, h, room.health.hp)
 	draw_toast(w, h, cstring(raw_data(room.toast[:])), room.toast_timer)
 	draw_grab_button(w, h, state)
@@ -312,6 +383,8 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 		label, ready = "fill", true
 	case room.pour_target != -1:
 		label, ready = "mix", true
+	case carry.filler_pour_ready(&room.filler, &room.props):
+		label, ready = "balloon", true
 	}
 	draw_pour_button(w, h, label, ready, room.controls.held == 4)
 	draw_bench_button(w, h)

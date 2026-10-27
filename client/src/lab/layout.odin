@@ -10,7 +10,7 @@ package lab
 
 Vec3 :: [3]f32
 
-MAX_BOXES :: 96
+MAX_BOXES :: 160
 MAX_COLLIDERS :: 8
 
 ROOM_W :: f32(24) // along x

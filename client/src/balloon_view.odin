@@ -42,6 +42,9 @@ Balloon_View :: struct {
 	light_loc: rl.ShaderLocationIndex,
 	tint_loc:  rl.ShaderLocationIndex,
 	back_loc:  rl.ShaderLocationIndex,
+	strain_loc: rl.ShaderLocationIndex,
+	strain:    f32, // 0 for a slack balloon, 1 at the point where it bursts, for the shader
+	hide_knot: bool, // a balloon held open by its neck has no knot yet
 }
 
 // Mesh and material memory comes from raylib's allocator, because UnloadMesh
@@ -88,6 +91,7 @@ view_init :: proc(v: ^Balloon_View, b: ^bl.Balloon, shader: rl.Shader, lit: bool
 		v.light_loc = rl.ShaderLocationIndex(rl.GetShaderLocation(shader, "lightDir"))
 		v.tint_loc = rl.ShaderLocationIndex(rl.GetShaderLocation(shader, "tint"))
 		v.back_loc = rl.ShaderLocationIndex(rl.GetShaderLocation(shader, "backFace"))
+		v.strain_loc = rl.ShaderLocationIndex(rl.GetShaderLocation(shader, "strain"))
 	}
 }
 
@@ -177,11 +181,21 @@ view_update :: proc(v: ^Balloon_View, b: ^bl.Balloon) {
 // Draws the balloon in two passes, inside first and outside second, so the far
 // wall shows faintly through the near one without any sorting.
 view_draw :: proc(v: ^Balloon_View, eye: Vec3, light: Vec3, tint: Vec3) {
+	view_draw_at(v, eye, light, tint, rl.Matrix(1))
+}
+
+// The same, with the balloon moved and scaled by `model`. The shader works in the
+// balloon's own space, so `eye` must be given in that space too: the eye minus the
+// move, over the scale. A balloon that is held open has no knot, and a stretched
+// one is drawn thin and pale by the amount of `strain`.
+view_draw_at :: proc(v: ^Balloon_View, eye: Vec3, light: Vec3, tint: Vec3, model: rl.Matrix) {
 	// Anything queued before this, such as the floor, must land first.
 	rlgl.DrawRenderBatchActive()
-	identity := rl.Matrix(1)
+	placement := model
 	eye_v, light_v, tint_v := eye, light, tint
 	if v.lit {
+		strain := v.strain
+		rl.SetShaderValue(v.material.shader, v.strain_loc, &strain, .FLOAT)
 		rl.SetShaderValue(v.material.shader, v.eye_loc, &eye_v, .VEC3)
 		rl.SetShaderValue(v.material.shader, v.light_loc, &light_v, .VEC3)
 		rl.SetShaderValue(v.material.shader, v.tint_loc, &tint_v, .VEC3)
@@ -195,17 +209,19 @@ view_draw :: proc(v: ^Balloon_View, eye: Vec3, light: Vec3, tint: Vec3) {
 		back := f32(0)
 		rl.SetShaderValue(v.material.shader, v.back_loc, &back, .FLOAT)
 	}
-	rl.DrawMesh(v.knot_mesh, v.material, identity)
+	if !v.hide_knot {
+		rl.DrawMesh(v.knot_mesh, v.material, placement)
+	}
 	if v.lit {
 		back := f32(1)
 		rl.SetShaderValue(v.material.shader, v.back_loc, &back, .FLOAT)
 		rlgl.SetCullFace(.FRONT)
-		rl.DrawMesh(v.mesh, v.material, identity)
+		rl.DrawMesh(v.mesh, v.material, placement)
 		back = 0
 		rl.SetShaderValue(v.material.shader, v.back_loc, &back, .FLOAT)
 	}
 	rlgl.SetCullFace(.BACK)
-	rl.DrawMesh(v.mesh, v.material, identity)
+	rl.DrawMesh(v.mesh, v.material, placement)
 	rlgl.DrawRenderBatchActive()
 }
 

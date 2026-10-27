@@ -29,6 +29,7 @@ Prop_Meshes :: struct {
 	mode_loc:  rl.ShaderLocationIndex,
 	level_loc: rl.ShaderLocationIndex,
 	color_loc: rl.ShaderLocationIndex,
+	blast:     Blast_Locs, // where the shader takes the light of a blast
 }
 
 // Copies a shape into a raylib mesh and uploads it. The texture coordinate
@@ -83,6 +84,7 @@ prop_meshes_init :: proc(m: ^Prop_Meshes) {
 		m.mode_loc = rl.ShaderLocationIndex(rl.GetShaderLocation(shader, "liquidMode"))
 		m.level_loc = rl.ShaderLocationIndex(rl.GetShaderLocation(shader, "levelY"))
 		m.color_loc = rl.ShaderLocationIndex(rl.GetShaderLocation(shader, "liquidColor"))
+		m.blast = blast_locs(shader)
 	}
 }
 

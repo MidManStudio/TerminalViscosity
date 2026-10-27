@@ -14,6 +14,16 @@ uniform vec3 eyePos;
 uniform float liquidMode; // 0 draws the glass, 1 draws the liquid inside it
 uniform float levelY;     // height of the liquid surface in the world
 uniform vec3 liquidColor;
+uniform vec4 blastPos;   // xyz: where the flash is, w: how far it reaches. Zero reach when there is none.
+uniform vec4 blastColor; // rgb: its color, a: how bright it is now
+
+// How much a blast lights a point of the room: the flash falls off with the
+// square of the distance left to its edge. Zero when no blast is going.
+vec3 blastGlow(vec3 p)
+{
+    float reach = clamp(1.0 - length(p - blastPos.xyz) / max(blastPos.w, 0.001), 0.0, 1.0);
+    return blastColor.rgb * (blastColor.a * reach * reach);
+}
 
 out vec4 finalColor;
 
@@ -45,6 +55,7 @@ void main()
         } else {
             lit += 0.30 * pow(max(dot(reflect(-lightDir, normal), v), 0.0), 24.0);
         }
+        lit += blastGlow(fragPos);
         finalColor = vec4(mix(clamp(lit, 0.0, 1.0), fogColor, fog), 1.0);
         return;
     }
@@ -56,5 +67,6 @@ void main()
     vec3 body = fragColor.rgb * mix(0.75, 1.1, sky);
     vec3 lit = body + vec3(0.85, 0.92, 1.0) * (0.35 * rim + 0.9 * glint);
     float alpha = clamp(0.16 + 0.55 * rim + 0.8 * glint, 0.0, 0.88);
+    lit += blastGlow(fragPos);
     finalColor = vec4(mix(clamp(lit, 0.0, 1.0), fogColor, fog), alpha);
 }

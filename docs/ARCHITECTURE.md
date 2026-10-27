@@ -35,7 +35,7 @@ Rules the code follows:
 | `crates/tv_server` | Headless binary |
 | `benches/` | Criterion benchmarks, own Cargo workspace |
 | `android/` | Android manifest and the C shim that starts the Odin client |
-| `client/` | Odin client with scenes, the 3D balloon and 2D ring soft-body packages, the lab-only liquid simulation, the lab compounds and reaction matrix, shaders, Odin benchmark |
+| `client/` | Odin client with scenes, the 3D balloon and 2D ring soft-body packages, the lab-only liquid simulation, the lab compounds and reaction matrix, the lab workstations, the look of blasts, shaders, Odin benchmark |
 | `scripts/` | Repo checks, benchmark tools, client build |
 | `docs/` | This file, CI, benchmarks, open decisions, and `references/` |
 | `.mdix/replacements/` | mdix-scaffold replacement manifest and archives |

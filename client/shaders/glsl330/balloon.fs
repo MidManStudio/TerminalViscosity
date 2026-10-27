@@ -13,6 +13,7 @@ uniform vec3 eyePos;
 uniform vec3 lightDir;
 uniform vec3 tint;
 uniform float backFace;
+uniform float strain; // 0 for a slack balloon, 1 at the point where it bursts
 
 out vec4 finalColor;
 
@@ -44,6 +45,11 @@ void main()
     vec3 rubber = tint * 0.7 * (0.35 + 0.65 * diffuse) + env * 0.10 + vec3(spec * 0.3);
     color = mix(color, rubber, fragKnot);
     alpha = mix(alpha, 1.0, fragKnot);
+
+    // Stretched rubber goes thin and pale, so a balloon near its limit looks it.
+    float thin = strain * (1.0 - fragKnot);
+    alpha *= 1.0 - 0.45 * thin;
+    color += vec3(0.28) * thin * (0.5 + rim);
 
     if (backFace > 0.5) {
         color *= 0.55;

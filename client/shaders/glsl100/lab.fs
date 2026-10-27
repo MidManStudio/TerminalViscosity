@@ -17,6 +17,16 @@ varying vec4 fragColor;
 varying vec2 fragMaterial;
 
 uniform vec3 eyePos;
+uniform vec4 blastPos;   // xyz: where the flash is, w: how far it reaches. Zero reach when there is none.
+uniform vec4 blastColor; // rgb: its color, a: how bright it is now
+
+// How much a blast lights a point of the room: the flash falls off with the
+// square of the distance left to its edge. Zero when no blast is going.
+vec3 blastGlow(vec3 p)
+{
+    float reach = clamp(1.0 - length(p - blastPos.xyz) / max(blastPos.w, 0.001), 0.0, 1.0);
+    return blastColor.rgb * (blastColor.a * reach * reach);
+}
 
 // GLES 2 version of the glsl330 shader. Keep the two in step by hand.
 void main()
@@ -34,6 +44,8 @@ void main()
 
     float slant = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 4.0);
     lit += fragMaterial.y * (0.10 + 0.55 * slant) * vec3(0.78, 0.86, 0.95);
+
+    lit += blastGlow(fragPos);
 
     float fog = clamp((length(eyePos - fragPos) - 10.0) / 22.0, 0.0, 1.0);
     gl_FragColor = vec4(mix(clamp(lit, 0.0, 1.0), fogColor, fog), 1.0);

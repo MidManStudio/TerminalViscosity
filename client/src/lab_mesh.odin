@@ -16,6 +16,7 @@ Lab_Mesh :: struct {
 	material: rl.Material,
 	lit:      bool, // false when the lab shader failed to compile
 	eye_loc:  rl.ShaderLocationIndex,
+	blast:    Blast_Locs, // where the shader takes the light of a blast
 }
 
 // For each face of a box: its outward normal and two tangents that turn
@@ -76,6 +77,7 @@ lab_mesh_init :: proc(m: ^Lab_Mesh, l: ^lab.Layout, shader: rl.Shader, lit: bool
 	m.lit = lit
 	if lit {
 		m.eye_loc = rl.ShaderLocationIndex(rl.GetShaderLocation(shader, "eyePos"))
+		m.blast = blast_locs(shader)
 	}
 }
 

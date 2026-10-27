@@ -8,6 +8,7 @@ package main
 import rl "vendor:raylib"
 import "carry"
 import "chem"
+import "core:fmt"
 import "core:strconv"
 
 // One rounded box of a hand icon, in a unit square with y pointing down.
@@ -247,4 +248,19 @@ draw_toast :: proc(w, h: f32, text: cstring, timer: f32) {
 	alpha := u8(255 * clamp(timer / 0.6, 0, 1))
 	font := i32(max(f32(18), h * 0.04))
 	draw_text_centered(text, i32(w * 0.5), i32(h * 0.14), font, {255, 255, 255, alpha})
+}
+
+// What the crosshair says about the balloon at the fill station: what it holds and
+// how full it is, going from teal to red as it nears bursting. `line` is 1 when a
+// line about a vessel is already under the crosshair, and 0 when this is the first.
+draw_filler_readout :: proc(w, h: f32, f: ^carry.Filler, line: int) {
+	buf: [96]u8
+	name := f.ml > 0 ? chem.compound_name(f.compound) : "empty"
+	text := fmt.bprintf(buf[:95], "balloon  %v  %d / %d ml  %d%%", name, int(f.ml + 0.5), int(carry.BALLOON_REST_ML), int(carry.fill_ratio(f) * 100 + 0.5))
+	buf[len(text)] = 0
+	font := i32(max(f32(16), h * 0.032))
+	y := i32(h * 0.5) + i32(max(f32(30), h * 0.075)) + 24 + i32(line) * (font + font / 3)
+	st := carry.strain(f)
+	color := rl.Color{u8(60 + 185 * st), u8(230 - 170 * st), u8(215 - 165 * st), 255}
+	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), y, font, color)
 }
