@@ -233,6 +233,24 @@ pop :: proc(e: ^Effects, at: Vec3, color: [3]f32, fill: f32, floor: f32) {
 	e.shake = max(e.shake, 0.003)
 }
 
+// A puff of steam from a vent at `at`, with now and then a spark, as from the
+// reaction oven while it runs. Called a few times a second, it makes a steady
+// plume. The steam is tinted a little by `color`, the liquid inside.
+vent :: proc(e: ^Effects, at: Vec3, color: [3]f32) {
+	for _ in 0 ..< 2 {
+		spawn(e, {kind = .Mist, pos = at + Vec3{range(e, -0.5, 0.5), 0, range(e, -0.1, 0.1)}, vel = {range(e, -0.15, 0.15), range(e, 0.5, 1.0), range(e, -0.15, 0.15)}, color = mix_color(color, {1, 1, 1}, 0.6), life = range(e, 0.8, 1.4), size = 0.05, grow = 0.18, gravity = -0.4, drag = 0.8, floor = at.y - 5})
+	}
+	if rand01(e) < 0.3 {
+		spawn(e, {kind = .Spark, pos = at, vel = {range(e, -0.6, 0.6), range(e, 1.5, 2.5), range(e, -0.6, 0.6)}, color = {1, 0.85, 0.4}, life = range(e, 0.4, 0.8), size = 0.012, gravity = 9.8, drag = 0.3, floor = at.y - 0.4})
+	}
+}
+
+// A small steady shake of the view, for a machine that is running. It only ever
+// raises the shake, so a blast is not made weaker by it.
+rumble :: proc(e: ^Effects, amount: f32) {
+	e.shake = max(e.shake, amount)
+}
+
 // Moves everything on by `dt` seconds and drops what is finished.
 step :: proc(e: ^Effects, dt: f32) {
 	if dt <= 0 {

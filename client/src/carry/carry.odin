@@ -84,6 +84,7 @@ Props :: struct {
 	aimed:   int, // index of the prop under the crosshair, or -1
 	aimed_t: f32, // how far along the view that prop is, in metres
 	pouring: bool, // the pour button is down, so the held vessel is tipping over
+	speed:   f32, // how many times faster than normal liquid runs, from SPEEDS; 0 counts as 1
 	session: Session,
 }
 
@@ -124,6 +125,7 @@ props_init :: proc(props: ^Props) {
 	props^ = {}
 	props.held = -1
 	props.aimed = -1
+	props.speed = 1
 	props.session.target = -1
 }
 

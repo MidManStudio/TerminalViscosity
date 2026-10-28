@@ -264,3 +264,53 @@ draw_filler_readout :: proc(w, h: f32, f: ^carry.Filler, line: int) {
 	color := rl.Color{u8(60 + 185 * st), u8(230 - 170 * st), u8(215 - 165 * st), 255}
 	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), y, font, color)
 }
+
+// The button that sets how fast liquid runs, under the matrix button. Each press goes
+// to the next speed. It is lit when it is not at normal speed.
+speed_button :: proc(w, h: f32) -> [4]f32 {
+	b := matrix_button(w, h)
+	return {b.x, b.y + b.w + 12, b.z, b.w}
+}
+
+draw_speed_button :: proc(w, h: f32, speed: f32) {
+	buf: [24]u8
+	text := fmt.bprintf(buf[:23], "speed x%d", int(speed + 0.5))
+	buf[len(text)] = 0
+	fill, edge, ink := rl.Color{10, 18, 28, 190}, rl.Color{230, 236, 242, 200}, rl.RAYWHITE
+	if speed > 1.5 {
+		fill, edge = {14, 74, 74, 230}, {60, 230, 215, 255}
+	}
+	draw_button(speed_button(w, h), cstring(raw_data(buf[:])), fill, edge, ink)
+}
+
+// The grab button as the run button, when the crosshair is on the reaction oven and
+// a run could start.
+draw_run_button :: proc(w, h: f32) {
+	draw_button(grab_button(w, h), "run", {14, 74, 74, 230}, {60, 230, 215, 255}, rl.RAYWHITE)
+}
+
+// What the crosshair says about the reaction oven: what each of the four ports holds,
+// with the one the crosshair points at in brackets, and then how the run is going or
+// what waits in the tank. `line` is how many lines of text are already under the
+// crosshair.
+draw_oven_readout :: proc(w, h: f32, o: ^carry.Oven, line: int) {
+	buf: [160]u8
+	pos := 0
+	for i in 0 ..< len(o.ports) {
+		p := o.ports[i]
+		name := p.ml > 0 ? chem.compound_name(p.compound) : "-"
+		open, close := i == o.aimed_port ? "[" : " ", i == o.aimed_port ? "]" : " "
+		pos += len(fmt.bprintf(buf[pos:150], "%v%d %v %d%v", open, i + 1, name, int(p.ml + 0.5), close))
+	}
+	switch {
+	case o.state == .Running:
+		pos += len(fmt.bprintf(buf[pos:150], "  running %d%%", int(carry.oven_progress(o) * 100 + 0.5)))
+	case o.tank.ml > 0:
+		pos += len(fmt.bprintf(buf[pos:150], "  tank: %v %d ml", chem.compound_name(o.tank.compound), int(o.tank.ml + 0.5)))
+	}
+	buf[min(pos, 159)] = 0
+	font := i32(max(f32(16), h * 0.032))
+	y := i32(h * 0.5) + i32(max(f32(30), h * 0.075)) + 24 + i32(line) * (font + font / 3)
+	color := o.state == .Running ? rl.Color{255, 190, 60, 255} : rl.Color{60, 230, 215, 255}
+	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), y, font, color)
+}

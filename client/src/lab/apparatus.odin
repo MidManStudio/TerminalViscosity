@@ -34,6 +34,26 @@ HOOD_TOP :: f32(2.25)
 HOOD_GLASS_LOW :: f32(1.55) // the sash is raised, so the glass starts here and the hands go under it
 HOOD_GLASS_Z :: f32(-7.27)
 
+// The reaction oven on the north counter: a big box with four ports on top, each
+// taking one liquid, a window and lights on the front, and a spout under the
+// lights that fills a held vessel with the product. A vessel's mouth at a port is a
+// funnel, as at the fill station.
+MIXER :: Rect {
+	min_x = 2.2,
+	min_z = -7.94,
+	max_x = 3.8,
+	max_z = -7.32,
+}
+MIXER_TOP :: f32(1.62) // the top of the box, where the funnels start
+MIXER_PORTS :: 4
+MIXER_PORT_SPACING :: f32(0.4)
+MIXER_PORT_RADIUS :: f32(0.06)
+MIXER_CAPTURE_ABOVE :: f32(0.30) // a drop up to this far over the top, inside a funnel, goes in
+MIXER_SPOUT :: Vec3{3.0, 1.41, -7.25} // the tip of the spout
+MIXER_AIM_LOW :: Vec3{2.18, 1.1, -7.96} // the box the crosshair tests for the oven
+MIXER_AIM_HIGH :: Vec3{3.82, 1.95, -7.30}
+MIXER_PROGRESS_LIGHTS :: 10
+
 // The balloon fill station: a stand with a clamp that holds the neck of a balloon,
 // a funnel over the clamp for pouring into, and a gauge beside it.
 FILLER_CLAMP :: Vec3{6.0, 1.52, 7.45} // where the neck of the balloon is held
@@ -57,6 +77,7 @@ add_apparatus :: proc(l: ^Layout) {
 	add_sink(l)
 	add_hood(l)
 	add_filler(l)
+	add_mixer(l)
 }
 
 add_sink :: proc(l: ^Layout) {
@@ -107,6 +128,52 @@ add_filler :: proc(l: ^Layout) {
 	// The back of the gauge.
 	g := GAUGE_ORIGIN
 	add_box(l, {g.x, g.y + GAUGE_SPACING * (GAUGE_LIGHTS - 1) * 0.5, g.z + 0.015}, {0.1, GAUGE_SPACING * GAUGE_LIGHTS + 0.04, 0.02}, {20, 26, 34, 255})
+}
+
+add_mixer :: proc(l: ^Layout) {
+	m := MIXER
+	cx, cz := (m.min_x + m.max_x) * 0.5, (m.min_z + m.max_z) * 0.5
+	w, d := m.max_x - m.min_x, m.max_z - m.min_z
+	height := MIXER_TOP - COUNTER_HEIGHT
+	add_box(l, {cx, COUNTER_HEIGHT + height * 0.5, cz}, {w, height, d}, COLOR_PANEL, 0, 0.4) // the body
+	add_box(l, {cx - 0.1, 1.24, m.max_z + 0.003}, {1.0, 0.18, 0.012}, {26, 30, 38, 255}, 0, 0.9) // the window
+	// The spout: a bracket out of the front and a nozzle that hangs from it.
+	add_box(l, {MIXER_SPOUT.x, 1.47, m.max_z + 0.035}, {0.04, 0.04, 0.1}, COLOR_METAL, 0, 0.5)
+	add_box(l, {MIXER_SPOUT.x, MIXER_SPOUT.y + 0.025, MIXER_SPOUT.z}, {0.04, 0.05, 0.04}, COLOR_METAL, 0, 0.5)
+	// A funnel over each port, four thin walls.
+	r := MIXER_PORT_RADIUS + 0.006
+	for i in 0 ..< MIXER_PORTS {
+		p := mixer_port(i)
+		add_box(l, {p.x - r, MIXER_TOP + 0.035, p.z}, {0.012, 0.07, 2 * r + 0.012}, COLOR_STEEL, 0, 0.8)
+		add_box(l, {p.x + r, MIXER_TOP + 0.035, p.z}, {0.012, 0.07, 2 * r + 0.012}, COLOR_STEEL, 0, 0.8)
+		add_box(l, {p.x, MIXER_TOP + 0.035, p.z - r}, {2 * r + 0.012, 0.07, 0.012}, COLOR_STEEL, 0, 0.8)
+		add_box(l, {p.x, MIXER_TOP + 0.035, p.z + r}, {2 * r + 0.012, 0.07, 0.012}, COLOR_STEEL, 0, 0.8)
+	}
+}
+
+// The middle of the rim of the funnel of port `i`, counting from the west.
+mixer_port :: proc(i: int) -> Vec3 {
+	return {MIXER.min_x + 0.2 + MIXER_PORT_SPACING * f32(i), MIXER_TOP + 0.07, (MIXER.min_z + MIXER.max_z) * 0.5}
+}
+
+// Where the light of port `i` is, on the front, over the window.
+mixer_port_light :: proc(i: int) -> Vec3 {
+	return {MIXER.min_x + 0.2 + MIXER_PORT_SPACING * f32(i), 1.54, MIXER.max_z + 0.012}
+}
+
+// Where light `i` of the strip that shows how far a run is, across the window.
+mixer_progress_light :: proc(i: int) -> Vec3 {
+	return {2.0 + 0.1 * f32(i) + 0.46, 1.24, MIXER.max_z + 0.012}
+}
+
+// Where the light that shows the product in the tank is, beside the window.
+mixer_tank_light :: proc() -> Vec3 {
+	return {3.62, 1.24, MIXER.max_z + 0.012}
+}
+
+// Where the oven vents, over the middle of its top, for steam while it runs.
+mixer_vent :: proc() -> Vec3 {
+	return {(MIXER.min_x + MIXER.max_x) * 0.5, MIXER_TOP + 0.05, (MIXER.min_z + MIXER.max_z) * 0.5}
 }
 
 // The center of the balloon at the station, for aiming effects at it: a little

@@ -89,3 +89,45 @@ the_workstations_do_not_overlap :: proc(t: ^testing.T) {
 	testing.expect(t, in_rect(SINK_BASIN, (SINK_BASIN.min_x + SINK_BASIN.max_x) * 0.5, (SINK_BASIN.min_z + SINK_BASIN.max_z) * 0.5), "the middle of the basin is in it")
 	testing.expect(t, !in_rect(SINK_BASIN, 0, 0), "and the middle of the room is not")
 }
+
+@(test)
+the_oven_is_on_the_north_counter_beside_the_hood :: proc(t: ^testing.T) {
+	l := full_lab()
+	defer free(l)
+	testing.expect(t, counter_covers(l, MIXER), "the oven is on a counter")
+	testing.expect(t, MIXER.max_z < 0, "on the north side")
+	testing.expect(t, MIXER.min_x > HOOD.max_x + 0.5, "clear of the hood")
+	testing.expect(t, MIXER_TOP - COUNTER_HEIGHT < 0.6, "low enough to pour into from eye height")
+}
+
+@(test)
+the_oven_ports_are_in_a_row_on_top_of_it :: proc(t: ^testing.T) {
+	for i in 0 ..< MIXER_PORTS {
+		p := mixer_port(i)
+		testing.expect(t, in_rect(MIXER, p.x, p.z), "inside the footprint")
+		testing.expect(t, p.y > MIXER_TOP, "above the top")
+		if i > 0 {
+			testing.expect(t, abs(p.x - mixer_port(i - 1).x - MIXER_PORT_SPACING) < 1e-4, "evenly spaced")
+			testing.expect(t, MIXER_PORT_SPACING > 2 * MIXER_PORT_RADIUS + 0.1, "funnels do not touch")
+		}
+		lo, hi := MIXER_AIM_LOW, MIXER_AIM_HIGH
+		testing.expect(t, p.x > lo.x && p.x < hi.x && p.y > lo.y && p.y < hi.y && p.z > lo.z && p.z < hi.z, "the aim box holds the port")
+	}
+}
+
+@(test)
+the_oven_spout_is_out_in_front_with_room_for_a_vessel :: proc(t: ^testing.T) {
+	testing.expect(t, MIXER_SPOUT.z > MIXER.max_z, "in front of the body")
+	testing.expect(t, MIXER_SPOUT.x > MIXER.min_x && MIXER_SPOUT.x < MIXER.max_x, "along its front")
+	testing.expect(t, MIXER_SPOUT.y - COUNTER_HEIGHT > 0.28, "a tall bottle fits under it")
+	testing.expect(t, MIXER_SPOUT.y < MIXER_TOP, "under the top")
+	for i in 0 ..< MIXER_PORTS {
+		testing.expect(t, mixer_port_light(i).z > MIXER.max_z, "port lights are on the front")
+	}
+	for i in 0 ..< MIXER_PROGRESS_LIGHTS {
+		x := mixer_progress_light(i).x
+		testing.expect(t, x > MIXER.min_x && x < mixer_tank_light().x, "the strip is across the window, left of the tank light")
+	}
+	v := mixer_vent()
+	testing.expect(t, in_rect(MIXER, v.x, v.z) && v.y >= MIXER_TOP, "the vent is on top")
+}

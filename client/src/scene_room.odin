@@ -42,6 +42,9 @@ Room :: struct {
 	fx:          effects.Effects, // the look of blasts, spatters, and burst balloons
 	fx_view:     Effects_View,
 	filler:      carry.Filler, // the balloon fill station
+	oven:        carry.Oven, // the reaction oven
+	spout:       bool, // the held vessel is near the spout of the oven, with product to fill it
+	vent_timer:  f32, // seconds since the oven last puffed steam
 	filler_view: Filler_View,
 	toast:       [96]u8, // what the last mix did, as text
 	toast_timer: f32,
@@ -59,14 +62,18 @@ room_toast :: proc(room: ^Room, format: string, args: ..any) {
 room_reset :: proc(room: ^Room) {
 	lab.player_init(&room.player, &room.layout)
 	carry.stream_clear(&room.stream)
+	speed := carry.flow_speed(&room.props) // a knock-out does not change the speed that was set
 	carry.props_init(&room.props)
+	room.props.speed = speed
 	carry.props_place_defaults(&room.props, &room.layout)
 	carry.health_init(&room.health)
 	carry.filler_init(&room.filler)
+	carry.oven_init(&room.oven)
 	effects.reset(&room.fx)
 	room.blast_flash = 0
 	room.pour_target = -1
 	room.valve = -1
+	room.spout = false
 }
 
 // A reaction that a pour started: shows what came of it, and takes the damage, less
@@ -112,6 +119,60 @@ room_fill_event :: proc(room: ^Room, e: carry.Fill_Result) {
 	}
 }
 
+// What the oven did: a refusal of a liquid, told in a line, or the end of a run. A
+// run that was violent has the look of a blast at the top of the oven, with the
+// light, the sparks, the smoke, and the ring, and it hurts nobody, because it
+// happened inside the machine. That is the point of the oven.
+room_oven_event :: proc(room: ^Room, e: carry.Oven_Event) {
+	switch e.kind {
+	case .Nothing:
+	case .Refused:
+		room_toast(room, "port %d holds %v, a port takes one liquid", e.port + 1, chem.compound_name(e.compound))
+	case .Finished:
+		at := lab.mixer_vent()
+		floor := carry.support_height(&room.layout, at.x, at.z, 0.1)
+		color := chem.compound_color(e.compound)
+		name := chem.compound_name(e.compound)
+		switch {
+		case e.volatility >= 0.6:
+			effects.blast(&room.fx, at, chem.blast_power(e.volatility), 0, color, color, floor)
+			room_toast(room, "%v ready, %d ml. It blasted, and the oven held it", name, int(e.ml + 0.5))
+		case e.volatility >= 0.3:
+			effects.spatter(&room.fx, at, color, floor)
+			room_toast(room, "%v ready, %d ml. It spattered, and the oven held it", name, int(e.ml + 0.5))
+		case:
+			room_toast(room, "%v ready, %d ml", name, int(e.ml + 0.5))
+		}
+	}
+}
+
+// While a run goes the oven puffs steam from its top a few times a second, tinted by
+// the first liquid in it, and the view rumbles a little when the player is near.
+room_oven_effects :: proc(room: ^Room, dt: f32) {
+	if room.oven.state != .Running {
+		room.vent_timer = 0
+		return
+	}
+	room.vent_timer += dt
+	vent := lab.mixer_vent()
+	color := Vec3{0.8, 0.8, 0.85}
+	for p in room.oven.ports {
+		if p.ml > 0 {
+			color = chem.compound_color(p.compound)
+			break
+		}
+	}
+	for room.vent_timer >= 0.15 {
+		room.vent_timer -= 0.15
+		effects.vent(&room.fx, vent, color)
+	}
+	eye := carry.view_of(&room.player).eye
+	d := eye - vent
+	if d.x * d.x + d.y * d.y + d.z * d.z < 36 {
+		effects.rumble(&room.fx, 0.004)
+	}
+}
+
 // Runs the liquid for this frame. It takes as many substeps as a real-time frame
 // needs, or fewer if they would take too long, and then the liquid runs a little
 // slower than real time instead of the frame being late.
@@ -142,6 +203,7 @@ room_load :: proc(game: ^Game) -> rawptr {
 	prop_meshes_init(&room.meshes)
 	carry.health_init(&room.health)
 	carry.filler_init(&room.filler)
+	carry.oven_init(&room.oven)
 	effects.init(&room.fx)
 	effects_view_init(&room.fx_view)
 	balloon_shader, balloon_ok := load_balloon_shader()
@@ -193,7 +255,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 		return
 	}
 
-	buttons := [6][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h), bench_button(w, h), pour_button(w, h), matrix_button(w, h)}
+	buttons := [7][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h), bench_button(w, h), pour_button(w, h), matrix_button(w, h), speed_button(w, h)}
 	controls_update(&room.controls, &pointers, w, h, buttons[:])
 	if room.controls.pressed == 0 {
 		game_switch(game, .Balloon_Lab)
@@ -206,6 +268,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	grab_pressed := room.controls.pressed == 1
 	jump_pressed := room.controls.pressed == 2
 	pour_down := room.controls.held == 4
+	speed_pressed := room.controls.pressed == 6
 	if room.controls.pressed == 5 {
 		room.menu_open = true
 		return
@@ -232,6 +295,9 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 			room.menu_open = true
 			return
 		}
+		if rl.IsKeyPressed(.V) {
+			speed_pressed = true
+		}
 		if rl.IsKeyDown(.W) || rl.IsKeyDown(.UP) {
 			push.y += 1
 		}
@@ -254,16 +320,26 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	}
 	lab.player_update_air(&room.player, dt)
 
-	// Under a tap the pour button fills the held vessel, and otherwise it tips the
-	// held vessel over to pour.
-	room.valve = pour_down ? carry.dispenser_under(&room.station, &room.props) : -1
-	room.props.pouring = pour_down && room.valve == -1 && room.props.held != -1
+	if speed_pressed {
+		room_toast(room, "liquid speed x%d", int(carry.speed_cycle(&room.props)))
+	}
+
+	// Near a tap, or the spout of the oven, the pour button fills the held vessel, and
+	// otherwise it tips the held vessel over to pour. Which one is known before the
+	// button is pressed, so the button can show it.
+	room.valve = carry.dispenser_under(&room.station, &room.props)
+	room.spout = room.valve == -1 && carry.oven_spout_under(&room.oven, &room.props)
+	room.props.pouring = pour_down && room.valve == -1 && !room.spout && room.props.held != -1
 
 	// Carrying: the button, or E on a desktop, grabs what the crosshair points
 	// at, or lets go of what is held.
 	carry.update(&room.props, &room.layout, &room.player, dt)
+	carry.oven_aim(&room.oven, &room.props, carry.view_of(&room.player))
 	if grab_pressed {
-		if room.props.held != -1 {
+		if carry.oven_run_ready(&room.oven, &room.props) {
+			carry.oven_start(&room.oven, carry.flow_speed(&room.props))
+			room_toast(room, "the oven is running")
+		} else if room.props.held != -1 {
 			carry.release(&room.props)
 		} else {
 			carry.grab(&room.props)
@@ -276,12 +352,17 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	// Liquid: let out of a tap or over the lip of the held vessel, simulated, and
 	// taken by the vessels it lands in.
 	eye := carry.view_of(&room.player).eye
-	if room.valve != -1 {
-		if !carry.station_flow(&room.station, &room.stream, &room.layout, room.valve, dt) {
+	speed := carry.flow_speed(&room.props)
+	if pour_down && room.valve != -1 {
+		if !carry.station_flow_to(&room.station, &room.stream, &room.layout, room.valve, dt, carry.tap_mouth(&room.props), true, speed) {
 			room_toast(room, "that tap is locked")
 		}
+	} else if pour_down && room.spout {
+		carry.oven_flow(&room.oven, &room.stream, &room.layout, dt, carry.tap_mouth(&room.props), speed)
 	} else if carry.filler_pour_ready(&room.filler, &room.props) {
 		carry.pour_flow_to(&room.props, &room.stream, &room.layout, dt, carry.filler_mouth(), true)
+	} else if carry.oven_pour_ready(&room.oven, &room.props) {
+		carry.pour_flow_to(&room.props, &room.stream, &room.layout, dt, carry.oven_mouth(&room.oven), true)
 	} else {
 		carry.pour_flow(&room.props, &room.stream, &room.layout, dt)
 	}
@@ -294,7 +375,13 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	for i in 0 ..< carry.filler_capture(&room.stream, &room.filler, eye, &fill_events) {
 		room_fill_event(room, fill_events[i])
 	}
+	oven_events: [carry.MAX_EVENTS]carry.Oven_Event
+	for i in 0 ..< carry.oven_capture(&room.stream, &room.oven, &oven_events) {
+		room_oven_event(room, oven_events[i])
+	}
 	carry.stream_drain(&room.stream)
+	room_oven_event(room, carry.oven_update(&room.oven, dt))
+	room_oven_effects(room, dt)
 	carry.filler_update(&room.filler, dt)
 	filler_view_update(&room.filler_view, &room.filler, dt)
 	effects.step(&room.fx, dt)
@@ -343,6 +430,7 @@ room_draw :: proc(game: ^Game, state: rawptr) {
 	filler_view_draw(&room.filler_view, &room.filler, camera.position)
 	props_draw_glass(&room.meshes, room.mesh.material, &room.props, camera.position)
 	stations_draw(&room.filler)
+	oven_draw(&room.oven)
 	effects_draw(&room.fx_view, &room.fx, view.right, view.up)
 	rl.EndMode3D()
 }
@@ -369,26 +457,39 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 		}
 		draw_contents(w, h, &room.props.items[focus], target)
 	}
+	lines := carry.focus(&room.props) != -1 ? 1 : 0
 	if room.filler.aimed && room.pour_target == -1 {
-		draw_filler_readout(w, h, &room.filler, carry.focus(&room.props) != -1 ? 1 : 0)
+		draw_filler_readout(w, h, &room.filler, lines)
+	} else if room.oven.aimed && room.pour_target == -1 {
+		draw_oven_readout(w, h, &room.oven, lines)
 	}
 	draw_health(w, h, room.health.hp)
 	draw_toast(w, h, cstring(raw_data(room.toast[:])), room.toast_timer)
-	draw_grab_button(w, h, state)
+	if carry.oven_run_ready(&room.oven, &room.props) {
+		draw_run_button(w, h)
+	} else {
+		draw_grab_button(w, h, state)
+	}
 	draw_jump_button(w, h, room.player.jump > 0)
 	label: cstring = "pour"
 	ready := false
+	port_label: [16]u8
 	switch {
-	case room.valve != -1:
+	case room.valve != -1 || room.spout:
 		label, ready = "fill", true
 	case room.pour_target != -1:
 		label, ready = "mix", true
 	case carry.filler_pour_ready(&room.filler, &room.props):
 		label, ready = "balloon", true
+	case carry.oven_pour_ready(&room.oven, &room.props):
+		text := fmt.bprintf(port_label[:15], "port %d", room.oven.aimed_port + 1)
+		port_label[len(text)] = 0
+		label, ready = cstring(raw_data(port_label[:])), true
 	}
 	draw_pour_button(w, h, label, ready, room.controls.held == 4)
 	draw_bench_button(w, h)
 	draw_matrix_button(w, h)
+	draw_speed_button(w, h, carry.flow_speed(&room.props))
 	controls_draw(&room.controls, w, h)
 	if room.menu_open {
 		draw_matrix_menu(w, h)

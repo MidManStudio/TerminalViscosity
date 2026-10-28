@@ -754,7 +754,7 @@ a_drop_into_a_full_vessel_is_lost_and_a_spatter_loses_some_liquid :: proc(t: ^te
 // ---- the bottle wall ----
 
 @(test)
-a_vessel_under_a_nozzle_is_found_only_when_it_is_in_the_right_place :: proc(t: ^testing.T) {
+a_vessel_near_a_nozzle_is_found_only_when_it_is_in_the_right_place :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
 	st: Station
@@ -770,10 +770,14 @@ a_vessel_under_a_nozzle_is_found_only_when_it_is_in_the_right_place :: proc(t: ^
 	place(props, nozzle.x, under, nozzle.z)
 	testing.expect_value(t, dispenser_under(&st, props), 3)
 	place(props, nozzle.x, under, nozzle.z + 0.3)
-	testing.expect_value(t, dispenser_under(&st, props), -1) // off to the side
-	place(props, nozzle.x, nozzle.y + 0.1, nozzle.z)
+	testing.expect_value(t, dispenser_under(&st, props), 3) // a little to the side is still found
+	place(props, nozzle.x, under, nozzle.z + 0.6)
+	testing.expect_value(t, dispenser_under(&st, props), 4) // nearer the next tap, which is the one
+	place(props, nozzle.x - 0.6, under, nozzle.z)
+	testing.expect_value(t, dispenser_under(&st, props), -1) // too far back
+	place(props, nozzle.x, nozzle.y + 0.5, nozzle.z)
 	testing.expect_value(t, dispenser_under(&st, props), -1) // above the tip
-	place(props, nozzle.x, nozzle.y - 1.0, nozzle.z)
+	place(props, nozzle.x, nozzle.y - 1.4, nozzle.z)
 	testing.expect_value(t, dispenser_under(&st, props), -1) // far below
 	place(props, nozzle.x, under, nozzle.z)
 	props.items[0].tilt = 0.8

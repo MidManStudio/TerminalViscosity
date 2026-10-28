@@ -383,3 +383,106 @@ the_gauge_goes_from_green_to_red :: proc(t: ^testing.T) {
 	testing.expect(t, f32(greens) * step <= 1 + step, "the green part ends near a fill of 1")
 	testing.expect(t, f32(greens) * step >= 1 - step, "and starts from empty")
 }
+
+// ---- the speed of liquid, and taps that aim ----
+
+@(test)
+speed_goes_round_the_choices :: proc(t: ^testing.T) {
+	props := new(Props)
+	defer free(props)
+	testing.expect_value(t, flow_speed(props), 1) // an unset speed is normal
+	props_init(props)
+	testing.expect_value(t, flow_speed(props), 1)
+	testing.expect_value(t, speed_cycle(props), 2)
+	testing.expect_value(t, speed_cycle(props), 4)
+	testing.expect_value(t, speed_cycle(props), 8)
+	testing.expect_value(t, speed_cycle(props), 1)
+	testing.expect_value(t, flow_speed(props), 1)
+}
+
+// Pours a beaker of `ml` of water into the funnel of the fill station at `speed`.
+// Returns the frames until the beaker is empty, and what the balloon holds.
+pour_into_funnel :: proc(speed: f32, ml: f32) -> (frames: int, delivered: f32) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	f := fresh_filler()
+	props_init(s.props)
+	s.props.speed = speed
+	props_add(s.props, s.l, .Beaker, 6.0, 7.0, id(.Water), ml)
+	s.props.held = 0
+	s.props.pouring = true
+	s.p.x, s.p.z = EYE.x, EYE.z
+	look_at(s.p, lab.FILLER_MOUTH)
+	dt := f32(1.0 / 60)
+	events: [MAX_EVENTS]Fill_Result
+	empty_at := -1
+	for frame in 0 ..< 900 {
+		update(s.props, s.l, s.p, dt)
+		filler_aim(&f, s.props, view_of(s.p))
+		if filler_pour_ready(&f, s.props) {
+			pour_flow_to(s.props, s.st, s.l, dt, filler_mouth(), true)
+		} else {
+			pour_flow(s.props, s.st, s.l, dt)
+		}
+		stream_step(s.st, 21)
+		filler_capture(s.st, &f, view_of(s.p).eye, &events)
+		if empty_at < 0 && s.props.items[0].ml + s.props.items[0].flow_acc < 1 {
+			empty_at = frame
+		}
+		if s.st.sim.count == 0 && empty_at >= 0 {
+			break
+		}
+	}
+	return empty_at, f.ml
+}
+
+@(test)
+a_faster_pour_empties_a_vessel_sooner_and_loses_nothing :: proc(t: ^testing.T) {
+	slow_frames, slow_got := pour_into_funnel(1, 600)
+	fast_frames, fast_got := pour_into_funnel(8, 600)
+	testing.expect(t, slow_frames > 0 && fast_frames > 0, "both emptied the beaker")
+	testing.expectf(t, fast_frames * 3 < slow_frames, "normal took %v frames and eight times took %v", slow_frames, fast_frames)
+	testing.expectf(t, slow_got > 540, "normal delivered %v of 600", slow_got)
+	testing.expectf(t, fast_got > 540, "fast delivered %v of 600", fast_got)
+	testing.expect(t, fast_got <= 600.01 && slow_got <= 600.01, "and made nothing from nothing")
+}
+
+// Fills a held beaker held `aside` metres beside tap 4 for `frames` frames at
+// `speed`. Returns what it holds and what is still in the air.
+fill_at_tap :: proc(aside: f32, frames: int, speed: f32) -> (got, air: f32) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	st: Station
+	station_init(&st)
+	props_init(s.props)
+	props_add(s.props, s.l, .Beaker, 0, 0, 0, 0)
+	s.props.held = 0
+	n := lab.dispenser_nozzle(4)
+	s.props.items[0].pos = {n.x - 0.1, n.y - 0.25 - kind_dims(.Beaker).height, n.z + aside}
+	events: [MAX_EVENTS]Mix_Result
+	for _ in 0 ..< frames {
+		station_flow_to(&st, s.st, s.l, 4, 1.0 / 60, tap_mouth(s.props), true, speed)
+		stream_step(s.st, 21)
+		stream_capture(s.st, s.props, {0, 1.6, 0}, &events)
+	}
+	for i in 0 ..< s.st.sim.count {
+		air += s.st.ml[i]
+	}
+	return s.props.items[0].ml, air
+}
+
+@(test)
+a_tap_fills_a_vessel_that_is_not_under_it :: proc(t: ^testing.T) {
+	got, air := fill_at_tap(0.35, 150, 1)
+	testing.expectf(t, got > 200, "the vessel beside the nozzle holds %v ml", got)
+	testing.expect(t, got + air <= 110 * 2.5 + 7, "and nothing was made from nothing")
+}
+
+@(test)
+a_faster_tap_fills_sooner :: proc(t: ^testing.T) {
+	slow, _ := fill_at_tap(0.35, 90, 1)
+	fast, air := fill_at_tap(0.35, 90, 4)
+	testing.expectf(t, slow > 100, "normal gave %v", slow)
+	testing.expectf(t, fast > slow * 2.5, "four times faster gave %v against %v", fast, slow)
+	testing.expect(t, fast + air <= 110 * 4 * 1.5 + 4 * DROP_ML, "and nothing was made from nothing")
+}

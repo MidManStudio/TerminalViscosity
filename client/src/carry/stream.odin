@@ -29,6 +29,7 @@ Stream :: struct {
 	compound:  [MAX_STREAM]u16,
 	age:       [MAX_STREAM]f32,
 	rest:      [MAX_STREAM]f32, // how long the particle has been lying still
+	ml:        [MAX_STREAM]f32, // the liquid the particle stands for, DROP_ML at normal speed
 	origin:    Vec3, // where the corner of the box is in the world
 	air_floor: bool, // the box floor is above the real floor, so a particle reaching it falls out
 }
@@ -50,7 +51,7 @@ stream_destroy :: proc(st: ^Stream) {
 
 stream_remove :: proc(st: ^Stream, i: int) {
 	last := st.sim.count - 1
-	st.compound[i], st.age[i], st.rest[i] = st.compound[last], st.age[last], st.rest[last]
+	st.compound[i], st.age[i], st.rest[i], st.ml[i] = st.compound[last], st.age[last], st.rest[last], st.ml[last]
 	mpm.sim_remove_particle(&st.sim, i)
 }
 
@@ -63,6 +64,13 @@ stream_clear :: proc(st: ^Stream) {
 // on whatever is under it. False if the stream is full or the place is outside
 // the box.
 stream_spawn :: proc(st: ^Stream, l: ^lab.Layout, world, vel: Vec3, compound: u16) -> bool {
+	return stream_spawn_ml(st, l, world, vel, compound, DROP_ML)
+}
+
+// The same, for a particle that stands for `ml` millilitres. A particle in the
+// simulation does not care how much liquid it stands for, so a faster pour is
+// made of drops that carry more, and costs the simulation nothing more.
+stream_spawn_ml :: proc(st: ^Stream, l: ^lab.Layout, world, vel: Vec3, compound: u16, ml: f32) -> bool {
 	if st.sim.count >= MAX_STREAM {
 		return false
 	}
@@ -85,7 +93,7 @@ stream_spawn :: proc(st: ^Stream, l: ^lab.Layout, world, vel: Vec3, compound: u1
 	if !mpm.sim_add_particle(&st.sim, local, vel) {
 		return false
 	}
-	st.compound[i], st.age[i], st.rest[i] = compound, 0, 0
+	st.compound[i], st.age[i], st.rest[i], st.ml[i] = compound, 0, 0, ml
 	return true
 }
 
@@ -139,7 +147,7 @@ stream_capture :: proc(st: ^Stream, props: ^Props, eye: Vec3, events: ^[MAX_EVEN
 			if w.y < pr.pos.y + 0.02 || w.y > pr.pos.y + d.height + CAPTURE_ABOVE {
 				continue
 			}
-			r := apply_droplet(props, v, st.compound[i], DROP_ML, eye)
+			r := apply_droplet(props, v, st.compound[i], st.ml[i], eye)
 			if r.kind != .Nothing && n < MAX_EVENTS {
 				events[n] = r
 				n += 1
@@ -149,6 +157,29 @@ stream_capture :: proc(st: ^Stream, props: ^Props, eye: Vec3, events: ^[MAX_EVEN
 		}
 	}
 	return n
+}
+
+// The speeds the liquid can be set to, as multiples of normal, for pours, taps, and
+// the oven. A faster pour is made of drops that carry more liquid.
+SPEEDS :: [4]f32{1, 2, 4, 8}
+
+// How many times faster than normal liquid runs now.
+flow_speed :: proc(props: ^Props) -> f32 {
+	return props.speed >= 0.5 ? props.speed : 1
+}
+
+// Moves to the next speed, back to the first after the last, and returns it.
+speed_cycle :: proc(props: ^Props) -> f32 {
+	table := SPEEDS
+	now := flow_speed(props)
+	next := table[0]
+	for i in 0 ..< len(table) - 1 {
+		if now >= table[i] - 0.01 && now < table[i + 1] - 0.01 {
+			next = table[i + 1]
+		}
+	}
+	props.speed = next
+	return next
 }
 
 // The most a vessel lets out each second, in millilitres. A narrow neck is slow.
@@ -209,16 +240,18 @@ pour_flow_to :: proc(props: ^Props, st: ^Stream, l: ^lab.Layout, dt: f32, mouth:
 		pr.compound = 0
 		return
 	}
+	speed := flow_speed(props)
+	drop := DROP_ML * speed
 	excess := pr.ml - capacity_at_tilt(pr.kind, pr.tilt)
-	if excess > 0 && pr.flow_acc < 2 * DROP_ML {
-		q := min(excess, pr.ml, flow_max(pr.kind) * dt)
+	if excess > 0 && pr.flow_acc < 2 * drop {
+		q := min(excess, pr.ml, flow_max(pr.kind) * speed * dt)
 		pr.ml -= q
 		pr.flow_acc += q
 	}
 	d := pour_dir(pr.yaw)
 	lip := pr.pos + lip_offset(pr.kind, pr.tilt, d)
-	speed := 0.3 + 0.8 * pr.tilt / TILT_MAX
-	vel := d * speed + Vec3{0, -0.2, 0}
+	push := 0.3 + 0.8 * pr.tilt / TILT_MAX
+	vel := d * push + Vec3{0, -0.2, 0}
 	if target := pour_target(props); target != -1 {
 		t := props.items[target]
 		vel = arc_to(lip, {t.pos.x, t.pos.y + kind_dims(t.kind).height + 0.03, t.pos.z})
@@ -227,15 +260,21 @@ pour_flow_to :: proc(props: ^Props, st: ^Stream, l: ^lab.Layout, dt: f32, mouth:
 	}
 	// Drops let out in one frame are spread along their way, as if let out at
 	// different moments, because two made in one place would push each other apart.
-	count := int(pr.flow_acc / DROP_ML)
+	count := int(pr.flow_acc / drop)
 	for j in 0 ..< count {
 		age := dt * f32(count - 1 - j) / f32(count)
-		if !stream_spawn(st, l, lip + vel * age, vel, pr.compound) {
+		if !stream_spawn_ml(st, l, lip + vel * age, vel, pr.compound, drop) {
 			break
 		}
-		pr.flow_acc -= DROP_ML
+		pr.flow_acc -= drop
 	}
-	if pr.ml < 0.05 && pr.flow_acc < DROP_ML {
+	// The last of a pour goes as one smaller drop, so none of it is lost.
+	if count == 0 && pr.ml < 0.05 && pr.flow_acc > 0.2 {
+		if stream_spawn_ml(st, l, lip, vel, pr.compound, pr.flow_acc) {
+			pr.flow_acc = 0
+		}
+	}
+	if pr.ml < 0.05 && pr.flow_acc <= 0.2 {
 		pr.ml, pr.flow_acc, pr.compound = 0, 0, 0
 	}
 }

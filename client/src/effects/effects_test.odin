@@ -228,3 +228,37 @@ blast_knocks_the_view :: proc(t: ^testing.T) {
 	testing.expect(t, k.x != 0 && k.y != 0, "both turns move")
 	testing.expect(t, abs(k.x) <= e.shake && abs(k.y) <= e.shake, "and never more than the shake")
 }
+
+@(test)
+vent_makes_rising_steam :: proc(t: ^testing.T) {
+	e := fresh()
+	defer free(e)
+	for _ in 0 ..< 20 {
+		vent(e, {3, 1.7, -7.6}, RED)
+	}
+	testing.expect(t, count_of(e, .Mist) >= 40, "steam")
+	testing.expect_value(t, count_of(e, .Fire), 0)
+	testing.expect_value(t, e.ring_count, 0)
+	rising := true
+	for i in 0 ..< e.count {
+		if e.particles[i].kind == .Mist && e.particles[i].vel.y <= 0 {
+			rising = false
+		}
+	}
+	testing.expect(t, rising, "it goes up")
+	testing.expect_value(t, light_intensity(e), 0) // a vent throws no light
+}
+
+@(test)
+rumble_only_raises_the_shake :: proc(t: ^testing.T) {
+	e := fresh()
+	defer free(e)
+	rumble(e, 0.004)
+	testing.expect_value(t, e.shake, 0.004)
+	rumble(e, 0.001)
+	testing.expect_value(t, e.shake, 0.004)
+	blast(e, {0, 1.2, 0}, 1, 1, RED, BLUE, 1.1)
+	big := e.shake
+	rumble(e, 0.004)
+	testing.expect_value(t, e.shake, big)
+}

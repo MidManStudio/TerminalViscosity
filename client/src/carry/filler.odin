@@ -144,7 +144,7 @@ filler_capture :: proc(st: ^Stream, f: ^Filler, eye: Vec3, events: ^[MAX_EVENTS]
 		if w.y < lab.FILLER_CAPTURE_LOW || w.y > lab.FILLER_CAPTURE_HIGH {
 			continue
 		}
-		r := filler_take_drop(f, st.compound[i], DROP_ML, eye)
+		r := filler_take_drop(f, st.compound[i], st.ml[i], eye)
 		stream_remove(st, i)
 		if (r.mix.kind != .Nothing || r.popped) && n < MAX_EVENTS {
 			events[n] = r
