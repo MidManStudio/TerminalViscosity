@@ -5,6 +5,7 @@
 
 package main
 
+import "carry"
 import rl "vendor:raylib"
 import "store"
 
@@ -38,6 +39,7 @@ Game :: struct {
 	demo:       Demo_Mode,
 	store:      store.Store, // the local database and the result of its start-up check
 	heat_strength: f32, // how strongly the heat-distortion pass wobbles the picture
+	loadout: carry.Loadout, // the balloons the player has made, which outlive a visit to the lab
 }
 
 // The five calls a scene answers. `draw` renders into game.target, which the

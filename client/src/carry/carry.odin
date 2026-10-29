@@ -61,6 +61,7 @@ Prop :: struct {
 	ml:       f32,
 	tilt:     f32, // how far it is tipped over toward the way it faces, in radians
 	flow_acc: f32, // liquid that has run over the lip and not yet left as drops, in ml
+	heat:     f32, // temperature of the liquid, from -1 fully cold through 0 to 1 fully hot
 }
 
 TILT_MAX :: f32(2.4) // about 137 degrees, nearly upside down, so a narrow neck can empty

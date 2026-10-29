@@ -127,6 +127,10 @@ contents_text :: proc(buf: ^[96]u8, pr: ^carry.Prop) -> cstring {
 		put(buf[:], &n, strconv.write_int(digits[:], i64(carry.capacity_ml(pr.kind) + 0.5), 10))
 		put(buf[:], &n, " ml")
 	}
+	if word := carry.heat_word(pr.heat); pr.compound != 0 && word != "" {
+		put(buf[:], &n, ", ")
+		put(buf[:], &n, word)
+	}
 	buf[n] = 0
 	return cstring(raw_data(buf[:]))
 }
@@ -313,4 +317,71 @@ draw_oven_readout :: proc(w, h: f32, o: ^carry.Oven, line: int) {
 	y := i32(h * 0.5) + i32(max(f32(30), h * 0.075)) + 24 + i32(line) * (font + font / 3)
 	color := o.state == .Running ? rl.Color{255, 190, 60, 255} : rl.Color{60, 230, 215, 255}
 	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), y, font, color)
+}
+
+// The grab button as the button of a balloon action: tie off and take, clamp, take,
+// or store. It is lit like the run button.
+draw_action_button :: proc(w, h: f32, label: cstring) {
+	draw_button(grab_button(w, h), label, {14, 74, 74, 230}, {60, 230, 215, 255}, rl.RAYWHITE)
+}
+
+// The grab button while a balloon is in the hands and there is nothing to do with it
+// where the crosshair is: dim, with a word for why.
+draw_full_button :: proc(w, h: f32) {
+	draw_button(grab_button(w, h), "full", {10, 18, 28, 120}, {230, 236, 242, 90}, {230, 236, 242, 120})
+}
+
+balloon_action_label :: proc(a: carry.Balloon_Action) -> cstring {
+	switch a {
+	case .None:
+		return ""
+	case .Tie_Take:
+		return "tie & take"
+	case .Clamp:
+		return "clamp"
+	case .Take_Paint, .Take_Slot:
+		return "take"
+	case .Store:
+		return "store"
+	}
+	return ""
+}
+
+// What the crosshair says about the paint station or a hook of the rack: what
+// balloon is there, or that it is empty.
+draw_spot_readout :: proc(w, h: f32, lo: ^carry.Loadout, line: int) {
+	buf: [128]u8
+	text: string
+	switch lo.spot {
+	case .None, .Fill:
+		return
+	case .Paint:
+		if lo.paint.used {
+			text = fmt.bprintf(buf[:120], "paint station  %v  %d ml  (drawing not built yet)", chem.compound_name(lo.paint.compound), int(lo.paint.ml + 0.5))
+		} else {
+			text = fmt.bprintf(buf[:120], "paint station  empty")
+		}
+	case .Slot:
+		slot := lo.slots[lo.spot_slot]
+		if slot.used {
+			text = fmt.bprintf(buf[:120], "hook %d  %v  %d ml", lo.spot_slot + 1, chem.compound_name(slot.compound), int(slot.ml + 0.5))
+		} else {
+			text = fmt.bprintf(buf[:120], "hook %d  empty", lo.spot_slot + 1)
+		}
+	}
+	buf[len(text)] = 0
+	font := i32(max(f32(16), h * 0.032))
+	y := i32(h * 0.5) + i32(max(f32(30), h * 0.075)) + 24 + i32(line) * (font + font / 3)
+	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), y, font, {60, 230, 215, 255})
+}
+
+// A line near the bottom of the screen that says the hands hold a balloon.
+draw_carrying :: proc(w, h: f32, item: carry.Item) {
+	if !item.used {
+		return
+	}
+	buf: [96]u8
+	text := fmt.bprintf(buf[:95], "carrying a balloon  %v  %d ml", chem.compound_name(item.compound), int(item.ml + 0.5))
+	buf[len(text)] = 0
+	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), i32(h * 0.86), i32(max(f32(16), h * 0.032)), {255, 214, 120, 255})
 }

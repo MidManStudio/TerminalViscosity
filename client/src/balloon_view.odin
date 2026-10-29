@@ -45,6 +45,7 @@ Balloon_View :: struct {
 	strain_loc: rl.ShaderLocationIndex,
 	strain:    f32, // 0 for a slack balloon, 1 at the point where it bursts, for the shader
 	hide_knot: bool, // a balloon held open by its neck has no knot yet
+	shares_shader: bool, // the shader belongs to another view, which unloads it
 }
 
 // Mesh and material memory comes from raylib's allocator, because UnloadMesh
@@ -228,7 +229,7 @@ view_draw_at :: proc(v: ^Balloon_View, eye: Vec3, light: Vec3, tint: Vec3, model
 view_unload :: proc(v: ^Balloon_View) {
 	rl.UnloadMesh(v.mesh)
 	rl.UnloadMesh(v.knot_mesh)
-	if v.lit {
+	if v.lit && !v.shares_shader {
 		rl.UnloadShader(v.material.shader)
 	}
 	rl.MemFree(rawptr(v.material.maps))

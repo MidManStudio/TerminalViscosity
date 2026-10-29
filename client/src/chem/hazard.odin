@@ -17,6 +17,21 @@ SPATTER_DAMAGE_MAX :: f32(15)
 SPATTER_RADIUS :: f32(1.5)
 SPATTER_LOSS :: f32(0.2) // the share of the liquid that is thrown out of the vessel
 
+HEAT_GAIN :: f32(0.6) // the volatility a fully hot liquid adds, so a safe pair turns violent when hot
+COLD_DAMP :: f32(0.6) // the share of its volatility a fully cold liquid loses, so a blast is tamed
+
+// The volatility of a meeting of liquids at a temperature, from -1 for fully cold
+// through 0 for the room to 1 for fully hot. Heat adds to the volatility, so a pair
+// that is safe in the room spatters or blasts when hot, and cold takes away a share
+// of it, so the worst blast becomes a spatter. It stays between 0 and 1.
+heated :: proc(volatility, heat: f32) -> f32 {
+	h := clamp(heat, -1, 1)
+	if h >= 0 {
+		return clamp(volatility + HEAT_GAIN * h, 0, 1)
+	}
+	return clamp(volatility * (1 + COLD_DAMP * h), 0, 1)
+}
+
 Hazard :: enum {
 	Calm, // nothing to worry about
 	Spatter, // hurts a little close up, and some liquid is lost

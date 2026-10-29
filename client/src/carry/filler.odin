@@ -22,6 +22,7 @@ Filler :: struct {
 	present:    bool,
 	compound:   u16,
 	ml:         f32,
+	heat:       f32, // temperature of the liquid, as for a vessel
 	respawn:    f32, // seconds until the next balloon, while there is none
 	generation: int,
 	session:    Session,
@@ -62,6 +63,7 @@ filler_burst :: proc(f: ^Filler) {
 	f.present = false
 	f.compound = 0
 	f.ml = 0
+	f.heat = 0
 	f.respawn = FILLER_RESPAWN
 	f.session = {
 		target = -1,
@@ -72,11 +74,11 @@ filler_burst :: proc(f: ^Filler) {
 // what is in it, by the same rule as a vessel. A violent reaction bursts the
 // balloon, and so does filling it to the limit. A drop that falls with no balloon
 // there is lost.
-filler_take_drop :: proc(f: ^Filler, compound: u16, ml: f32, eye: Vec3) -> Fill_Result {
+filler_take_drop :: proc(f: ^Filler, compound: u16, ml: f32, eye: Vec3, drop_heat := f32(0)) -> Fill_Result {
 	if !f.present {
 		return {}
 	}
-	r := mix_into(&f.compound, &f.ml, BALLOON_POP_ML + DROP_ML, lab.filler_center(), eye, &f.session, FILLER_KEY, compound, ml)
+	r := mix_into(&f.compound, &f.ml, &f.heat, BALLOON_POP_ML + DROP_ML, lab.filler_center(), eye, &f.session, FILLER_KEY, compound, ml, drop_heat)
 	out := Fill_Result {
 		mix = r,
 	}
@@ -144,7 +146,7 @@ filler_capture :: proc(st: ^Stream, f: ^Filler, eye: Vec3, events: ^[MAX_EVENTS]
 		if w.y < lab.FILLER_CAPTURE_LOW || w.y > lab.FILLER_CAPTURE_HIGH {
 			continue
 		}
-		r := filler_take_drop(f, st.compound[i], st.ml[i], eye)
+		r := filler_take_drop(f, st.compound[i], st.ml[i], eye, st.heat[i])
 		stream_remove(st, i)
 		if (r.mix.kind != .Nothing || r.popped) && n < MAX_EVENTS {
 			events[n] = r

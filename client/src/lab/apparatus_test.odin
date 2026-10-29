@@ -131,3 +131,73 @@ the_oven_spout_is_out_in_front_with_room_for_a_vessel :: proc(t: ^testing.T) {
 	v := mixer_vent()
 	testing.expect(t, in_rect(MIXER, v.x, v.z) && v.y >= MIXER_TOP, "the vent is on top")
 }
+
+overlap :: proc(a, b: Rect) -> bool {
+	return a.min_x < b.max_x && b.min_x < a.max_x && a.min_z < b.max_z && b.min_z < a.max_z
+}
+
+@(test)
+the_hot_plate_and_the_ice_bath_are_on_the_north_counter_apart_from_everything_else :: proc(t: ^testing.T) {
+	l := full_lab()
+	defer free(l)
+	testing.expect(t, counter_covers(l, HOT_PLATE), "the plate is on a counter")
+	testing.expect(t, counter_covers(l, ICE_BATH), "the bath is on a counter")
+	testing.expect(t, !overlap(HOT_PLATE, ICE_BATH), "not on each other")
+	for other in ([]Rect{HOOD, MIXER}) {
+		testing.expect(t, !overlap(HOT_PLATE, other) && !overlap(ICE_BATH, other), "clear of the hood and the oven")
+	}
+	testing.expect(t, HOT_PLATE.max_z < 0 && ICE_BATH.max_z < 0, "on the north side")
+	testing.expect(t, HOT_PLATE.max_x - HOT_PLATE.min_x > 0.4 && ICE_BATH.max_x - ICE_BATH.min_x > 0.4, "big enough to stand a flask on")
+}
+
+@(test)
+the_paint_station_is_on_the_west_counter_with_room_for_a_hanging_balloon :: proc(t: ^testing.T) {
+	l := full_lab()
+	defer free(l)
+	spot := Rect{PAINT_CLAMP.x, PAINT_CLAMP.z, PAINT_CLAMP.x, PAINT_CLAMP.z}
+	testing.expect(t, counter_covers(l, spot), "the clamp is over the counter")
+	testing.expect(t, PAINT_CLAMP.x < 0, "on the west side")
+	testing.expect(t, abs(PAINT_CLAMP.z - (SINK_BASIN.min_z + SINK_BASIN.max_z) * 0.5) > 1, "well away from the sink")
+	testing.expect(t, PAINT_CLAMP.y - PAINT_DROP - COUNTER_HEIGHT > 0.2, "the balloon hangs clear of the counter")
+	lo, hi := PAINT_AIM_LOW, PAINT_AIM_HIGH
+	inside := PAINT_CLAMP.x > lo.x && PAINT_CLAMP.x < hi.x && PAINT_CLAMP.y > lo.y && PAINT_CLAMP.y < hi.y && PAINT_CLAMP.z > lo.z && PAINT_CLAMP.z < hi.z
+	testing.expect(t, inside, "the aim box holds the clamp")
+	testing.expect(t, PAINT_CLAMP.y - PAINT_DROP > lo.y, "and the bottom of the balloon")
+}
+
+@(test)
+the_palette_has_sixteen_different_colors :: proc(t: ^testing.T) {
+	testing.expect_value(t, PALETTE_SIZE, 16)
+	for a in 0 ..< PALETTE_SIZE {
+		for b in a + 1 ..< PALETTE_SIZE {
+			testing.expect(t, palette_color(a) != palette_color(b), "no two the same")
+		}
+	}
+	testing.expect_value(t, palette_color(-3), palette_color(0)) // out of range counts as the end
+	testing.expect_value(t, palette_color(99), palette_color(PALETTE_SIZE - 1))
+}
+
+@(test)
+the_loadout_rack_has_a_hook_for_each_slot_on_the_south_counter :: proc(t: ^testing.T) {
+	l := full_lab()
+	defer free(l)
+	testing.expect(t, LOADOUT_SLOTS >= 1, "at least one slot")
+	for i in 0 ..< LOADOUT_SLOTS {
+		c := slot_clamp(i)
+		testing.expect(t, counter_covers(l, Rect{c.x, c.z, c.x, c.z}), "the hook is over the counter")
+		testing.expect(t, c.z > 0, "on the south side")
+		testing.expect(t, c.y - 0.2 - COUNTER_HEIGHT > 0.2, "a balloon hangs clear of the counter")
+		lo, hi := slot_aim(i)
+		testing.expect(t, c.x > lo.x && c.x < hi.x && c.y > lo.y && c.y < hi.y && c.z > lo.z && c.z < hi.z, "the aim box holds the hook")
+		if i > 0 {
+			_, prev_hi := slot_aim(i - 1)
+			testing.expect(t, lo.x >= prev_hi.x - 1e-4, "aim boxes do not overlap, so one slot is aimed at")
+			testing.expect(t, SLOT_SPACING > 0.3, "room for balloons side by side")
+			testing.expect(t, slot_light(i).x > slot_light(i - 1).x, "lights in order")
+		}
+	}
+	first_lo, _ := slot_aim(0)
+	testing.expect(t, first_lo.x > GAUGE_ORIGIN.x + 0.1, "clear of the gauge of the fill station")
+	_, last_hi := slot_aim(LOADOUT_SLOTS - 1)
+	testing.expect(t, last_hi.x < ROOM_W * 0.5 - 0.5, "and inside the counter")
+}

@@ -19,22 +19,23 @@ SLACK_FILL :: f32(0.55) // how full an empty balloon looks, as a share of its re
 AWAKE_TIME :: f32(1.5) // seconds the soft body keeps running after the fill last changed
 EMPTY_TINT :: Vec3{0.85, 0.88, 0.95}
 
-// The soft body of the balloon at the fill station, and what it takes to draw it
-// at the size of the lab. The body is simulated at the size it was tuned for, about
-// one unit across, with its tip pinned at the origin, and drawn scaled down and
-// moved to the clamp. `scale` is chosen so that the balloon at its rest volume
-// takes the volume of `BALLOON_REST_ML`, so how big it looks is how full it is.
-Filler_View :: struct {
-	balloon:    ^bl.Balloon,
-	view:       Balloon_View,
-	scale:      f32,
-	generation: int, // the balloon of the station this body is standing in for
-	awake:      f32, // seconds left to keep simulating
-	last_fill:  f32,
+// One soft-body balloon at the size of the lab. The body is simulated at the size
+// it was tuned for, about one unit across, with its tip pinned at the origin, and
+// drawn scaled down and moved to where it hangs. `scale` is chosen so that the rest
+// volume of the soft body takes the volume of `BALLOON_REST_ML`, so how big the
+// balloon looks is how full it is. The fill station, the hand, the paint station,
+// and each hook of the loadout rack have one.
+Balloon_Body :: struct {
+	balloon:   ^bl.Balloon,
+	view:      Balloon_View,
+	scale:     f32,
+	awake:     f32, // seconds left to keep simulating
+	last_fill: f32,
+	hanging:   bool, // a balloon has been hung in it since it was last empty
 }
 
-// The fill the soft body is given for a fill ratio of the station: a limp balloon
-// when empty, its natural size at 1, and as much as the station has above that.
+// The fill the soft body is given for a fill ratio of the balloon: a limp balloon
+// when empty, its natural size at 1, and as much as the balloon has above that.
 view_fill :: proc(ratio: f32) -> f32 {
 	if ratio <= 1 {
 		return SLACK_FILL + (1 - SLACK_FILL) * max(ratio, 0)
@@ -42,65 +43,127 @@ view_fill :: proc(ratio: f32) -> f32 {
 	return ratio
 }
 
-filler_view_init :: proc(fv: ^Filler_View, shader: rl.Shader, lit: bool) {
-	fv.balloon = new(bl.Balloon)
+// `pin_speed` is how fast the neck may follow the hand, in the units of the soft
+// body a second, and `shared` says the shader belongs to another body.
+body_init :: proc(b: ^Balloon_Body, shader: rl.Shader, lit: bool, shared: bool, pin_speed: f32) {
+	b.balloon = new(bl.Balloon)
 	cfg := bl.default_config()
 	cfg.frequency = STATION_FREQUENCY
 	cfg.substeps = STATION_SUBSTEPS
-	bl.init(fv.balloon, cfg)
-	fv.balloon.floor_y = -1000 // it hangs in the air, with no floor to land on
+	bl.init(b.balloon, cfg)
+	b.balloon.floor_y = -1000 // it hangs in the air, with no floor to land on
+	b.balloon.pin_speed = pin_speed
 	rest_m3 := carry.BALLOON_REST_ML * 1e-6
-	fv.scale = math.pow(rest_m3 / fv.balloon.rest_volume, 1.0 / 3.0)
-	view_init(&fv.view, fv.balloon, shader, lit)
-	fv.view.hide_knot = true
-	filler_view_reset(fv)
+	b.scale = math.pow(rest_m3 / b.balloon.rest_volume, 1.0 / 3.0)
+	view_init(&b.view, b.balloon, shader, lit)
+	b.view.hide_knot = true
+	b.view.shares_shader = shared
+	body_reset(b, 0)
+}
+
+body_unload :: proc(b: ^Balloon_Body) {
+	view_unload(&b.view)
+	free(b.balloon)
+	b^ = {}
+}
+
+// Hangs a fresh balloon from its tip, which is the origin of its own space, filled
+// to `ratio` of its rest volume.
+body_reset :: proc(b: ^Balloon_Body, ratio: f32) {
+	bal := b.balloon
+	bl.reset(bal, -bal.rest_pos[bl.TIP])
+	b.last_fill = view_fill(ratio)
+	bl.set_fill(bal, b.last_fill)
+	bl.pin(bal, bl.TIP, {0, 0, 0})
+	bl.update_normals(bal)
+	view_update(&b.view, bal)
+	b.awake = AWAKE_TIME
+	b.hanging = true
+}
+
+// Moves the soft body so that it stays where it is in the world when the point it
+// hangs from has moved by `d` metres: the body is drawn at that point, so it would
+// otherwise be carried along rigidly, and a balloon in the hand would not swing.
+body_shift :: proc(b: ^Balloon_Body, d: Vec3) {
+	bal := b.balloon
+	local := -d / b.scale
+	for i in 0 ..< bal.vert_count {
+		bal.pos[i] += local
+		bal.prev[i] += local
+	}
+	bal.pin_pos += local
+}
+
+// Runs the soft body for a frame: the fill it should have, how far it hangs from a
+// point that has moved by `moved` metres, and a step of the simulation while it is
+// still moving. A balloon at rest costs nothing, and one that is carried is always
+// moving. `strain` is how near a burst it is, for the rubber.
+body_step :: proc(b: ^Balloon_Body, ratio, strain, dt: f32, moved: Vec3) {
+	bal := b.balloon
+	fill := view_fill(ratio)
+	if abs(fill - b.last_fill) > 0.001 {
+		bl.set_fill(bal, fill)
+		b.last_fill = fill
+		b.awake = AWAKE_TIME
+	}
+	if moved != {} {
+		body_shift(b, moved)
+		b.awake = AWAKE_TIME
+	}
+	b.view.strain = strain
+	if b.awake > 0 {
+		bl.pin(bal, bl.TIP, {0, 0, 0})
+		bl.step(bal, min(dt, 1.0 / 60))
+		bl.update_normals(bal)
+		view_update(&b.view, bal)
+		b.awake -= dt
+	}
+}
+
+// Draws the balloon hanging from `origin`, in the color `tint`.
+body_draw :: proc(b: ^Balloon_Body, origin, eye, tint: Vec3) {
+	local_eye := (eye - origin) / b.scale
+	m := rl.Matrix(1)
+	m[0, 0], m[1, 1], m[2, 2] = b.scale, b.scale, b.scale
+	m[0, 3], m[1, 3], m[2, 3] = origin.x, origin.y, origin.z
+	view_draw_at(&b.view, local_eye, bl.normalize3(LIGHT_DIR), tint, m)
+}
+
+// The balloon of the fill station.
+Filler_View :: struct {
+	body:       Balloon_Body,
+	generation: int, // the balloon of the station this body is standing in for
+}
+
+filler_view_init :: proc(fv: ^Filler_View, shader: rl.Shader, lit: bool) {
+	body_init(&fv.body, shader, lit, false, 40)
 }
 
 filler_view_unload :: proc(fv: ^Filler_View) {
-	view_unload(&fv.view)
-	free(fv.balloon)
+	body_unload(&fv.body)
 	fv^ = {}
-}
-
-// Hangs a fresh balloon from the clamp, which is the origin of its own space, with
-// its tip pinned there.
-filler_view_reset :: proc(fv: ^Filler_View) {
-	b := fv.balloon
-	bl.reset(b, -b.rest_pos[bl.TIP])
-	fv.last_fill = view_fill(0)
-	bl.set_fill(b, fv.last_fill)
-	bl.pin(b, bl.TIP, {0, 0, 0})
-	bl.update_normals(b)
-	view_update(&fv.view, b)
-	fv.awake = AWAKE_TIME
 }
 
 // Brings the soft body up to the station: a new balloon when the station has
 // clamped one, the fill it holds, and a step of the simulation while it is still
-// moving. A balloon at rest, which is nearly always, costs nothing.
+// moving.
 filler_view_update :: proc(fv: ^Filler_View, f: ^carry.Filler, dt: f32) {
 	if f.generation != fv.generation {
 		fv.generation = f.generation
-		filler_view_reset(fv)
+		body_reset(&fv.body, 0)
 	}
 	if !f.present {
 		return
 	}
-	b := fv.balloon
-	fill := view_fill(carry.fill_ratio(f))
-	if abs(fill - fv.last_fill) > 0.001 {
-		bl.set_fill(b, fill)
-		fv.last_fill = fill
-		fv.awake = AWAKE_TIME
+	body_step(&fv.body, carry.fill_ratio(f), carry.strain(f), dt, {})
+}
+
+// The color a balloon is drawn in: that of what it holds, or a pale one when empty.
+balloon_tint :: proc(compound: u16, ml: f32) -> Vec3 {
+	if ml > 0 {
+		return chem.compound_color(compound)
 	}
-	fv.view.strain = carry.strain(f)
-	if fv.awake > 0 {
-		bl.pin(b, bl.TIP, {0, 0, 0})
-		bl.step(b, min(dt, 1.0 / 60))
-		bl.update_normals(b)
-		view_update(&fv.view, b)
-		fv.awake -= dt
-	}
+	return EMPTY_TINT
 }
 
 // Draws the balloon at the clamp, in the color of what it holds.
@@ -108,16 +171,88 @@ filler_view_draw :: proc(fv: ^Filler_View, f: ^carry.Filler, eye: Vec3) {
 	if !f.present {
 		return
 	}
-	o := lab.FILLER_CLAMP
-	local_eye := (eye - Vec3{o.x, o.y, o.z}) / fv.scale
-	tint := EMPTY_TINT
-	if f.ml > 0 {
-		tint = chem.compound_color(f.compound)
+	body_draw(&fv.body, lab.FILLER_CLAMP, eye, balloon_tint(f.compound, f.ml))
+}
+
+// The balloons the player has apart from the one at the fill station: the one in the
+// hand, the one in the paint station, and one for each hook of the loadout rack. A
+// body is made ready when an item arrives in its place, and costs nothing while
+// the place is empty, or while the balloon in it is at rest.
+Loadout_View :: struct {
+	hand:        Balloon_Body,
+	paint:       Balloon_Body,
+	slots:       [carry.LOADOUT_SLOTS]Balloon_Body,
+	hand_on:     bool,
+	paint_on:    bool,
+	slots_on:    [carry.LOADOUT_SLOTS]bool,
+	hand_origin: Vec3, // where the hand body hung last frame
+}
+
+// Every body shares the shader of the fill station, which is the one that owns it.
+loadout_view_init :: proc(lv: ^Loadout_View, shader: rl.Shader, lit: bool) {
+	body_init(&lv.hand, shader, lit, true, 400) // a hand moves faster than a clamp, so the neck follows faster
+	body_init(&lv.paint, shader, lit, true, 40)
+	for &s in lv.slots {
+		body_init(&s, shader, lit, true, 40)
 	}
-	m := rl.Matrix(1)
-	m[0, 0], m[1, 1], m[2, 2] = fv.scale, fv.scale, fv.scale
-	m[0, 3], m[1, 3], m[2, 3] = o.x, o.y, o.z
-	view_draw_at(&fv.view, local_eye, bl.normalize3(LIGHT_DIR), tint, m)
+}
+
+loadout_view_unload :: proc(lv: ^Loadout_View) {
+	body_unload(&lv.hand)
+	body_unload(&lv.paint)
+	for &s in lv.slots {
+		body_unload(&s)
+	}
+	lv^ = {}
+}
+
+// Where a balloon in the hand hangs from: in front of the player, a little to the
+// right, and level with the hold point of a vessel.
+hand_origin :: proc(v: carry.View) -> Vec3 {
+	return v.eye + (-v.back) * 0.55 + v.right * 0.17 - v.up * 0.05
+}
+
+// Gets each body ready when its item arrives and runs it. The one in the hand is moved
+// with the hand, and starts afresh if the hand has jumped, as after a reset.
+loadout_view_update :: proc(lv: ^Loadout_View, lo: ^carry.Loadout, v: carry.View, dt: f32) {
+	place :: proc(b: ^Balloon_Body, on: ^bool, item: carry.Item, dt: f32, moved: Vec3) {
+		if !item.used {
+			on^ = false
+			return
+		}
+		ratio := item.ml / carry.BALLOON_REST_ML
+		if !on^ {
+			on^ = true
+			body_reset(b, ratio)
+		}
+		body_step(b, ratio, 0, dt, moved)
+	}
+	origin := hand_origin(v)
+	moved := lv.hand_on ? origin - lv.hand_origin : Vec3{}
+	if moved.x * moved.x + moved.y * moved.y + moved.z * moved.z > 0.36 { // 0.6 m in a frame is a jump
+		moved = {}
+		lv.hand_on = false
+	}
+	place(&lv.hand, &lv.hand_on, lo.hand, dt, moved)
+	lv.hand_origin = origin
+	place(&lv.paint, &lv.paint_on, lo.paint, dt, {})
+	for i in 0 ..< carry.LOADOUT_SLOTS {
+		place(&lv.slots[i], &lv.slots_on[i], lo.slots[i], dt, {})
+	}
+}
+
+loadout_view_draw :: proc(lv: ^Loadout_View, lo: ^carry.Loadout, eye: Vec3) {
+	if lo.hand.used && lv.hand_on {
+		body_draw(&lv.hand, lv.hand_origin, eye, balloon_tint(lo.hand.compound, lo.hand.ml))
+	}
+	if lo.paint.used && lv.paint_on {
+		body_draw(&lv.paint, lab.PAINT_CLAMP, eye, balloon_tint(lo.paint.compound, lo.paint.ml))
+	}
+	for i in 0 ..< carry.LOADOUT_SLOTS {
+		if lo.slots[i].used && lv.slots_on[i] {
+			body_draw(&lv.slots[i], lab.slot_clamp(i), eye, balloon_tint(lo.slots[i].compound, lo.slots[i].ml))
+		}
+	}
 }
 
 // A flat colored box, six faces of two triangles each, drawn without lighting.
@@ -160,10 +295,10 @@ gauge_rgb :: proc(c: carry.Gauge_Color) -> [4]u8 {
 	return {46, 54, 64, 255}
 }
 
-// The lights of the gauge beside the clamp, and the glass of the fume hood. Both
+// The lights of the gauge beside the clamp, the lights over the hooks of the loadout rack, and the glass of the fume hood. Both
 // change from frame to frame, so they are drawn here and not with the room. Near the
 // limit the red lights blink, which says the balloon is about to go.
-stations_draw :: proc(f: ^carry.Filler) {
+stations_draw :: proc(f: ^carry.Filler, lo: ^carry.Loadout) {
 	rlgl.DrawRenderBatchActive()
 	rlgl.DisableBackfaceCulling()
 	rlgl.Begin(rlgl.TRIANGLES)
@@ -176,6 +311,15 @@ stations_draw :: proc(f: ^carry.Filler) {
 			c = .Off
 		}
 		draw_flat_box(lab.gauge_light(i), {0.07, 0.03, 0.012}, gauge_rgb(c))
+	}
+	// A light over each hook of the loadout rack: the color of what hangs on it.
+	for i in 0 ..< carry.LOADOUT_SLOTS {
+		color := gauge_rgb(.Off)
+		if lo.slots[i].used {
+			c := chem.compound_color(lo.slots[i].compound)
+			color = {u8(c.r * 255), u8(c.g * 255), u8(c.b * 255), 255}
+		}
+		draw_flat_box(lab.slot_light(i), {0.12, 0.04, 0.012}, color)
 	}
 	rlgl.End()
 	rlgl.DrawRenderBatchActive()

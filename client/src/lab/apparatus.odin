@@ -54,6 +54,41 @@ MIXER_AIM_LOW :: Vec3{2.18, 1.1, -7.96} // the box the crosshair tests for the o
 MIXER_AIM_HIGH :: Vec3{3.82, 1.95, -7.30}
 MIXER_PROGRESS_LIGHTS :: 10
 
+// The hot plate and the ice bath on the north counter. A vessel standing on one
+// takes the temperature of the station, slowly: the plate warms what is in it and
+// the bath cools it. A vessel counts as standing on one when its middle is inside
+// the footprint and it is resting near the counter top.
+HOT_PLATE :: Rect {
+	min_x = -3.8,
+	min_z = -7.88,
+	max_x = -3.2,
+	max_z = -7.38,
+}
+ICE_BATH :: Rect {
+	min_x = -2.8,
+	min_z = -7.88,
+	max_x = -2.0,
+	max_z = -7.38,
+}
+STATION_RESTING :: COUNTER_HEIGHT + 0.06
+
+// The paint station on the west counter: a frame that holds a balloon by a clamp at
+// its neck and a second clamp under its bottom, with a palette and a rack of
+// brushes beside it. The drawing itself is not built yet. The balloon hangs from
+// `PAINT_CLAMP`, and at its full size its bottom is `PAINT_DROP` below.
+PAINT_CLAMP :: Vec3{-11.63, 1.62, 2.0}
+PAINT_DROP :: f32(0.15)
+PAINT_AIM_LOW :: Vec3{-11.85, 1.25, 1.78}
+PAINT_AIM_HIGH :: Vec3{-11.41, 1.78, 2.22}
+PALETTE_SIZE :: 16
+
+// The loadout rack on the south counter: a hook for each balloon of the loadout, a
+// light over each that shows what is on it. The balloons hang by their necks, as
+// at the fill station.
+LOADOUT_SLOTS :: 3
+SLOT_FIRST_X :: f32(8.4)
+SLOT_SPACING :: f32(0.4)
+
 // The balloon fill station: a stand with a clamp that holds the neck of a balloon,
 // a funnel over the clamp for pouring into, and a gauge beside it.
 FILLER_CLAMP :: Vec3{6.0, 1.52, 7.45} // where the neck of the balloon is held
@@ -78,6 +113,10 @@ add_apparatus :: proc(l: ^Layout) {
 	add_hood(l)
 	add_filler(l)
 	add_mixer(l)
+	add_hot_plate(l)
+	add_ice_bath(l)
+	add_paint_station(l)
+	add_loadout_rack(l)
 }
 
 add_sink :: proc(l: ^Layout) {
@@ -149,6 +188,115 @@ add_mixer :: proc(l: ^Layout) {
 		add_box(l, {p.x, MIXER_TOP + 0.035, p.z - r}, {2 * r + 0.012, 0.07, 0.012}, COLOR_STEEL, 0, 0.8)
 		add_box(l, {p.x, MIXER_TOP + 0.035, p.z + r}, {2 * r + 0.012, 0.07, 0.012}, COLOR_STEEL, 0, 0.8)
 	}
+}
+
+add_hot_plate :: proc(l: ^Layout) {
+	h := HOT_PLATE
+	cx, cz := (h.min_x + h.max_x) * 0.5, (h.min_z + h.max_z) * 0.5
+	add_box(l, {cx, COUNTER_HEIGHT + 0.02, cz}, {h.max_x - h.min_x, 0.04, h.max_z - h.min_z}, {50, 54, 62, 255}, 0, 0.4)
+	add_box(l, {cx, COUNTER_HEIGHT + 0.043, cz}, {h.max_x - h.min_x - 0.12, 0.012, h.max_z - h.min_z - 0.12}, {255, 96, 40, 255}, 1) // the coil, glowing
+}
+
+add_ice_bath :: proc(l: ^Layout) {
+	b := ICE_BATH
+	cx, cz := (b.min_x + b.max_x) * 0.5, (b.min_z + b.max_z) * 0.5
+	w, d := b.max_x - b.min_x, b.max_z - b.min_z
+	add_box(l, {cx, COUNTER_HEIGHT + 0.015, cz}, {w, 0.03, d}, {170, 214, 238, 255}, 0, 0.8) // the floor of the tub, pale blue
+	rim := f32(0.07)
+	add_box(l, {b.min_x - 0.015, COUNTER_HEIGHT + rim * 0.5, cz}, {0.03, rim, d + 0.06}, {120, 160, 190, 255}, 0, 0.6)
+	add_box(l, {b.max_x + 0.015, COUNTER_HEIGHT + rim * 0.5, cz}, {0.03, rim, d + 0.06}, {120, 160, 190, 255}, 0, 0.6)
+	add_box(l, {cx, COUNTER_HEIGHT + rim * 0.5, b.min_z - 0.015}, {w, rim, 0.03}, {120, 160, 190, 255}, 0, 0.6)
+	add_box(l, {cx, COUNTER_HEIGHT + rim * 0.5, b.max_z + 0.015}, {w, rim, 0.03}, {120, 160, 190, 255}, 0, 0.6)
+	// A few lumps of ice standing in it.
+	add_box(l, {cx - 0.25, COUNTER_HEIGHT + 0.05, cz - 0.1}, {0.1, 0.04, 0.1}, {225, 240, 250, 255}, 0.3, 0.9)
+	add_box(l, {cx + 0.28, COUNTER_HEIGHT + 0.05, cz + 0.12}, {0.09, 0.04, 0.12}, {225, 240, 250, 255}, 0.3, 0.9)
+	add_box(l, {cx + 0.05, COUNTER_HEIGHT + 0.045, cz - 0.15}, {0.08, 0.03, 0.08}, {225, 240, 250, 255}, 0.3, 0.9)
+}
+
+add_paint_station :: proc(l: ^Layout) {
+	c := PAINT_CLAMP
+	top := COUNTER_HEIGHT
+	post_x := c.x - 0.3
+	add_box(l, {c.x, top + 0.01, c.z}, {0.34, 0.02, 0.6}, COLOR_METAL, 0, 0.5) // the base plate
+	add_box(l, {post_x, top + 0.02 + 0.33, c.z}, {0.04, 0.66, 0.04}, COLOR_METAL, 0, 0.5) // the post
+	add_box(l, {(post_x + c.x) * 0.5, 1.70, c.z}, {0.34, 0.04, 0.04}, COLOR_METAL, 0, 0.5) // the top arm
+	add_box(l, {c.x, 1.675, c.z}, {0.03, 0.05, 0.03}, COLOR_METAL, 0, 0.5) // down to the top clamp
+	add_clamp(l, {c.x, 1.65, c.z})
+	// The second clamp, a cradle under the bottom of the balloon at its full size.
+	bottom := c.y - PAINT_DROP
+	add_box(l, {(post_x + c.x) * 0.5, bottom - 0.05, c.z}, {0.34, 0.04, 0.04}, COLOR_METAL, 0, 0.5)
+	add_clamp(l, {c.x, bottom - 0.01, c.z})
+	// The palette: a board standing on the counter with a grid of swatches on it.
+	bz := c.z + 0.6
+	add_box(l, {post_x - 0.01, top + 0.18, bz}, {0.03, 0.36, 0.4}, {30, 36, 46, 255})
+	for k in 0 ..< PALETTE_SIZE {
+		row, col := k / 4, k % 4
+		add_box(l, {post_x + 0.01, top + 0.05 + 0.085 * f32(row), bz - 0.15 + 0.1 * f32(col)}, {0.012, 0.07, 0.08}, palette_color(k), 0.2)
+	}
+	// A cup of brushes, to the other side.
+	cz := c.z - 0.5
+	add_box(l, {post_x + 0.05, top + 0.04, cz}, {0.07, 0.08, 0.07}, {80, 84, 94, 255})
+	for k in 0 ..< 3 {
+		add_box(l, {post_x + 0.035 + 0.025 * f32(k), top + 0.14, cz}, {0.012, 0.16, 0.012}, {170, 126, 70, 255})
+	}
+}
+
+// Four thin walls round a point, that hold the neck or the bottom of a balloon.
+add_clamp :: proc(l: ^Layout, c: Vec3) {
+	add_box(l, {c.x - 0.04, c.y, c.z}, {0.012, 0.05, 0.092}, COLOR_STEEL, 0, 0.8)
+	add_box(l, {c.x + 0.04, c.y, c.z}, {0.012, 0.05, 0.092}, COLOR_STEEL, 0, 0.8)
+	add_box(l, {c.x, c.y, c.z - 0.04}, {0.092, 0.05, 0.012}, COLOR_STEEL, 0, 0.8)
+	add_box(l, {c.x, c.y, c.z + 0.04}, {0.092, 0.05, 0.012}, COLOR_STEEL, 0, 0.8)
+}
+
+add_loadout_rack :: proc(l: ^Layout) {
+	mid := SLOT_FIRST_X + SLOT_SPACING * f32(LOADOUT_SLOTS - 1) * 0.5
+	add_box(l, {mid, 1.55, 7.90}, {SLOT_SPACING * f32(LOADOUT_SLOTS) + 0.2, 0.5, 0.03}, {20, 26, 34, 255}) // the board behind the hooks
+	for i in 0 ..< LOADOUT_SLOTS {
+		c := slot_clamp(i)
+		add_box(l, {c.x, 1.60, (7.885 + c.z) * 0.5}, {0.03, 0.03, 7.885 - c.z}, COLOR_METAL, 0, 0.5) // the arm from the board
+		add_clamp(l, {c.x, 1.55, c.z})
+	}
+}
+
+// The color of swatch `k` of the palette. These are stand-ins: the palette of the
+// drawing is not decided.
+palette_color :: proc(k: int) -> [4]u8 {
+	table := [PALETTE_SIZE][4]u8 {
+		{20, 20, 24, 255},
+		{110, 112, 120, 255},
+		{200, 204, 210, 255},
+		{250, 250, 250, 255},
+		{200, 40, 40, 255},
+		{240, 120, 40, 255},
+		{245, 205, 50, 255},
+		{140, 200, 60, 255},
+		{40, 160, 80, 255},
+		{40, 190, 190, 255},
+		{50, 120, 220, 255},
+		{70, 60, 190, 255},
+		{150, 70, 200, 255},
+		{230, 90, 170, 255},
+		{140, 90, 50, 255},
+		{250, 190, 160, 255},
+	}
+	return table[clamp(k, 0, PALETTE_SIZE - 1)]
+}
+
+// Where the neck of the balloon on hook `i` of the loadout rack is held.
+slot_clamp :: proc(i: int) -> Vec3 {
+	return {SLOT_FIRST_X + SLOT_SPACING * f32(i), 1.52, 7.45}
+}
+
+// The box the crosshair tests for hook `i`.
+slot_aim :: proc(i: int) -> (low, high: Vec3) {
+	c := slot_clamp(i)
+	return {c.x - 0.14, 1.26, 7.31}, {c.x + 0.14, 1.74, 7.59}
+}
+
+// Where the light over hook `i` is, on the board.
+slot_light :: proc(i: int) -> Vec3 {
+	return {SLOT_FIRST_X + SLOT_SPACING * f32(i), 1.74, 7.88}
 }
 
 // The middle of the rim of the funnel of port `i`, counting from the west.

@@ -44,6 +44,8 @@ Room :: struct {
 	filler:      carry.Filler, // the balloon fill station
 	oven:        carry.Oven, // the reaction oven
 	spout:       bool, // the held vessel is near the spout of the oven, with product to fill it
+	loadout_view: Loadout_View,
+	steam_timer: f32, // seconds since hot vessels last gave off steam
 	vent_timer:  f32, // seconds since the oven last puffed steam
 	filler_view: Filler_View,
 	toast:       [96]u8, // what the last mix did, as text
@@ -116,6 +118,50 @@ room_fill_event :: proc(room: ^Room, e: carry.Fill_Result) {
 		floor := carry.support_height(&room.layout, at.x, at.z, 0.1)
 		effects.pop(&room.fx, at, chem.compound_color(e.lost), 1, floor)
 		room_toast(room, "POP! the balloon was overfilled")
+	}
+}
+
+// Does a balloon action and says what was done. A stretched balloon is let down to
+// full when it is tied, and the player is told how much was let out.
+room_balloon_action :: proc(room: ^Room, lo: ^carry.Loadout, action: carry.Balloon_Action) {
+	slot := lo.spot_slot
+	let_out, ok := carry.balloon_do(lo, &room.filler, action)
+	if !ok {
+		return
+	}
+	switch action {
+	case .None:
+	case .Tie_Take:
+		if let_out > 0.5 {
+			room_toast(room, "tied off, and let %d ml out of the stretched balloon", int(let_out + 0.5))
+		} else {
+			room_toast(room, "tied off and took the balloon")
+		}
+	case .Clamp:
+		room_toast(room, "clamped in the paint station")
+	case .Take_Paint:
+		room_toast(room, "took the balloon from the paint station")
+	case .Store:
+		room_toast(room, "hung on hook %d", slot + 1)
+	case .Take_Slot:
+		room_toast(room, "took the balloon from hook %d", slot + 1)
+	}
+}
+
+// Hot liquid gives off steam: a wisp from the top of each vessel that is hot, a few
+// times a second.
+room_steam :: proc(room: ^Room, dt: f32) {
+	room.steam_timer += dt
+	if room.steam_timer < 0.25 {
+		return
+	}
+	room.steam_timer = 0
+	for i in 0 ..< room.props.count {
+		pr := room.props.items[i]
+		if pr.ml > 0 && pr.heat > 0.6 {
+			top := Vec3{pr.pos.x, pr.pos.y + carry.kind_dims(pr.kind).height, pr.pos.z}
+			effects.steam(&room.fx, top, chem.compound_color(pr.compound))
+		}
 	}
 }
 
@@ -208,6 +254,7 @@ room_load :: proc(game: ^Game) -> rawptr {
 	effects_view_init(&room.fx_view)
 	balloon_shader, balloon_ok := load_balloon_shader()
 	filler_view_init(&room.filler_view, balloon_shader, balloon_ok)
+	loadout_view_init(&room.loadout_view, balloon_shader, balloon_ok)
 	room.pour_target = -1
 	room.valve = -1
 	pointers: Pointers
@@ -223,6 +270,7 @@ room_unload :: proc(game: ^Game, state: rawptr) {
 	room := cast(^Room)state
 	rlgl.SetClipPlanes(0.05, 4000)
 	game.heat_strength = 0
+	loadout_view_unload(&room.loadout_view)
 	filler_view_unload(&room.filler_view)
 	effects_view_unload(&room.fx_view)
 	prop_meshes_unload(&room.meshes)
@@ -335,19 +383,26 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	// at, or lets go of what is held.
 	carry.update(&room.props, &room.layout, &room.player, dt)
 	carry.oven_aim(&room.oven, &room.props, carry.view_of(&room.player))
+	carry.filler_aim(&room.filler, &room.props, carry.view_of(&room.player))
+	carry.loadout_aim(&game.loadout, &room.filler, &room.props, carry.view_of(&room.player))
 	if grab_pressed {
-		if carry.oven_run_ready(&room.oven, &room.props) {
+		action := carry.balloon_action(&game.loadout, &room.filler, &room.props)
+		switch {
+		case carry.oven_run_ready(&room.oven, &room.props):
 			carry.oven_start(&room.oven, carry.flow_speed(&room.props))
 			room_toast(room, "the oven is running")
-		} else if room.props.held != -1 {
+		case action != .None:
+			room_balloon_action(room, &game.loadout, action)
+		case carry.loadout_hands_full(&game.loadout):
+			room_toast(room, "hands full: hang the balloon on a hook, or clamp it at the paint station")
+		case room.props.held != -1:
 			carry.release(&room.props)
-		} else {
+		case:
 			carry.grab(&room.props)
 		}
 	}
 	carry.hands_update(&room.hands, carry.state_of(&room.props), dt)
 	room.pour_target = carry.pour_target(&room.props)
-	carry.filler_aim(&room.filler, &room.props, carry.view_of(&room.player))
 
 	// Liquid: let out of a tap or over the lip of the held vessel, simulated, and
 	// taken by the vessels it lands in.
@@ -384,6 +439,9 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	room_oven_effects(room, dt)
 	carry.filler_update(&room.filler, dt)
 	filler_view_update(&room.filler_view, &room.filler, dt)
+	loadout_view_update(&room.loadout_view, &game.loadout, carry.view_of(&room.player), dt)
+	carry.props_heat_update(&room.props, dt)
+	room_steam(room, dt)
 	effects.step(&room.fx, dt)
 	game.heat_strength = room.fx.heat
 
@@ -428,8 +486,9 @@ room_draw :: proc(game: ^Game, state: rawptr) {
 	stream_draw(&room.stream)
 	props_draw_liquids(&room.meshes, &room.props, camera.position)
 	filler_view_draw(&room.filler_view, &room.filler, camera.position)
+	loadout_view_draw(&room.loadout_view, &game.loadout, camera.position)
 	props_draw_glass(&room.meshes, room.mesh.material, &room.props, camera.position)
-	stations_draw(&room.filler)
+	stations_draw(&room.filler, &game.loadout)
 	oven_draw(&room.oven)
 	effects_draw(&room.fx_view, &room.fx, view.right, view.up)
 	rl.EndMode3D()
@@ -462,12 +521,21 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 		draw_filler_readout(w, h, &room.filler, lines)
 	} else if room.oven.aimed && room.pour_target == -1 {
 		draw_oven_readout(w, h, &room.oven, lines)
+	} else if room.pour_target == -1 {
+		draw_spot_readout(w, h, &game.loadout, lines)
 	}
+	draw_carrying(w, h, game.loadout.hand)
 	draw_health(w, h, room.health.hp)
 	draw_toast(w, h, cstring(raw_data(room.toast[:])), room.toast_timer)
-	if carry.oven_run_ready(&room.oven, &room.props) {
+	action := carry.balloon_action(&game.loadout, &room.filler, &room.props)
+	switch {
+	case carry.oven_run_ready(&room.oven, &room.props):
 		draw_run_button(w, h)
-	} else {
+	case action != .None:
+		draw_action_button(w, h, balloon_action_label(action))
+	case carry.loadout_hands_full(&game.loadout):
+		draw_full_button(w, h)
+	case:
 		draw_grab_button(w, h, state)
 	}
 	draw_jump_button(w, h, room.player.jump > 0)

@@ -250,6 +250,23 @@ vent_makes_rising_steam :: proc(t: ^testing.T) {
 }
 
 @(test)
+steam_is_thin_and_has_no_sparks :: proc(t: ^testing.T) {
+	e := fresh()
+	defer free(e)
+	for _ in 0 ..< 30 {
+		steam(e, {0, 1.3, 0}, RED)
+	}
+	testing.expect_value(t, e.count, 30)
+	testing.expect_value(t, count_of(e, .Mist), 30)
+	testing.expect_value(t, count_of(e, .Spark), 0)
+	for i in 0 ..< e.count {
+		testing.expect(t, e.particles[i].vel.y > 0, "it rises")
+		testing.expect(t, e.particles[i].size < 0.05, "a wisp, not a cloud")
+	}
+	testing.expect_value(t, light_intensity(e), 0)
+}
+
+@(test)
 rumble_only_raises_the_shake :: proc(t: ^testing.T) {
 	e := fresh()
 	defer free(e)

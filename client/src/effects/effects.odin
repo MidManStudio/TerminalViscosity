@@ -245,6 +245,13 @@ vent :: proc(e: ^Effects, at: Vec3, color: [3]f32) {
 	}
 }
 
+// A wisp of steam rising from `at`, in a pale tint of `color`, as from a vessel of hot
+// liquid. Called a few times a second it is a thin plume. Unlike a vent it has no
+// sparks.
+steam :: proc(e: ^Effects, at: Vec3, color: [3]f32) {
+	spawn(e, {kind = .Mist, pos = at + Vec3{range(e, -0.02, 0.02), 0, range(e, -0.02, 0.02)}, vel = {range(e, -0.05, 0.05), range(e, 0.25, 0.5), range(e, -0.05, 0.05)}, color = mix_color(color, {1, 1, 1}, 0.7), life = range(e, 0.8, 1.3), size = 0.03, grow = 0.1, gravity = -0.2, drag = 0.9, floor = at.y - 5})
+}
+
 // A small steady shake of the view, for a machine that is running. It only ever
 // raises the shake, so a blast is not made weaker by it.
 rumble :: proc(e: ^Effects, amount: f32) {

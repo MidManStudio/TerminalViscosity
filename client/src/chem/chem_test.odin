@@ -183,3 +183,27 @@ the_worst_blast_at_arms_length_hurts_a_lot_but_does_not_kill :: proc(t: ^testing
 	spatter := damage_of(react(u16(Id.Soda_Base), u16(Id.Spark_Blue)).volatility, 0.8)
 	testing.expectf(t, spatter > 0 && spatter < 10, "a spatter does %v at 0.8 m", spatter)
 }
+
+@(test)
+heat_adds_volatility_and_cold_takes_it_away :: proc(t: ^testing.T) {
+	for v in ([]f32{0, 0.1, 0.3, 0.6, 1}) {
+		testing.expect_value(t, heated(v, 0), v) // at room temperature nothing changes
+		testing.expect(t, heated(v, 0.5) >= v && heated(v, 1) >= heated(v, 0.5), "hotter is more volatile")
+		testing.expect(t, heated(v, -0.5) <= v && heated(v, -1) <= heated(v, -0.5), "colder is less")
+	}
+	testing.expect_value(t, heated(0.9, 1), 1) // never above 1
+	testing.expect_value(t, heated(0.2, -1) >= 0, true)
+	testing.expect_value(t, heated(0.5, 5), heated(0.5, 1)) // beyond the ends counts as the ends
+	testing.expect_value(t, heated(0.5, -5), heated(0.5, -1))
+}
+
+@(test)
+a_safe_pair_is_violent_when_hot_and_the_worst_blast_is_tamed_when_cold :: proc(t: ^testing.T) {
+	safe := react(u16(Id.Fizz_Acid), u16(Id.Soda_Base)).volatility
+	testing.expect_value(t, hazard_of(safe), Hazard.Calm)
+	testing.expect_value(t, hazard_of(heated(safe, 1)), Hazard.Blast) // fully hot
+	testing.expect_value(t, hazard_of(heated(safe, 0.5)), Hazard.Spatter) // warm
+	worst := react(u16(Id.Ember_Oil), u16(Id.Spark_Blue)).volatility
+	testing.expect_value(t, hazard_of(worst), Hazard.Blast)
+	testing.expect_value(t, hazard_of(heated(worst, -1)), Hazard.Spatter) // fully cold
+}
