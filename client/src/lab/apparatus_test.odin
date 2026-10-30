@@ -201,3 +201,27 @@ the_loadout_rack_has_a_hook_for_each_slot_on_the_south_counter :: proc(t: ^testi
 	_, last_hi := slot_aim(LOADOUT_SLOTS - 1)
 	testing.expect(t, last_hi.x < ROOM_W * 0.5 - 0.5, "and inside the counter")
 }
+
+@(test)
+the_tablet_is_twice_as_wide_as_high_beside_the_clamp_and_within_reach_of_the_aim :: proc(t: ^testing.T) {
+	l := full_lab()
+	defer free(l)
+	testing.expect(t, abs(TABLET_W - 2 * TABLET_H) < 1e-4, "twice as wide as high")
+	spot := Rect{TABLET_CENTER.x, TABLET_CENTER.z, TABLET_CENTER.x, TABLET_CENTER.z}
+	testing.expect(t, counter_covers(l, spot), "on the west counter")
+	lo, hi := TABLET_AIM_LOW, TABLET_AIM_HIGH
+	c := TABLET_CENTER
+	testing.expect(t, c.x > lo.x && c.x < hi.x && c.y > lo.y && c.y < hi.y && c.z > lo.z && c.z < hi.z, "the aim box holds the screen")
+	testing.expect(t, c.z - TABLET_W * 0.5 >= lo.z && c.z + TABLET_W * 0.5 <= hi.z, "all of it, across")
+	testing.expect(t, c.y - TABLET_H * 0.5 >= lo.y && c.y + TABLET_H * 0.5 <= hi.y, "and up and down")
+	testing.expect(t, hi.z < PAINT_AIM_LOW.z, "its aim box is apart from that of the clamp, so each is aimed at alone")
+	testing.expect(t, c.z + TABLET_W * 0.5 < PAINT_CLAMP.z - 0.1, "and the tablet does not touch the clamp")
+}
+
+@(test)
+no_paint_is_swatch_zero :: proc(t: ^testing.T) {
+	// Swatch 0 is the bare rubber and the eraser, so it must look like the rubber,
+	// which is light, and not like a paint.
+	r := palette_color(0)
+	testing.expect(t, r.r > 180 && r.g > 180 && r.b > 180, "pale")
+}

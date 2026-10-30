@@ -341,6 +341,8 @@ balloon_action_label :: proc(a: carry.Balloon_Action) -> cstring {
 		return "clamp"
 	case .Take_Paint, .Take_Slot:
 		return "take"
+	case .Paint:
+		return "paint"
 	case .Store:
 		return "store"
 	}
@@ -355,9 +357,15 @@ draw_spot_readout :: proc(w, h: f32, lo: ^carry.Loadout, line: int) {
 	switch lo.spot {
 	case .None, .Fill:
 		return
+	case .Tablet:
+		if lo.paint.used {
+			text = fmt.bprintf(buf[:120], "tablet  draw on it and the balloon in the clamp wears it")
+		} else {
+			text = fmt.bprintf(buf[:120], "tablet  clamp a balloon first")
+		}
 	case .Paint:
 		if lo.paint.used {
-			text = fmt.bprintf(buf[:120], "paint station  %v  %d ml  (drawing not built yet)", chem.compound_name(lo.paint.compound), int(lo.paint.ml + 0.5))
+			text = fmt.bprintf(buf[:120], "paint station  %v  %d ml", chem.compound_name(lo.paint.compound), int(lo.paint.ml + 0.5))
 		} else {
 			text = fmt.bprintf(buf[:120], "paint station  empty")
 		}

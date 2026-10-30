@@ -32,6 +32,7 @@ Balloon_Body :: struct {
 	awake:     f32, // seconds left to keep simulating
 	last_fill: f32,
 	hanging:   bool, // a balloon has been hung in it since it was last empty
+	art:       Art_Texture, // the drawing it wears, if it has one
 }
 
 // The fill the soft body is given for a fill ratio of the balloon: a limp balloon
@@ -62,6 +63,7 @@ body_init :: proc(b: ^Balloon_Body, shader: rl.Shader, lit: bool, shared: bool, 
 }
 
 body_unload :: proc(b: ^Balloon_Body) {
+	art_texture_unload(&b.art)
 	view_unload(&b.view)
 	free(b.balloon)
 	b^ = {}
@@ -117,6 +119,16 @@ body_step :: proc(b: ^Balloon_Body, ratio, strain, dt: f32, moved: Vec3) {
 		bl.update_normals(bal)
 		view_update(&b.view, bal)
 		b.awake -= dt
+	}
+}
+
+// Puts drawing `id` of the store on the balloon, or takes the drawing off if there
+// is none, and keeps the texture up to date with it.
+body_art :: proc(b: ^Balloon_Body, store: ^carry.Art_Store, id: u16, scratch: []u8) {
+	if art_texture_sync(&b.art, store, id, scratch) {
+		view_set_art(&b.view, b.art.tex)
+	} else {
+		view_clear_art(&b.view)
 	}
 }
 
@@ -186,6 +198,7 @@ Loadout_View :: struct {
 	paint_on:    bool,
 	slots_on:    [carry.LOADOUT_SLOTS]bool,
 	hand_origin: Vec3, // where the hand body hung last frame
+	scratch:     []u8, // room to turn a drawing into pixels in
 }
 
 // Every body shares the shader of the fill station, which is the one that owns it.
@@ -195,6 +208,7 @@ loadout_view_init :: proc(lv: ^Loadout_View, shader: rl.Shader, lit: bool) {
 	for &s in lv.slots {
 		body_init(&s, shader, lit, true, 40)
 	}
+	lv.scratch = art_scratch_alloc()
 }
 
 loadout_view_unload :: proc(lv: ^Loadout_View) {
@@ -203,6 +217,7 @@ loadout_view_unload :: proc(lv: ^Loadout_View) {
 	for &s in lv.slots {
 		body_unload(&s)
 	}
+	art_scratch_free(lv.scratch)
 	lv^ = {}
 }
 
@@ -214,8 +229,8 @@ hand_origin :: proc(v: carry.View) -> Vec3 {
 
 // Gets each body ready when its item arrives and runs it. The one in the hand is moved
 // with the hand, and starts afresh if the hand has jumped, as after a reset.
-loadout_view_update :: proc(lv: ^Loadout_View, lo: ^carry.Loadout, v: carry.View, dt: f32) {
-	place :: proc(b: ^Balloon_Body, on: ^bool, item: carry.Item, dt: f32, moved: Vec3) {
+loadout_view_update :: proc(lv: ^Loadout_View, lo: ^carry.Loadout, store: ^carry.Art_Store, v: carry.View, dt: f32) {
+	place :: proc(b: ^Balloon_Body, on: ^bool, item: carry.Item, store: ^carry.Art_Store, scratch: []u8, dt: f32, moved: Vec3) {
 		if !item.used {
 			on^ = false
 			return
@@ -226,6 +241,7 @@ loadout_view_update :: proc(lv: ^Loadout_View, lo: ^carry.Loadout, v: carry.View
 			body_reset(b, ratio)
 		}
 		body_step(b, ratio, 0, dt, moved)
+		body_art(b, store, item.art, scratch)
 	}
 	origin := hand_origin(v)
 	moved := lv.hand_on ? origin - lv.hand_origin : Vec3{}
@@ -233,16 +249,16 @@ loadout_view_update :: proc(lv: ^Loadout_View, lo: ^carry.Loadout, v: carry.View
 		moved = {}
 		lv.hand_on = false
 	}
-	place(&lv.hand, &lv.hand_on, lo.hand, dt, moved)
+	place(&lv.hand, &lv.hand_on, lo.hand, store, lv.scratch, dt, moved)
 	lv.hand_origin = origin
-	place(&lv.paint, &lv.paint_on, lo.paint, dt, {})
+	place(&lv.paint, &lv.paint_on, lo.paint, store, lv.scratch, dt, {})
 	for i in 0 ..< carry.LOADOUT_SLOTS {
-		place(&lv.slots[i], &lv.slots_on[i], lo.slots[i], dt, {})
+		place(&lv.slots[i], &lv.slots_on[i], lo.slots[i], store, lv.scratch, dt, {})
 	}
 }
 
-loadout_view_draw :: proc(lv: ^Loadout_View, lo: ^carry.Loadout, eye: Vec3) {
-	if lo.hand.used && lv.hand_on {
+loadout_view_draw :: proc(lv: ^Loadout_View, lo: ^carry.Loadout, eye: Vec3, show_hand: bool) {
+	if show_hand && lo.hand.used && lv.hand_on {
 		body_draw(&lv.hand, lv.hand_origin, eye, balloon_tint(lo.hand.compound, lo.hand.ml))
 	}
 	if lo.paint.used && lv.paint_on {
@@ -334,5 +350,43 @@ stations_draw :: proc(f: ^carry.Filler, lo: ^carry.Loadout) {
 	rlgl.End()
 	rlgl.DrawRenderBatchActive()
 	rlgl.EnableDepthMask()
+	rlgl.EnableBackfaceCulling()
+}
+
+// The screen of the tablet beside the paint station: bare rubber color with the drawing
+// on it when a balloon is clamped, so it shows what the balloon wears, and dark and
+// blank when there is none. It is a flat picture on the wall side of the counter, facing east.
+tablet_draw :: proc(lv: ^Loadout_View, lo: ^carry.Loadout) {
+	c := lab.TABLET_CENTER
+	hw, hh := lab.TABLET_W * 0.5, lab.TABLET_H * 0.5
+	// Seen from the east, the left edge is the south one, so the drawing starts there.
+	tl, tr := Vec3{c.x, c.y + hh, c.z + hw}, Vec3{c.x, c.y + hh, c.z - hw}
+	bl_, br := Vec3{c.x, c.y - hh, c.z + hw}, Vec3{c.x, c.y - hh, c.z - hw}
+	rlgl.DrawRenderBatchActive()
+	rlgl.DisableBackfaceCulling()
+	rlgl.Begin(rlgl.TRIANGLES)
+	back := lo.paint.used ? lab.palette_color(0) : [4]u8{34, 40, 52, 255}
+	rlgl.Color4ub(back.r, back.g, back.b, 255)
+	for p in ([6]Vec3{tl, tr, br, tl, br, bl_}) {
+		rlgl.Vertex3f(p.x, p.y, p.z)
+	}
+	rlgl.End()
+	rlgl.DrawRenderBatchActive()
+	if lo.paint.used && lv.paint.art.loaded && lv.paint.art.art_id != 0 {
+		rlgl.SetTexture(lv.paint.art.tex.id)
+		rlgl.Begin(rlgl.TRIANGLES)
+		rlgl.Color4ub(255, 255, 255, 255)
+		corners := [6]struct {
+			p:    Vec3,
+			u, v: f32,
+		}{{tl, 0, 0}, {tr, 1, 0}, {br, 1, 1}, {tl, 0, 0}, {br, 1, 1}, {bl_, 0, 1}}
+		for k in corners {
+			rlgl.TexCoord2f(k.u, k.v)
+			rlgl.Vertex3f(k.p.x + 0.001, k.p.y, k.p.z)
+		}
+		rlgl.End()
+		rlgl.DrawRenderBatchActive()
+		rlgl.SetTexture(0)
+	}
 	rlgl.EnableBackfaceCulling()
 }

@@ -17,7 +17,7 @@ Item :: struct {
 	compound: u16,
 	ml:       f32,
 	heat:     f32,
-	art:      u16, // 0 while there is no drawing. The paint station is there, the drawing is not.
+	art:      u16, // the id of its drawing in the art store, 0 while it has none
 }
 
 // What the server needs of a balloon in the loadout. `volume_ml` and `compound`
@@ -32,7 +32,8 @@ Preset :: struct {
 Spot :: enum u8 {
 	None,
 	Fill, // the clamp of the fill station
-	Paint, // the paint station
+	Paint, // the clamp of the paint station
+	Tablet, // the tablet beside it
 	Slot, // a hook of the loadout rack
 }
 
@@ -42,6 +43,7 @@ Balloon_Action :: enum u8 {
 	Tie_Take, // tie off the balloon at the fill station and take it
 	Clamp, // clamp the balloon in the hand into the paint station
 	Take_Paint, // take the balloon out of the paint station
+	Paint, // draw on the tablet, which the balloon in the clamp wears
 	Store, // hang the balloon in the hand on a hook
 	Take_Slot, // take the balloon off a hook
 }
@@ -50,7 +52,7 @@ Balloon_Action :: enum u8 {
 // hooks of the loadout, which is what is kept between matches.
 Loadout :: struct {
 	hand:      Item,
-	paint:     Item,
+	paint:     Item, // in the clamp of the paint station, wearing what is drawn on the tablet
 	slots:     [LOADOUT_SLOTS]Item,
 	spot:      Spot,
 	spot_slot: int, // which hook, when the spot is a slot
@@ -62,8 +64,8 @@ loadout_hands_full :: proc(lo: ^Loadout) -> bool {
 	return lo.hand.used
 }
 
-// Finds what the crosshair is on among the fill clamp, the paint station, and the
-// hooks of the rack: the nearest one within reach, and nearer than any vessel. Run it
+// Finds what the crosshair is on among the fill clamp, the paint station, the tablet,
+// and the hooks of the rack: the nearest one within reach, and nearer than any vessel. Run it
 // after `filler_aim`, which says whether the crosshair is on the fill clamp.
 loadout_aim :: proc(lo: ^Loadout, f: ^Filler, props: ^Props, v: View) {
 	dir := -v.back
@@ -76,6 +78,10 @@ loadout_aim :: proc(lo: ^Loadout, f: ^Filler, props: ^Props, v: View) {
 	if t, hit := ray_box(v.eye, dir, lab.PAINT_AIM_LOW, lab.PAINT_AIM_HIGH); hit && t < best_t {
 		best_t = t
 		lo.spot = .Paint
+	}
+	if t, hit := ray_box(v.eye, dir, lab.TABLET_AIM_LOW, lab.TABLET_AIM_HIGH); hit && t < best_t {
+		best_t = t
+		lo.spot = .Tablet
 	}
 	for i in 0 ..< LOADOUT_SLOTS {
 		low, high := lab.slot_aim(i)
@@ -93,7 +99,8 @@ loadout_aim :: proc(lo: ^Loadout, f: ^Filler, props: ^Props, v: View) {
 // What the grab button would do now. Nothing while a vessel is held. At the fill
 // clamp it ties off a balloon that has something in it, and takes it, with empty
 // hands. At the paint station and a hook it puts the balloon in the hand there if the
-// place is free, and takes the balloon there if the hand is free.
+// place is free, and takes the balloon there if the hand is free. At the tablet it
+// starts drawing, if a balloon is clamped, in hands that hold no vessel.
 balloon_action :: proc(lo: ^Loadout, f: ^Filler, props: ^Props) -> Balloon_Action {
 	if props.held != -1 {
 		return .None
@@ -109,6 +116,10 @@ balloon_action :: proc(lo: ^Loadout, f: ^Filler, props: ^Props) -> Balloon_Actio
 			return .Clamp
 		} else if !lo.hand.used && lo.paint.used {
 			return .Take_Paint
+		}
+	case .Tablet:
+		if lo.paint.used {
+			return .Paint
 		}
 	case .Slot:
 		slot := lo.slots[lo.spot_slot]
@@ -150,6 +161,8 @@ balloon_do :: proc(lo: ^Loadout, f: ^Filler, action: Balloon_Action) -> (let_out
 	switch action {
 	case .None:
 		return 0, false
+	case .Paint:
+		return 0, lo.paint.used // nothing moves: the scene starts the drawing
 	case .Tie_Take:
 		item, out := filler_tie(f)
 		if !item.used {

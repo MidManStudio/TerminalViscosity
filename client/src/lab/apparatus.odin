@@ -82,6 +82,17 @@ PAINT_AIM_LOW :: Vec3{-11.85, 1.25, 1.78}
 PAINT_AIM_HIGH :: Vec3{-11.41, 1.78, 2.22}
 PALETTE_SIZE :: 16
 
+// The tablet beside the clamp: a flat panel, twice as wide as it is high, that
+// the drawing is made on and that the balloon in the clamp wears. It is twice as
+// wide because the picture goes once round the balloon, which is about twice as far
+// round as it is from pole to pole, so what is drawn on the tablet looks the same on
+// the balloon at its middle. It faces east, to a player at the counter.
+TABLET_CENTER :: Vec3{-11.912, 1.36, 1.43} // the middle of its screen
+TABLET_W :: f32(0.52) // along the counter
+TABLET_H :: f32(0.26)
+TABLET_AIM_LOW :: Vec3{-11.99, 1.2, 1.15}
+TABLET_AIM_HIGH :: Vec3{-11.84, 1.52, 1.71}
+
 // The loadout rack on the south counter: a hook for each balloon of the loadout, a
 // light over each that shows what is on it. The balloons hang by their necks, as
 // at the fill station.
@@ -233,8 +244,13 @@ add_paint_station :: proc(l: ^Layout) {
 		row, col := k / 4, k % 4
 		add_box(l, {post_x + 0.01, top + 0.05 + 0.085 * f32(row), bz - 0.15 + 0.1 * f32(col)}, {0.012, 0.07, 0.08}, palette_color(k), 0.2)
 	}
-	// A cup of brushes, to the other side.
-	cz := c.z - 0.5
+	// The tablet: a bezel on two short legs. Its screen is drawn by the client.
+	t := TABLET_CENTER
+	add_box(l, {t.x - 0.02, t.y, t.z}, {0.03, TABLET_H + 0.05, TABLET_W + 0.05}, {24, 28, 36, 255}, 0, 0.5)
+	add_box(l, {t.x - 0.02, COUNTER_HEIGHT + 0.055, t.z - TABLET_W * 0.35}, {0.04, 0.11, 0.04}, COLOR_METAL, 0, 0.5)
+	add_box(l, {t.x - 0.02, COUNTER_HEIGHT + 0.055, t.z + TABLET_W * 0.35}, {0.04, 0.11, 0.04}, COLOR_METAL, 0, 0.5)
+	// A cup of brushes, past the palette.
+	cz := c.z + 1.05
 	add_box(l, {post_x + 0.05, top + 0.04, cz}, {0.07, 0.08, 0.07}, {80, 84, 94, 255})
 	for k in 0 ..< 3 {
 		add_box(l, {post_x + 0.035 + 0.025 * f32(k), top + 0.14, cz}, {0.012, 0.16, 0.012}, {170, 126, 70, 255})
@@ -259,10 +275,11 @@ add_loadout_rack :: proc(l: ^Layout) {
 	}
 }
 
-// The color of swatch `k` of the palette. These are stand-ins: the palette of the
-// drawing is not decided.
+// The color of swatch `k` of the palette. Swatch 0 is no paint, so the other 15 are
+// the paints. These are stand-ins: the palette of the drawing is not decided.
 palette_color :: proc(k: int) -> [4]u8 {
 	table := [PALETTE_SIZE][4]u8 {
+		{205, 215, 225, 255}, // 0 is no paint: the bare rubber, which is also the eraser
 		{20, 20, 24, 255},
 		{110, 112, 120, 255},
 		{200, 204, 210, 255},
@@ -278,7 +295,6 @@ palette_color :: proc(k: int) -> [4]u8 {
 		{150, 70, 200, 255},
 		{230, 90, 170, 255},
 		{140, 90, 50, 255},
-		{250, 190, 160, 255},
 	}
 	return table[clamp(k, 0, PALETTE_SIZE - 1)]
 }

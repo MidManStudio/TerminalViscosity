@@ -40,6 +40,7 @@ Game :: struct {
 	store:      store.Store, // the local database and the result of its start-up check
 	heat_strength: f32, // how strongly the heat-distortion pass wobbles the picture
 	loadout: carry.Loadout, // the balloons the player has made, which outlive a visit to the lab
+	art: ^carry.Art_Store, // the drawings on them, which go with them
 }
 
 // The five calls a scene answers. `draw` renders into game.target, which the

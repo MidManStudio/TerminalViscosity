@@ -46,6 +46,10 @@ Balloon_View :: struct {
 	strain:    f32, // 0 for a slack balloon, 1 at the point where it bursts, for the shader
 	hide_knot: bool, // a balloon held open by its neck has no knot yet
 	shares_shader: bool, // the shader belongs to another view, which unloads it
+	art_on_loc: rl.ShaderLocationIndex,
+	turn_loc:   rl.ShaderLocationIndex,
+	art_on:     f32, // 1 when the balloon wears a drawing, which is the texture of its material
+	art_turn:   f32, // how far round the balloon the drawing is turned, as a share of a turn
 }
 
 // Mesh and material memory comes from raylib's allocator, because UnloadMesh
@@ -66,11 +70,17 @@ view_init :: proc(v: ^Balloon_View, b: ^bl.Balloon, shader: rl.Shader, lit: bool
 	mesh.vertices = cast([^]f32)rl_alloc(n * 3 * size_of(f32))
 	mesh.normals = cast([^]f32)rl_alloc(n * 3 * size_of(f32))
 	mesh.texcoords = cast([^]f32)rl_alloc(n * 2 * size_of(f32))
+	mesh.tangents = cast([^]f32)rl_alloc(n * 4 * size_of(f32))
 	mesh.indices = cast([^]u16)rl_alloc(b.face_count * 3 * size_of(u16))
 	for i in 0 ..< n {
 		// The shader reads how much of the knot a vertex is from the first texture coordinate.
 		mesh.texcoords[i * 2] = b.knot[i]
 		mesh.texcoords[i * 2 + 1] = 0
+		// And where a drawing is taken from, from the direction of the vertex from the
+		// middle of the balloon at rest, which does not change as the balloon does. It
+		// goes in the tangent, which nothing else uses.
+		d := bl.normalize3(b.rest_pos[i])
+		mesh.tangents[i * 4], mesh.tangents[i * 4 + 1], mesh.tangents[i * 4 + 2], mesh.tangents[i * 4 + 3] = d.x, d.y, d.z, 1
 	}
 	for f in 0 ..< b.face_count {
 		for k in 0 ..< 3 {
@@ -93,6 +103,8 @@ view_init :: proc(v: ^Balloon_View, b: ^bl.Balloon, shader: rl.Shader, lit: bool
 		v.tint_loc = rl.ShaderLocationIndex(rl.GetShaderLocation(shader, "tint"))
 		v.back_loc = rl.ShaderLocationIndex(rl.GetShaderLocation(shader, "backFace"))
 		v.strain_loc = rl.ShaderLocationIndex(rl.GetShaderLocation(shader, "strain"))
+		v.art_on_loc = rl.ShaderLocationIndex(rl.GetShaderLocation(shader, "artOn"))
+		v.turn_loc = rl.ShaderLocationIndex(rl.GetShaderLocation(shader, "artTurn"))
 	}
 }
 
@@ -197,6 +209,9 @@ view_draw_at :: proc(v: ^Balloon_View, eye: Vec3, light: Vec3, tint: Vec3, model
 	if v.lit {
 		strain := v.strain
 		rl.SetShaderValue(v.material.shader, v.strain_loc, &strain, .FLOAT)
+		art_on, art_turn := v.art_on, v.art_turn
+		rl.SetShaderValue(v.material.shader, v.art_on_loc, &art_on, .FLOAT)
+		rl.SetShaderValue(v.material.shader, v.turn_loc, &art_turn, .FLOAT)
 		rl.SetShaderValue(v.material.shader, v.eye_loc, &eye_v, .VEC3)
 		rl.SetShaderValue(v.material.shader, v.light_loc, &light_v, .VEC3)
 		rl.SetShaderValue(v.material.shader, v.tint_loc, &tint_v, .VEC3)
@@ -234,4 +249,16 @@ view_unload :: proc(v: ^Balloon_View) {
 	}
 	rl.MemFree(rawptr(v.material.maps))
 	v^ = {}
+}
+
+// Puts a drawing on the balloon: the texture is what the shader takes the paint from.
+view_set_art :: proc(v: ^Balloon_View, tex: rl.Texture2D) {
+	v.material.maps[rl.MaterialMapIndex.ALBEDO].texture = tex
+	v.art_on = 1
+}
+
+// Takes the drawing off.
+view_clear_art :: proc(v: ^Balloon_View) {
+	v.material.maps[rl.MaterialMapIndex.ALBEDO].texture = {}
+	v.art_on = 0
 }

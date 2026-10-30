@@ -39,6 +39,12 @@ the_crosshair_finds_the_paint_station_and_each_hook :: proc(t: ^testing.T) {
 		testing.expect_value(t, lo.spot_slot, i)
 	}
 
+	p.x, p.z = -10.98, lab.TABLET_CENTER.z
+	look_at(p, lab.TABLET_CENTER)
+	filler_aim(&f, props, view_of(p))
+	loadout_aim(&lo, &f, props, view_of(p))
+	testing.expect_value(t, lo.spot, Spot.Tablet)
+
 	p.x, p.z = lab.FILLER_CLAMP.x, 6.9
 	look_at(p, lab.FILLER_MOUTH)
 	filler_aim(&f, props, view_of(p))
@@ -103,6 +109,16 @@ the_grab_button_does_the_right_thing_at_each_place :: proc(t: ^testing.T) {
 	lo.hand = {}
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.Take_Paint)
 
+	lo.spot = .Tablet
+	lo.paint = {}
+	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // no balloon clamped to draw on
+	lo.paint = balloon(id(.Water), 100)
+	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.Paint)
+	lo.hand = balloon(id(.Slurry), 50)
+	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.Paint) // a balloon in the hand does not stop it
+	lo.hand = {}
+	lo.paint = {}
+
 	lo.spot, lo.spot_slot = .Slot, 1
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // hand empty, hook empty
 	lo.hand = balloon(id(.Water), 100)
@@ -115,6 +131,25 @@ the_grab_button_does_the_right_thing_at_each_place :: proc(t: ^testing.T) {
 	props_add(props, l, .Beaker, 0, 0.5)
 	props.held = 0
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // a vessel in the hands
+	lo.spot = .Tablet
+	lo.paint = balloon(id(.Water), 100)
+	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // and none for drawing either
+}
+
+@(test)
+drawing_moves_nothing :: proc(t: ^testing.T) {
+	f := fresh_filler()
+	lo := new_loadout()
+	lo.paint = Item{used = true, compound = id(.Water), ml = 400, art = 3}
+	lo.hand = balloon(id(.Slurry), 50)
+	before := lo
+	_, ok := balloon_do(&lo, &f, .Paint)
+	testing.expect(t, ok, "it can start")
+	testing.expect_value(t, lo.paint, before.paint)
+	testing.expect_value(t, lo.hand, before.hand)
+	lo.paint = {}
+	_, ok = balloon_do(&lo, &f, .Paint)
+	testing.expect(t, !ok, "with no balloon there is nothing to draw on")
 }
 
 @(test)

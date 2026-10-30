@@ -10,6 +10,7 @@ import rlgl "vendor:raylib/rlgl"
 import "carry"
 import "chem"
 import "core:fmt"
+import "core:math"
 import "core:time"
 import "effects"
 import "lab"
@@ -45,6 +46,10 @@ Room :: struct {
 	oven:        carry.Oven, // the reaction oven
 	spout:       bool, // the held vessel is near the spout of the oven, with product to fill it
 	loadout_view: Loadout_View,
+	painting:    bool, // the drawing screen is open
+	paint:       ^carry.Paint, // the paint and brush chosen, and the strokes that can be taken back
+	paint_turn:  f32, // how far round the balloon in the paint station is turned, as a share of a turn
+	paint_input: Paint_Input,
 	steam_timer: f32, // seconds since hot vessels last gave off steam
 	vent_timer:  f32, // seconds since the oven last puffed steam
 	filler_view: Filler_View,
@@ -145,6 +150,7 @@ room_balloon_action :: proc(room: ^Room, lo: ^carry.Loadout, action: carry.Ballo
 		room_toast(room, "hung on hook %d", slot + 1)
 	case .Take_Slot:
 		room_toast(room, "took the balloon from hook %d", slot + 1)
+	case .Paint:
 	}
 }
 
@@ -255,6 +261,11 @@ room_load :: proc(game: ^Game) -> rawptr {
 	balloon_shader, balloon_ok := load_balloon_shader()
 	filler_view_init(&room.filler_view, balloon_shader, balloon_ok)
 	loadout_view_init(&room.loadout_view, balloon_shader, balloon_ok)
+	room.paint = new(carry.Paint)
+	carry.paint_init(room.paint)
+	if game.art == nil {
+		game.art = new(carry.Art_Store)
+	}
 	room.pour_target = -1
 	room.valve = -1
 	pointers: Pointers
@@ -270,6 +281,7 @@ room_unload :: proc(game: ^Game, state: rawptr) {
 	room := cast(^Room)state
 	rlgl.SetClipPlanes(0.05, 4000)
 	game.heat_strength = 0
+	free(room.paint)
 	loadout_view_unload(&room.loadout_view)
 	filler_view_unload(&room.filler_view)
 	effects_view_unload(&room.fx_view)
@@ -289,6 +301,22 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 
 	pointers: Pointers
 	platform_pointers(&pointers)
+
+	// While drawing the lab waits, and the fingers draw, choose, and turn the balloon.
+	if room.painting {
+		l := carry.paint_layout(w, h)
+		done, no_room := paint_touch_update(&room.paint_input, &pointers, &l, room.paint, &game.loadout, game.art, &room.paint_turn, h)
+		if no_room {
+			room_toast(room, "no room for another drawing")
+		}
+		loadout_view_update(&room.loadout_view, &game.loadout, game.art, carry.view_of(&room.player), dt)
+		if done {
+			room.painting = false
+			carry.paint_stroke_end(room.paint)
+			controls_init(&room.controls, &pointers) // the finger that pressed done must not start walking
+		}
+		return
+	}
 
 	// With the reaction matrix open the lab waits, and only its close button works.
 	if room.menu_open {
@@ -391,6 +419,10 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 		case carry.oven_run_ready(&room.oven, &room.props):
 			carry.oven_start(&room.oven, carry.flow_speed(&room.props))
 			room_toast(room, "the oven is running")
+		case action == .Paint:
+			room.painting = true
+			carry.paint_init(room.paint)
+			paint_input_init(&room.paint_input, &pointers)
 		case action != .None:
 			room_balloon_action(room, &game.loadout, action)
 		case carry.loadout_hands_full(&game.loadout):
@@ -439,7 +471,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	room_oven_effects(room, dt)
 	carry.filler_update(&room.filler, dt)
 	filler_view_update(&room.filler_view, &room.filler, dt)
-	loadout_view_update(&room.loadout_view, &game.loadout, carry.view_of(&room.player), dt)
+	loadout_view_update(&room.loadout_view, &game.loadout, game.art, carry.view_of(&room.player), dt)
 	carry.props_heat_update(&room.props, dt)
 	room_steam(room, dt)
 	effects.step(&room.fx, dt)
@@ -455,6 +487,9 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 }
 
 room_camera :: proc(room: ^Room) -> rl.Camera3D {
+	if room.painting {
+		return paint_camera(f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight()))
+	}
 	p := &room.player
 	eye := Vec3{p.x, lab.player_eye_y(p), p.z}
 	// A blast knocks the view a little to the side and up, and it settles again.
@@ -481,22 +516,33 @@ room_draw :: proc(game: ^Game, state: rawptr) {
 	placed: [carry.MAX_HAND_PARTS]carry.Placed
 	count := carry.hands_place(&room.hands, view, grip, radius, &placed)
 	// Solid things first, then the liquid, then the glass blended over all of it.
-	hands_draw(&room.meshes, room.mesh.material, placed[:count])
+	if !room.painting {
+		hands_draw(&room.meshes, room.mesh.material, placed[:count])
+	}
 	props_draw_caps(&room.meshes, room.mesh.material, &room.props)
 	stream_draw(&room.stream)
 	props_draw_liquids(&room.meshes, &room.props, camera.position)
 	filler_view_draw(&room.filler_view, &room.filler, camera.position)
-	loadout_view_draw(&room.loadout_view, &game.loadout, camera.position)
+	room.loadout_view.paint.view.art_turn = room.paint_turn
+	loadout_view_draw(&room.loadout_view, &game.loadout, camera.position, !room.painting)
 	props_draw_glass(&room.meshes, room.mesh.material, &room.props, camera.position)
 	stations_draw(&room.filler, &game.loadout)
+	tablet_draw(&room.loadout_view, &game.loadout)
 	oven_draw(&room.oven)
-	effects_draw(&room.fx_view, &room.fx, view.right, view.up)
+	forward := linalg_normalize(camera.target - camera.position)
+	cam_right := linalg_normalize(linalg_cross(forward, {0, 1, 0}))
+	cam_up := linalg_cross(cam_right, forward)
+	effects_draw(&room.fx_view, &room.fx, cam_right, cam_up)
 	rl.EndMode3D()
 }
 
 room_draw_ui :: proc(game: ^Game, state: rawptr) {
 	room := cast(^Room)state
 	w, h := f32(game.screen_w), f32(game.screen_h)
+	if room.painting {
+		draw_paint_ui(w, h, &room.loadout_view, &game.loadout, room.paint)
+		return
+	}
 	size := max(i32(18), game.screen_h / 36)
 	draw_switch_button(w, h, "balloon")
 	when ODIN_PLATFORM_SUBTARGET == .Android {
@@ -562,4 +608,13 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 	if room.menu_open {
 		draw_matrix_menu(w, h)
 	}
+}
+
+linalg_normalize :: proc(v: Vec3) -> Vec3 {
+	n := math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+	return n > 1e-6 ? v / n : v
+}
+
+linalg_cross :: proc(a, b: Vec3) -> Vec3 {
+	return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}
 }
