@@ -45,6 +45,7 @@ Room :: struct {
 	filler:      carry.Filler, // the balloon fill station
 	oven:        carry.Oven, // the reaction oven
 	spout:       bool, // the held vessel is near the spout of the oven, with product to fill it
+	spout_rest:  int, // a vessel standing on the tray under the spout, which the pour button fills, or -1
 	loadout_view: Loadout_View,
 	painting:    bool, // the drawing screen is open
 	paint:       ^carry.Paint, // the paint and brush chosen, and the strokes that can be taken back
@@ -81,6 +82,7 @@ room_reset :: proc(room: ^Room) {
 	room.pour_target = -1
 	room.valve = -1
 	room.spout = false
+	room.spout_rest = -1
 }
 
 // A reaction that a pour started: shows what came of it, and takes the damage, less
@@ -188,12 +190,12 @@ room_oven_event :: proc(room: ^Room, e: carry.Oven_Event) {
 		switch {
 		case e.volatility >= 0.6:
 			effects.blast(&room.fx, at, chem.blast_power(e.volatility), 0, color, color, floor)
-			room_toast(room, "%v ready, %d ml. It blasted, and the oven held it", name, int(e.ml + 0.5))
+			room_toast(room, "%v ready, %d ml. It blasted, and the oven held it. Spout on the right", name, int(e.ml + 0.5))
 		case e.volatility >= 0.3:
 			effects.spatter(&room.fx, at, color, floor)
-			room_toast(room, "%v ready, %d ml. It spattered, and the oven held it", name, int(e.ml + 0.5))
+			room_toast(room, "%v ready, %d ml. It spattered, and the oven held it. Spout on the right", name, int(e.ml + 0.5))
 		case:
-			room_toast(room, "%v ready, %d ml", name, int(e.ml + 0.5))
+			room_toast(room, "%v ready, %d ml. Fill a vessel at the spout on the right", name, int(e.ml + 0.5))
 		}
 	}
 }
@@ -268,6 +270,7 @@ room_load :: proc(game: ^Game) -> rawptr {
 	}
 	room.pour_target = -1
 	room.valve = -1
+	room.spout_rest = -1
 	pointers: Pointers
 	platform_pointers(&pointers)
 	controls_init(&room.controls, &pointers)
@@ -405,6 +408,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	// button is pressed, so the button can show it.
 	room.valve = carry.dispenser_under(&room.station, &room.props)
 	room.spout = room.valve == -1 && carry.oven_spout_under(&room.oven, &room.props)
+	room.spout_rest = room.props.held == -1 ? carry.oven_rest_under(&room.oven, &room.props) : -1
 	room.props.pouring = pour_down && room.valve == -1 && !room.spout && room.props.held != -1
 
 	// Carrying: the button, or E on a desktop, grabs what the crosshair points
@@ -446,6 +450,8 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 		}
 	} else if pour_down && room.spout {
 		carry.oven_flow(&room.oven, &room.stream, &room.layout, dt, carry.tap_mouth(&room.props), speed)
+	} else if pour_down && room.spout_rest != -1 {
+		carry.oven_flow(&room.oven, &room.stream, &room.layout, dt, carry.oven_rest_mouth(&room.props, room.spout_rest), speed)
 	} else if carry.filler_pour_ready(&room.filler, &room.props) {
 		carry.pour_flow_to(&room.props, &room.stream, &room.layout, dt, carry.filler_mouth(), true)
 	} else if carry.oven_pour_ready(&room.oven, &room.props) {
@@ -473,6 +479,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	filler_view_update(&room.filler_view, &room.filler, dt)
 	loadout_view_update(&room.loadout_view, &game.loadout, game.art, carry.view_of(&room.player), dt)
 	carry.props_heat_update(&room.props, dt)
+	carry.loadout_heat_update(&game.loadout, dt)
 	room_steam(room, dt)
 	effects.step(&room.fx, dt)
 	game.heat_strength = room.fx.heat
@@ -589,7 +596,7 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 	ready := false
 	port_label: [16]u8
 	switch {
-	case room.valve != -1 || room.spout:
+	case room.valve != -1 || room.spout || room.spout_rest != -1:
 		label, ready = "fill", true
 	case room.pour_target != -1:
 		label, ready = "mix", true

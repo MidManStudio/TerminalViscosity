@@ -94,9 +94,11 @@ filler_take_drop :: proc(f: ^Filler, compound: u16, ml: f32, eye: Vec3, drop_hea
 	return out
 }
 
-// Ticks the pour session and the wait for the next balloon.
+// Ticks the pour session, the temperature of the liquid, and the wait for the next balloon.
 filler_update :: proc(f: ^Filler, dt: f32) {
 	f.session.timer -= dt
+	// The liquid in the balloon drifts back toward the room, as in a vessel.
+	f.heat = f.ml > 0 ? move_toward(f.heat, 0, COOL_RATE * dt) : 0
 	if !f.present {
 		f.respawn -= dt
 		if f.respawn <= 0 {

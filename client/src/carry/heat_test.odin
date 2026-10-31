@@ -199,3 +199,57 @@ a_burst_balloon_loses_its_heat_with_its_liquid :: proc(t: ^testing.T) {
 	testing.expect(t, r.popped, "overfilled")
 	testing.expect_value(t, f.heat, 0)
 }
+
+@(test)
+the_liquid_in_the_balloon_drifts_back_to_the_room :: proc(t: ^testing.T) {
+	f := fresh_filler()
+	f.compound, f.ml, f.heat = id(.Soda_Base), 300, 1
+	for _ in 0 ..< 10 * 60 {
+		filler_update(&f, 1.0 / 60)
+	}
+	testing.expect(t, f.heat < 0.8 && f.heat > 0.6, "still warm after ten seconds, as a vessel is")
+	for _ in 0 ..< 40 * 60 {
+		filler_update(&f, 1.0 / 60)
+	}
+	testing.expect_value(t, f.heat, 0)
+	r := filler_take_drop(&f, id(.Fizz_Acid), DROP_ML, EYE)
+	testing.expect_value(t, r.mix.kind, Mix_Kind.Mixed) // calm again, as in the room
+
+	f.compound, f.ml, f.heat = id(.Ember_Oil), 300, -1
+	for _ in 0 ..< 50 * 60 {
+		filler_update(&f, 1.0 / 60)
+	}
+	testing.expect_value(t, f.heat, 0) // a cold balloon warms back the same way
+}
+
+@(test)
+an_empty_balloon_has_no_temperature_and_cooling_does_not_overshoot :: proc(t: ^testing.T) {
+	f := fresh_filler()
+	f.heat = 0.9
+	filler_update(&f, 1.0 / 60)
+	testing.expect_value(t, f.heat, 0)
+	f.compound, f.ml, f.heat = id(.Water), 100, 0.01
+	filler_update(&f, 10)
+	testing.expect_value(t, f.heat, 0) // it stops at the room and does not go cold
+}
+
+@(test)
+tied_balloons_cool_in_the_hand_the_clamp_and_on_the_hooks :: proc(t: ^testing.T) {
+	lo := new_loadout()
+	lo.hand = Item{used = true, compound = id(.Water), ml = 100, heat = 1}
+	lo.paint = Item{used = true, compound = id(.Water), ml = 100, heat = -1}
+	lo.slots[1] = Item{used = true, compound = id(.Water), ml = 100, heat = 0.5}
+	lo.slots[2] = Item{used = true, compound = id(.Water), ml = 0, heat = 0.5}
+	for _ in 0 ..< 10 * 60 {
+		loadout_heat_update(&lo, 1.0 / 60)
+	}
+	testing.expect(t, lo.hand.heat < 0.8 && lo.hand.heat > 0.6, "the hand")
+	testing.expect(t, lo.paint.heat > -0.8 && lo.paint.heat < -0.6, "the clamp")
+	testing.expect(t, lo.slots[1].heat < 0.3 && lo.slots[1].heat > 0.1, "a hook")
+	testing.expect_value(t, lo.slots[2].heat, 0) // nothing in it
+	testing.expect_value(t, lo.slots[0].heat, 0) // no balloon there
+	for _ in 0 ..< 60 * 60 {
+		loadout_heat_update(&lo, 1.0 / 60)
+	}
+	testing.expect(t, lo.hand.heat == 0 && lo.paint.heat == 0 && lo.slots[1].heat == 0, "all back to the room")
+}

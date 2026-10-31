@@ -248,6 +248,32 @@ oven_spout_under :: proc(o: ^Oven, props: ^Props) -> bool {
 	return gap >= NOZZLE_NEAR && gap <= NOZZLE_FAR
 }
 
+// A vessel standing on the drip tray under the spout, or -1: not held, upright, with
+// room in it, and its middle on the tray. It is filled without being held.
+oven_rest_under :: proc(o: ^Oven, props: ^Props) -> int {
+	if o.tank.ml <= 0 {
+		return -1
+	}
+	n := lab.MIXER_SPOUT
+	for i in 0 ..< props.count {
+		pr := props.items[i]
+		if i == props.held || pr.tilt > 0.2 || pr.ml >= capacity_ml(pr.kind) - 0.5 {
+			continue
+		}
+		dx, dz := pr.pos.x - n.x, pr.pos.z - n.z
+		if dx * dx + dz * dz <= lab.MIXER_TRAY_RADIUS * lab.MIXER_TRAY_RADIUS && pr.pos.y <= lab.STATION_RESTING {
+			return i
+		}
+	}
+	return -1
+}
+
+// Where a stream is aimed at the vessel standing on the tray: just over its rim.
+oven_rest_mouth :: proc(props: ^Props, i: int) -> Vec3 {
+	pr := props.items[i]
+	return {pr.pos.x, pr.pos.y + kind_dims(pr.kind).height + 0.03, pr.pos.z}
+}
+
 // Lets the spout run for `dt` seconds, `speed` times faster than normal, aimed at
 // `mouth`. A faster spout lets out drops that carry more. The tank is emptied as the
 // liquid leaves, and the last of it goes as a smaller drop. False if the tank is empty.

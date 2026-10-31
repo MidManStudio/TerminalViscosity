@@ -38,6 +38,10 @@ oven_draw :: proc(o: ^carry.Oven) {
 		draw_flat_box(lab.mixer_port_light(i), {0.14, 0.05, 0.012}, liquid_light(p.compound, p.ml, carry.PORT_CAPACITY))
 	}
 	draw_flat_box(lab.mixer_tank_light(), {0.14, 0.18, 0.012}, liquid_light(o.tank.compound, o.tank.ml, carry.TANK_CAPACITY * 0.5))
+	// A light at the tip of the spout, in the color of the product, while there is some.
+	if o.tank.ml > 0 {
+		draw_flat_box(lab.mixer_spout_light(), {0.035, 0.035, 0.035}, liquid_light(o.tank.compound, 1, 1))
+	}
 
 	running := o.state == .Running
 	if running {

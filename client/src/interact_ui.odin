@@ -260,7 +260,8 @@ draw_toast :: proc(w, h: f32, text: cstring, timer: f32) {
 draw_filler_readout :: proc(w, h: f32, f: ^carry.Filler, line: int) {
 	buf: [96]u8
 	name := f.ml > 0 ? chem.compound_name(f.compound) : "empty"
-	text := fmt.bprintf(buf[:95], "balloon  %v  %d / %d ml  %d%%", name, int(f.ml + 0.5), int(carry.BALLOON_REST_ML), int(carry.fill_ratio(f) * 100 + 0.5))
+	word := carry.heat_word(f.heat)
+	text := fmt.bprintf(buf[:95], "balloon  %v  %d / %d ml  %d%%%v%v", name, int(f.ml + 0.5), int(carry.BALLOON_REST_ML), int(carry.fill_ratio(f) * 100 + 0.5), f.ml > 0 && word != "" ? ", " : "", f.ml > 0 ? word : "")
 	buf[len(text)] = 0
 	font := i32(max(f32(16), h * 0.032))
 	y := i32(h * 0.5) + i32(max(f32(30), h * 0.075)) + 24 + i32(line) * (font + font / 3)
@@ -310,7 +311,7 @@ draw_oven_readout :: proc(w, h: f32, o: ^carry.Oven, line: int) {
 	case o.state == .Running:
 		pos += len(fmt.bprintf(buf[pos:150], "  running %d%%", int(carry.oven_progress(o) * 100 + 0.5)))
 	case o.tank.ml > 0:
-		pos += len(fmt.bprintf(buf[pos:150], "  tank: %v %d ml", chem.compound_name(o.tank.compound), int(o.tank.ml + 0.5)))
+		pos += len(fmt.bprintf(buf[pos:150], "  tank: %v %d ml, spout at the right", chem.compound_name(o.tank.compound), int(o.tank.ml + 0.5)))
 	}
 	buf[min(pos, 159)] = 0
 	font := i32(max(f32(16), h * 0.032))

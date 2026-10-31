@@ -6,6 +6,7 @@
 package carry
 
 import "../lab"
+import "core:math"
 import "core:testing"
 
 new_canvas :: proc() -> ^Canvas {
@@ -250,4 +251,206 @@ a_clear_can_be_taken_back :: proc(t: ^testing.T) {
 	testing.expect(t, c.px == drawn, "and the drawing is back")
 	testing.expect(t, paint_undo(p, c), "and the stroke before it")
 	testing.expect_value(t, count_painted(c), 0)
+}
+
+@(test)
+a_picture_gets_the_rectangle_only_when_it_has_everything_before_it :: proc(t: ^testing.T) {
+	c := new_canvas()
+	defer free(c)
+	canvas_dab(c, 50, 50, 4, 3)
+	have := c.version
+	_, _, needed := canvas_update_for(c, have)
+	testing.expect(t, !needed, "up to date needs nothing")
+
+	canvas_dab(c, 100, 100, 4, 3)
+	rect, full, any := canvas_update_for(c, have)
+	testing.expect(t, any && !full, "the rectangle is enough for a picture that was up to date before it")
+	testing.expect(t, rect[0] <= 100 && rect[2] >= 100 && rect[1] <= 100 && rect[3] >= 100, "and it holds the change")
+	// The rectangle is taken, so another picture that is as far behind needs it all.
+	rect2, full2, any2 := canvas_update_for(c, have)
+	testing.expect(t, any2 && full2, "a second picture is sent the whole drawing")
+	testing.expect_value(t, rect2, [4]int{0, 0, CANVAS_W - 1, CANVAS_H - 1})
+}
+
+@(test)
+a_picture_that_is_further_behind_needs_the_whole_drawing :: proc(t: ^testing.T) {
+	c := new_canvas()
+	defer free(c)
+	canvas_dab(c, 50, 50, 4, 3)
+	old := c.version
+	canvas_dab(c, 100, 100, 4, 3)
+	_, _, _ = canvas_update_for(c, c.version - 1) // another picture takes the rectangle
+	canvas_dab(c, 150, 150, 4, 3)
+	_, full, any := canvas_update_for(c, old) // this one missed the change in between
+	testing.expect(t, any && full, "it cannot be given just the last rectangle")
+}
+
+@(test)
+the_middle_of_the_picture_faces_whoever_looks :: proc(t: ^testing.T) {
+	testing.expect_value(t, facing_turn(1, 0), 0)
+	testing.expect(t, abs(facing_turn(0, 1) + 0.25) < 1e-5, "from the south")
+	testing.expect(t, abs(facing_turn(0, -1) - 0.25) < 1e-5, "from the north")
+	testing.expect(t, abs(abs(facing_turn(-1, 0)) - 0.5) < 1e-5, "from the west")
+	// What the shader does: the picture's middle is at u 0.5 on the side that faces the viewer.
+	for k in 0 ..< 36 {
+		a := f32(k) * 0.17
+		dx, dz := math.cos(a), math.sin(a)
+		u := math.atan2(dz, dx) / math.TAU + 0.5 + facing_turn(dx, dz)
+		testing.expect(t, abs(u - 0.5) < 1e-4, "the middle of the picture is toward the viewer from any side")
+	}
+}
+
+// Fills the pixels from `x0` up to but not including `x1`, on every row, with a color.
+fill_columns :: proc(c: ^Canvas, x0, x1: int, color: u8) {
+	for j in 0 ..< CANVAS_H {
+		for i in x0 ..< x1 {
+			c.px[j * CANVAS_W + i] = color
+		}
+	}
+}
+
+@(test)
+blending_red_and_yellow_makes_the_colors_between_where_they_meet :: proc(t: ^testing.T) {
+	c := new_canvas()
+	defer free(c)
+	fill_columns(c, 0, 128, 5) // red
+	fill_columns(c, 128, 256, 7) // yellow
+	for k in 0 ..< 6 {
+		canvas_blend_dab(c, 128, 128, 10)
+		canvas_blend_dab(c, 124 + f32(k), 120, 10)
+	}
+	between := 0
+	for j in 100 ..< 156 {
+		for i in 118 ..< 138 {
+			if c.px[j * CANVAS_W + i] == 6 { // orange
+				between += 1
+			}
+		}
+	}
+	testing.expect(t, between > 20, "orange appears where red meets yellow")
+	testing.expect_value(t, c.px[128 * CANVAS_W + 20], 5) // far from the blend nothing changed
+	testing.expect_value(t, c.px[128 * CANVAS_W + 230], 7)
+	testing.expect_value(t, c.px[10 * CANVAS_W + 128], 7) // and outside the dab, up the boundary, too
+	testing.expect_value(t, c.px[245 * CANVAS_W + 126], 5)
+}
+
+@(test)
+blending_a_flat_color_or_empty_canvas_changes_nothing :: proc(t: ^testing.T) {
+	c := new_canvas()
+	defer free(c)
+	canvas_blend_dab(c, 100, 100, 10)
+	testing.expect_value(t, count_painted(c), 0)
+	testing.expect(t, !c.has_dirty && c.version == 0, "and it is not even marked as changed")
+	fill_columns(c, 0, 256, 9)
+	before := c.px
+	canvas_blend_dab(c, 100, 100, 10)
+	testing.expect(t, c.px == before, "a flat color stays flat")
+}
+
+@(test)
+blending_changes_only_inside_the_dab_and_marks_what_it_changed :: proc(t: ^testing.T) {
+	c := new_canvas()
+	defer free(c)
+	fill_columns(c, 0, 128, 5)
+	fill_columns(c, 128, 256, 7)
+	before := c.px
+	canvas_blend_dab(c, 128, 128, 5)
+	rect, ok := canvas_dirty_take(c)
+	testing.expect(t, ok, "something changed")
+	changed := 0
+	for j in 0 ..< CANVAS_H {
+		for i in 0 ..< CANVAS_W {
+			if c.px[j * CANVAS_W + i] != before[j * CANVAS_W + i] {
+				changed += 1
+				inside := i >= rect[0] && i <= rect[2] && j >= rect[1] && j <= rect[3]
+				testing.expect(t, inside, "every pixel that changed is in the rectangle")
+				dx, dy := (f32(i) + 0.5 - 128) / 5, (f32(j) + 0.5 - 128) / 10
+				testing.expect(t, dx * dx + dy * dy <= 1.01, "and inside the dab")
+			}
+		}
+	}
+	testing.expect(t, changed > 0, "the meeting was blended")
+}
+
+@(test)
+blending_works_across_the_seam :: proc(t: ^testing.T) {
+	c := new_canvas()
+	defer free(c)
+	fill_columns(c, 0, 128, 5)
+	fill_columns(c, 128, 256, 7)
+	// The edges of the canvas are one meridian, red at the left and yellow at the right.
+	for k in 0 ..< 6 {
+		canvas_blend_dab(c, 0.5, 128, 10)
+		canvas_blend_dab(c, 255.5, 130 - f32(k), 10)
+	}
+	left_side, right_side := 0, 0
+	for j in 100 ..< 156 {
+		for i in 0 ..< 6 {
+			if c.px[j * CANVAS_W + i] == 6 {
+				left_side += 1
+			}
+		}
+		for i in 250 ..< 256 {
+			if c.px[j * CANVAS_W + i] == 6 {
+				right_side += 1
+			}
+		}
+	}
+	testing.expect(t, c.px[128 * CANVAS_W] != 7, "the pixel at the very left is a mix, not all yellow, so it saw the red beside it too")
+	testing.expect(t, c.px[128 * CANVAS_W + 255] != 5, "and the one at the very right is not all red")
+	testing.expect(t, left_side > 5, "red at the left edge took some of the yellow from across the seam")
+	testing.expect(t, right_side > 5, "and yellow at the right edge took some of the red")
+}
+
+@(test)
+blending_works_up_and_down_too :: proc(t: ^testing.T) {
+	c := new_canvas()
+	defer free(c)
+	for j in 0 ..< CANVAS_H {
+		for i in 0 ..< CANVAS_W {
+			c.px[j * CANVAS_W + i] = j < 128 ? 5 : 7 // red above, yellow below
+		}
+	}
+	for k in 0 ..< 6 {
+		canvas_blend_dab(c, 100 + f32(k) * 4, 128, 10)
+	}
+	between := 0
+	for j in 110 ..< 146 {
+		for i in 90 ..< 130 {
+			if c.px[j * CANVAS_W + i] == 6 {
+				between += 1
+			}
+		}
+	}
+	testing.expect(t, between > 20, "orange where the red meets the yellow, whichever way the edge runs")
+	testing.expect_value(t, c.px[20 * CANVAS_W + 100], 5)
+	testing.expect_value(t, c.px[240 * CANVAS_W + 100], 7)
+}
+
+@(test)
+the_blending_pen_lays_down_no_paint_of_its_own_and_can_be_taken_back :: proc(t: ^testing.T) {
+	c, p := new_canvas(), new_paint()
+	defer free(c)
+	defer free(p)
+	fill_columns(c, 0, 128, 5)
+	fill_columns(c, 128, 256, 7)
+	before := c.px
+	p.tool, p.color, p.size = .Blend, 9, 2 // green is chosen, which must not be put down
+	paint_stroke_begin(p, c, 100, 128)
+	paint_stroke_to(p, c, 160, 128)
+	paint_stroke_end(p)
+	testing.expect(t, c.px != before, "it blended")
+	green := 0
+	for px in c.px {
+		if px == 9 {
+			green += 1
+		}
+	}
+	testing.expect_value(t, green, 0)
+	testing.expect(t, paint_undo(p, c), "a blend is taken back")
+	testing.expect(t, c.px == before, "to what it was")
+	p.tool = .Brush
+	paint_stroke_begin(p, c, 100, 128)
+	paint_stroke_end(p)
+	testing.expect_value(t, c.px[128 * CANVAS_W + 100], 9) // and with the brush the chosen paint goes down
 }

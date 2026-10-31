@@ -7,7 +7,7 @@ package carry
 
 import "core:testing"
 
-SCREENS :: [?][2]f32{{1280, 720}, {1600, 720}, {2400, 1080}, {960, 540}, {1920, 1080}, {2340, 1080}}
+SCREENS :: [?][2]f32{{1280, 720}, {1600, 720}, {2400, 1080}, {960, 540}, {1920, 1080}, {2340, 1080}, {800, 600}}
 
 inside_screen :: proc(b: [4]f32, w, h: f32) -> bool {
 	return b[0] >= 0 && b[1] >= 0 && b[0] + b[2] <= w + 0.01 && b[1] + b[3] <= h + 0.01 && b[2] > 0 && b[3] > 0
@@ -24,7 +24,8 @@ everything_is_on_the_screen_and_the_tablet_is_twice_as_wide_as_high :: proc(t: ^
 		testing.expect(t, inside_screen(l.canvas, sc.x, sc.y), "the tablet")
 		testing.expect(t, abs(l.canvas[2] - 2 * l.canvas[3]) < 0.01, "twice as wide as high")
 		testing.expect(t, inside_screen(l.done, sc.x, sc.y), "the done button")
-		testing.expect(t, inside_screen(l.undo, sc.x, sc.y) && inside_screen(l.clear, sc.x, sc.y), "undo and clear")
+		testing.expect(t, inside_screen(l.undo, sc.x, sc.y) && inside_screen(l.clear, sc.x, sc.y) && inside_screen(l.blend, sc.x, sc.y), "blend, undo, and clear")
+		testing.expect(t, l.clear[0] + l.clear[2] <= l.canvas[0] + l.canvas[2] + 0.01, "and the row of them stops at the edge of the tablet")
 		testing.expect(t, inside_screen(l.balloon, sc.x, sc.y), "the balloon area")
 		for k in 0 ..< len(l.swatches) {
 			testing.expect(t, inside_screen(l.swatches[k], sc.x, sc.y), "a swatch")
@@ -42,7 +43,7 @@ nothing_covers_anything_else :: proc(t: ^testing.T) {
 		l := paint_layout(sc.x, sc.y)
 		groups: [dynamic][4]f32
 		defer delete(groups)
-		append(&groups, l.canvas, l.undo, l.clear, l.done, l.balloon)
+		append(&groups, l.canvas, l.undo, l.clear, l.blend, l.done, l.balloon)
 		for s in l.swatches {
 			append(&groups, s)
 		}
@@ -72,6 +73,9 @@ a_touch_is_on_the_thing_under_it :: proc(t: ^testing.T) {
 	x, y = centre(l.clear)
 	kind, _ = paint_hit(&l, x, y)
 	testing.expect_value(t, kind, Hit_Kind.Clear)
+	x, y = centre(l.blend)
+	kind, _ = paint_hit(&l, x, y)
+	testing.expect_value(t, kind, Hit_Kind.Blend)
 	for k in 0 ..< len(l.sizes) {
 		x, y = centre(l.sizes[k])
 		got, i := paint_hit(&l, x, y)

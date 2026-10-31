@@ -83,8 +83,11 @@ paint_touch_update :: proc(input: ^Paint_Input, pointers: ^Pointers, l: ^carry.P
 				done = true
 			case .Swatch:
 				p.color = u8(index)
+				p.tool = .Brush // choosing a paint is choosing to paint with it
 			case .Size:
 				p.size = index
+			case .Blend:
+				p.tool = p.tool == .Blend ? .Brush : .Blend
 			case .Undo:
 				if canvas != nil {
 					carry.paint_undo(p, canvas)
@@ -163,7 +166,7 @@ draw_paint_ui :: proc(w, h: f32, lv: ^Loadout_View, lo: ^carry.Loadout, p: ^carr
 			rl.DrawLineEx({b[0] + 6, b[1] + 6}, {b[0] + b[2] - 6, b[1] + b[3] - 6}, 3, {150, 60, 60, 255})
 			rl.DrawLineEx({b[0] + b[2] - 6, b[1] + 6}, {b[0] + 6, b[1] + b[3] - 6}, 3, {150, 60, 60, 255})
 		}
-		chosen := int(p.color) == k
+		chosen := int(p.color) == k && !(p.tool == .Blend)
 		rl.DrawRectangleLinesEx(r, chosen ? 5 : 2, chosen ? rl.Color{255, 255, 255, 255} : rl.Color{20, 28, 38, 255})
 	}
 
@@ -174,9 +177,11 @@ draw_paint_ui :: proc(w, h: f32, lv: ^Loadout_View, lo: ^carry.Loadout, p: ^carr
 		chosen := p.size == k
 		rl.DrawRectangleRounded({b[0], b[1], b[2], b[3]}, 0.3, 8, chosen ? rl.Color{14, 74, 74, 230} : rl.Color{10, 18, 28, 190})
 		rl.DrawRectangleRoundedLinesEx({b[0], b[1], b[2], b[3]}, 0.3, 8, 3, chosen ? rl.Color{60, 230, 215, 255} : rl.Color{230, 236, 242, 200})
-		c := lab.palette_color(int(p.color))
+		c := p.tool == .Blend ? [4]u8{230, 236, 242, 255} : lab.palette_color(int(p.color))
 		rl.DrawCircle(i32(b[0] + b[2] * 0.5), i32(b[1] + b[3] * 0.5), b[2] * radii[k], {c.r, c.g, c.b, 255})
 	}
+	blending := p.tool == .Blend
+	draw_button(l.blend, "blend", blending ? rl.Color{14, 74, 74, 230} : rl.Color{10, 18, 28, 190}, blending ? rl.Color{60, 230, 215, 255} : rl.Color{230, 236, 242, 200}, rl.RAYWHITE)
 	can_undo := p.undo_count > 0
 	draw_button(l.undo, "undo", can_undo ? rl.Color{10, 18, 28, 190} : rl.Color{10, 18, 28, 110}, rl.Color{230, 236, 242, 200}, can_undo ? rl.RAYWHITE : rl.Color{230, 236, 242, 110})
 	draw_button(l.clear, "clear", {10, 18, 28, 190}, {230, 236, 242, 200}, rl.RAYWHITE)

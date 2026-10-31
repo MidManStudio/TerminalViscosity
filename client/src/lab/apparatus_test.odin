@@ -116,11 +116,17 @@ the_oven_ports_are_in_a_row_on_top_of_it :: proc(t: ^testing.T) {
 }
 
 @(test)
-the_oven_spout_is_out_in_front_with_room_for_a_vessel :: proc(t: ^testing.T) {
-	testing.expect(t, MIXER_SPOUT.z > MIXER.max_z, "in front of the body")
-	testing.expect(t, MIXER_SPOUT.x > MIXER.min_x && MIXER_SPOUT.x < MIXER.max_x, "along its front")
-	testing.expect(t, MIXER_SPOUT.y - COUNTER_HEIGHT > 0.28, "a tall bottle fits under it")
-	testing.expect(t, MIXER_SPOUT.y < MIXER_TOP, "under the top")
+the_oven_spout_is_off_the_right_end_over_free_counter_with_a_tray_for_a_vessel :: proc(t: ^testing.T) {
+	l := full_lab()
+	defer free(l)
+	n := MIXER_SPOUT
+	testing.expect(t, n.x > MIXER.max_x + 0.1, "off the right end of the body, clear of it")
+	tray := Rect{n.x - MIXER_TRAY_RADIUS, n.z - MIXER_TRAY_RADIUS, n.x + MIXER_TRAY_RADIUS, n.z + MIXER_TRAY_RADIUS}
+	testing.expect(t, counter_covers(l, tray), "the tray is wholly on the counter, so a vessel can stand on it")
+	testing.expect(t, !overlap(tray, MIXER), "and not inside the oven")
+	testing.expect(t, n.y - COUNTER_HEIGHT > 0.28, "a tall bottle fits under the spout")
+	testing.expect(t, n.y - COUNTER_HEIGHT < 0.5, "and it is not so high that a vessel on the tray is far from it")
+	testing.expect(t, MIXER_TRAY_RADIUS > 0.08, "the tray is wider than a vessel")
 	for i in 0 ..< MIXER_PORTS {
 		testing.expect(t, mixer_port_light(i).z > MIXER.max_z, "port lights are on the front")
 	}
@@ -130,8 +136,9 @@ the_oven_spout_is_out_in_front_with_room_for_a_vessel :: proc(t: ^testing.T) {
 	}
 	v := mixer_vent()
 	testing.expect(t, in_rect(MIXER, v.x, v.z) && v.y >= MIXER_TOP, "the vent is on top")
+	sl := mixer_spout_light()
+	testing.expect(t, sl.x == n.x && sl.z == n.z && sl.y > n.y, "the light is at the tip of the spout")
 }
-
 overlap :: proc(a, b: Rect) -> bool {
 	return a.min_x < b.max_x && b.min_x < a.max_x && a.min_z < b.max_z && b.min_z < a.max_z
 }

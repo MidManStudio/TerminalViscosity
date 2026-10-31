@@ -198,6 +198,7 @@ Loadout_View :: struct {
 	paint_on:    bool,
 	slots_on:    [carry.LOADOUT_SLOTS]bool,
 	hand_origin: Vec3, // where the hand body hung last frame
+	hand_turn:   f32, // how far the drawing is turned so that its middle faces the player
 	scratch:     []u8, // room to turn a drawing into pixels in
 }
 
@@ -251,6 +252,10 @@ loadout_view_update :: proc(lv: ^Loadout_View, lo: ^carry.Loadout, store: ^carry
 	}
 	place(&lv.hand, &lv.hand_on, lo.hand, store, lv.scratch, dt, moved)
 	lv.hand_origin = origin
+	// A balloon in the hand does not turn with the player, so its drawing is turned to
+	// face them, or it would be on the far side whenever they are not looking from the
+	// side it was made to be seen from.
+	lv.hand_turn = carry.facing_turn(v.back.x, v.back.z)
 	place(&lv.paint, &lv.paint_on, lo.paint, store, lv.scratch, dt, {})
 	for i in 0 ..< carry.LOADOUT_SLOTS {
 		place(&lv.slots[i], &lv.slots_on[i], lo.slots[i], store, lv.scratch, dt, {})
@@ -259,6 +264,7 @@ loadout_view_update :: proc(lv: ^Loadout_View, lo: ^carry.Loadout, store: ^carry
 
 loadout_view_draw :: proc(lv: ^Loadout_View, lo: ^carry.Loadout, eye: Vec3, show_hand: bool) {
 	if show_hand && lo.hand.used && lv.hand_on {
+		lv.hand.view.art_turn = lv.hand_turn
 		body_draw(&lv.hand, lv.hand_origin, eye, balloon_tint(lo.hand.compound, lo.hand.ml))
 	}
 	if lo.paint.used && lv.paint_on {
@@ -266,6 +272,7 @@ loadout_view_draw :: proc(lv: ^Loadout_View, lo: ^carry.Loadout, eye: Vec3, show
 	}
 	for i in 0 ..< carry.LOADOUT_SLOTS {
 		if lo.slots[i].used && lv.slots_on[i] {
+			lv.slots[i].view.art_turn = carry.facing_turn(lab.SLOT_VIEWED_FROM.x, lab.SLOT_VIEWED_FROM.z)
 			body_draw(&lv.slots[i], lab.slot_clamp(i), eye, balloon_tint(lo.slots[i].compound, lo.slots[i].ml))
 		}
 	}

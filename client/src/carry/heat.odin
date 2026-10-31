@@ -50,6 +50,19 @@ props_heat_update :: proc(props: ^Props, dt: f32) {
 	}
 }
 
+// Lets the liquid in every tied balloon drift back toward the room, at the rate it does
+// in a vessel: the one in the hand, the one in the paint station, and those on the hooks.
+loadout_heat_update :: proc(lo: ^Loadout, dt: f32) {
+	cool :: proc(item: ^Item, dt: f32) {
+		item.heat = item.used && item.ml > 0 ? move_toward(item.heat, 0, COOL_RATE * dt) : 0
+	}
+	cool(&lo.hand, dt)
+	cool(&lo.paint, dt)
+	for &s in lo.slots {
+		cool(&s, dt)
+	}
+}
+
 // A word for the temperature, for the line under the crosshair: nothing for about
 // the room.
 heat_word :: proc(heat: f32) -> string {

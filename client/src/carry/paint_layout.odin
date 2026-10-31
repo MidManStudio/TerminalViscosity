@@ -14,6 +14,7 @@ Hit_Kind :: enum u8 {
 	Canvas, // on the tablet, to draw
 	Swatch, // a color of the palette, `index` says which
 	Size, // a brush, `index` says which
+	Blend, // the blending pen
 	Undo,
 	Clear,
 	Done,
@@ -24,6 +25,7 @@ Paint_Layout :: struct {
 	canvas:   [4]f32, // the tablet, twice as wide as high
 	swatches: [16][4]f32,
 	sizes:    [3][4]f32,
+	blend:    [4]f32,
 	undo:     [4]f32,
 	clear:    [4]f32,
 	done:     [4]f32,
@@ -31,8 +33,8 @@ Paint_Layout :: struct {
 }
 
 // Places everything for a screen of `w` by `h`. The palette is two columns down the
-// left, the tablet is to the right of it with the brushes, undo and clear under it, the
-// done button is at the top right, and the rest of the right side is the balloon.
+// left, the tablet is to the right of it with the brushes, the blending pen, undo, and
+// clear under it, the done button is at the top right, and the rest of the right side is the balloon.
 paint_layout :: proc(w, h: f32) -> (l: Paint_Layout) {
 	m := h * 0.025
 	sw := clamp(h * 0.075, 30, 64)
@@ -46,14 +48,17 @@ paint_layout :: proc(w, h: f32) -> (l: Paint_Layout) {
 	cw := min(w * 0.5, 2 * h * 0.58)
 	l.canvas = {palette_right + 1.5 * m, m, cw, cw * 0.5}
 
-	tb := clamp(h * 0.1, 36, 72)
+	// Three brushes and three wider buttons in a row under the tablet, made smaller if the
+	// screen is narrow, so the row never reaches past the tablet.
+	tb := min(clamp(h * 0.1, 36, 72), (cw - m - 6 * gap) / 7.5)
 	ty := l.canvas[1] + l.canvas[3] + m // under the tablet, whose height is the last number
 	for k in 0 ..< 3 {
 		l.sizes[k] = {l.canvas.x + f32(k) * (tb + gap), ty, tb, tb}
 	}
 	next := l.canvas.x + 3 * (tb + gap) + m
-	l.undo = {next, ty, tb * 1.8, tb}
-	l.clear = {next + tb * 1.8 + gap, ty, tb * 1.8, tb}
+	l.blend = {next, ty, tb * 1.5, tb}
+	l.undo = {next + (tb * 1.5 + gap), ty, tb * 1.5, tb}
+	l.clear = {next + 2 * (tb * 1.5 + gap), ty, tb * 1.5, tb}
 
 	dh := clamp(h * 0.14, 52, 110)
 	l.done = {w - m - dh * 1.6, m, dh * 1.6, dh}
@@ -74,6 +79,8 @@ paint_hit :: proc(l: ^Paint_Layout, x, y: f32) -> (kind: Hit_Kind, index: int) {
 	switch {
 	case in_box(l.done, x, y):
 		return .Done, 0
+	case in_box(l.blend, x, y):
+		return .Blend, 0
 	case in_box(l.undo, x, y):
 		return .Undo, 0
 	case in_box(l.clear, x, y):

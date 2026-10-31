@@ -65,18 +65,22 @@ art_texture_sync :: proc(a: ^Art_Texture, store: ^carry.Art_Store, id: u16, scra
 		a.loaded = true
 		a.art_id = 0
 	}
-	if a.art_id != id {
-		carry.canvas_to_rgba(c, 0, 0, carry.CANVAS_W - 1, carry.CANVAS_H - 1, scratch)
-		rl.UpdateTexture(a.tex, raw_data(scratch))
-		carry.canvas_dirty_take(c)
-		a.art_id, a.version = id, c.version
-	} else if a.version != c.version {
-		if rect, ok := carry.canvas_dirty_take(c); ok {
-			w, h := rect[2] - rect[0] + 1, rect[3] - rect[1] + 1
-			carry.canvas_to_rgba(c, rect[0], rect[1], rect[2], rect[3], scratch[:w * h * 4])
+	rect: [4]int
+	full, any := true, true // a different drawing, or none yet, is sent whole
+	if a.art_id == id {
+		rect, full, any = carry.canvas_update_for(c, a.version)
+	} else {
+		rect = {0, 0, carry.CANVAS_W - 1, carry.CANVAS_H - 1}
+	}
+	if any {
+		w, h := rect[2] - rect[0] + 1, rect[3] - rect[1] + 1
+		carry.canvas_to_rgba(c, rect[0], rect[1], rect[2], rect[3], scratch[:w * h * 4])
+		if full {
+			rl.UpdateTexture(a.tex, raw_data(scratch))
+		} else {
 			rl.UpdateTextureRec(a.tex, rl.Rectangle{f32(rect[0]), f32(rect[1]), f32(w), f32(h)}, raw_data(scratch))
 		}
-		a.version = c.version
 	}
+	a.art_id, a.version = id, c.version
 	return true
 }

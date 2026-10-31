@@ -352,3 +352,56 @@ a_faster_spout_empties_the_tank_sooner_with_bigger_drops :: proc(t: ^testing.T) 
 	testing.expect_value(t, b.tank.ml, 0) // eight times as fast is done
 	testing.expect(t, fast.st.sim.count <= MAX_STREAM, "and no more drops in flight than before")
 }
+
+@(test)
+a_vessel_standing_on_the_tray_is_found_and_filled_without_being_held :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	o: Oven
+	oven_init(&o)
+	n := lab.MIXER_SPOUT
+	props_add(props, l, .Beaker, n.x, n.z, 0, 0)
+	testing.expect_value(t, oven_rest_under(&o, props), -1) // no product
+	o.tank = {id(.Slurry), 100}
+	testing.expect_value(t, oven_rest_under(&o, props), 0)
+	props.items[0].pos.x = n.x + lab.MIXER_TRAY_RADIUS + 0.05
+	testing.expect_value(t, oven_rest_under(&o, props), -1) // off the tray
+	props.items[0].pos.x = n.x
+	props.items[0].pos.y = lab.COUNTER_HEIGHT + 0.4
+	testing.expect_value(t, oven_rest_under(&o, props), -1) // in the air
+	props.items[0].pos.y = lab.COUNTER_HEIGHT
+	props.items[0].tilt = 0.8
+	testing.expect_value(t, oven_rest_under(&o, props), -1) // tipped over
+	props.items[0].tilt = 0
+	props.items[0].compound, props.items[0].ml = id(.Water), capacity_ml(.Beaker)
+	testing.expect_value(t, oven_rest_under(&o, props), -1) // full
+	props.items[0].compound, props.items[0].ml = 0, 0
+	props.held = 0
+	testing.expect_value(t, oven_rest_under(&o, props), -1) // held ones are the other case
+	props.held = -1
+	props_add(props, l, .Flask, n.x + 0.05, n.z, 0, 0)
+	testing.expect(t, oven_rest_under(&o, props) != -1, "one of the two")
+}
+
+@(test)
+the_spout_fills_a_vessel_standing_on_the_tray :: proc(t: ^testing.T) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	props_init(s.props)
+	n := lab.MIXER_SPOUT
+	props_add(s.props, s.l, .Beaker, n.x, n.z, 0, 0)
+	o: Oven
+	oven_init(&o)
+	o.tank = {id(.Frost_Gel), 300}
+	events: [MAX_EVENTS]Mix_Result
+	for _ in 0 ..< 420 {
+		if i := oven_rest_under(&o, s.props); i != -1 {
+			oven_flow(&o, s.st, s.l, 1.0 / 60, oven_rest_mouth(s.props, i), 1)
+		}
+		stream_step(s.st, 21)
+		stream_capture(s.st, s.props, {0, 1.6, 0}, &events)
+	}
+	testing.expect_value(t, s.props.items[0].compound, id(.Frost_Gel))
+	testing.expectf(t, s.props.items[0].ml > 280, "the vessel on the tray holds %v ml", s.props.items[0].ml)
+	testing.expect_value(t, o.tank.ml, 0)
+}
