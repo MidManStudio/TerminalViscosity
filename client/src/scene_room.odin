@@ -48,6 +48,7 @@ Room :: struct {
 	spout_rest:  int, // a vessel standing on the tray under the spout, which the pour button fills, or -1
 	loadout_view: Loadout_View,
 	painting:    bool, // the drawing screen is open
+	save_wanted: bool, // the loadout has changed and is to be written
 	paint:       ^carry.Paint, // the paint and brush chosen, and the strokes that can be taken back
 	paint_turn:  f32, // how far round the balloon in the paint station is turned, as a share of a turn
 	paint_input: Paint_Input,
@@ -136,6 +137,7 @@ room_balloon_action :: proc(room: ^Room, lo: ^carry.Loadout, action: carry.Ballo
 	if !ok {
 		return
 	}
+	room.save_wanted = true
 	switch action {
 	case .None:
 	case .Tie_Take:
@@ -284,6 +286,7 @@ room_unload :: proc(game: ^Game, state: rawptr) {
 	room := cast(^Room)state
 	rlgl.SetClipPlanes(0.05, 4000)
 	game.heat_strength = 0
+	loadout_save(game)
 	free(room.paint)
 	loadout_view_unload(&room.loadout_view)
 	filler_view_unload(&room.filler_view)
@@ -305,6 +308,13 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	pointers: Pointers
 	platform_pointers(&pointers)
 
+	// A change to the balloons is written the frame after it, so a frame that makes
+	// several changes writes the file once.
+	if room.save_wanted {
+		room.save_wanted = false
+		loadout_save(game)
+	}
+
 	// While drawing the lab waits, and the fingers draw, choose, and turn the balloon.
 	if room.painting {
 		l := carry.paint_layout(w, h)
@@ -315,6 +325,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 		loadout_view_update(&room.loadout_view, &game.loadout, game.art, carry.view_of(&room.player), dt)
 		if done {
 			room.painting = false
+			room.save_wanted = true
 			carry.paint_stroke_end(room.paint)
 			controls_init(&room.controls, &pointers) // the finger that pressed done must not start walking
 		}

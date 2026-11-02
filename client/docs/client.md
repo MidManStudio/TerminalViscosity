@@ -4,7 +4,7 @@
 
 The Odin client: window, input, rendering, scenes, and the crafting-lab prototype. It links the Rust simulation through the C ABI in `tv_ffi`. Raylib comes from the `vendor:raylib` package that ships with the Odin compiler (raylib 6.0 in the release used here).
 
-The game is arranged in scenes, as in Unity. There are two scenes. The lab room is the chemistry lab, walked around in first person: a large open room with long counters along the walls and one in the middle. Glass vessels with colored liquid in them stand on the middle counter, ten with one of each stock liquid and the rest empty, and can be picked up, carried in the player's hands, and poured into each other, which makes the liquids react: the held vessel tips over and its liquid runs out as a stream of drops, simulated, into the vessel under the crosshair. A bottle wall along the east side fills a held vessel from a tap for each stock liquid, when the vessel is within half a metre of the nozzle, and the stream is aimed into the vessel's mouth. Four workstations stand on the counters: a sink with a drain on the west side, a fume hood on the north side that takes most of the force out of a blast inside it, and a balloon fill station on the south side, where a balloon hangs by its neck from a clamp under a funnel and is filled by pouring, with a gauge beside it, until it is overfilled and bursts, and a reaction oven on the north side with four ports that each take one liquid, which mixes them inside the machine when it runs, so a violent mixture gives its product and hurts no one. A speed button sets how fast liquid runs, 1, 2, 4, or 8 times normal, for pours, taps, the spout of the oven, and its run. A hot plate and an ice bath on the north counter heat and cool the liquid in a vessel that stands on them, and heat adds to how violent a mixture is while cold takes some of it away. A balloon can be tied off at the fill station and carried in the hand, where it swings from its knot. It can be clamped into the paint station, where the balloon wears a drawing that is made on a tablet beside it, or hung on a hook of the loadout rack, which has three hooks and is the set of balloons that goes into a match. Blasts, spatters, and bursting balloons have a look of their own: fire, sparks, smoke, drops, a ring, a flash of light on the room, a knock to the view, and a wobble of the picture. Some reactions are violent enough to hurt the player and break the vessel, and a menu shows every reaction and which are volatile. The player can also jump. The balloon lab is the balloon on its own: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The lab overlay also shows the result of a start-up check of the local database, which reads and writes DixScript through its C library. The balloon editing menu, the arena, networking, and balloon painting are not started.
+The game is arranged in scenes, as in Unity. There are two scenes. The lab room is the chemistry lab, walked around in first person: a large open room with long counters along the walls and one in the middle. Glass vessels with colored liquid in them stand on the middle counter, ten with one of each stock liquid and the rest empty, and can be picked up, carried in the player's hands, and poured into each other, which makes the liquids react: the held vessel tips over and its liquid runs out as a stream of drops, simulated, into the vessel under the crosshair. A bottle wall along the east side fills a held vessel from a tap for each stock liquid, when the vessel is within half a metre of the nozzle, and the stream is aimed into the vessel's mouth. Four workstations stand on the counters: a sink with a drain on the west side, a fume hood on the north side that takes most of the force out of a blast inside it, and a balloon fill station on the south side, where a balloon hangs by its neck from a clamp under a funnel and is filled by pouring, with a gauge beside it, until it is overfilled and bursts, and a reaction oven on the north side with four ports that each take one liquid, which mixes them inside the machine when it runs, so a violent mixture gives its product and hurts no one. A speed button sets how fast liquid runs, 1, 2, 4, or 8 times normal, for pours, taps, the spout of the oven, and its run. A hot plate and an ice bath on the north counter heat and cool the liquid in a vessel that stands on them, and heat adds to how violent a mixture is while cold takes some of it away. The balloons the player makes, with their drawings, are saved to a text file when they change and read back when the game starts. A balloon can be tied off at the fill station and carried in the hand, where it swings from its knot. It can be clamped into the paint station, where the balloon wears a drawing that is made on a tablet beside it, or hung on a hook of the loadout rack, which has three hooks and is the set of balloons that goes into a match. Blasts, spatters, and bursting balloons have a look of their own: fire, sparks, smoke, drops, a ring, a flash of light on the room, a knock to the view, and a wobble of the picture. Some reactions are violent enough to hurt the player and break the vessel, and a menu shows every reaction and which are volatile. The player can also jump. The balloon lab is the balloon on its own: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The lab overlay also shows the result of a start-up check of the local database, which reads and writes DixScript through its C library. The balloon editing menu, the arena, networking, and balloon painting are not started.
 
 Commands, run from the repository root with `cargo` and `odin` on the path:
 
@@ -350,7 +350,7 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - The picture is wrapped with its middle facing +x when it is not turned. A balloon in the hand does not turn with the player, so it is turned to face them, and the balloons on the hooks to face north, where the player stands, or the middle of the picture would be on the far side of them.
 - Undo keeps eight canvases, 512 KB, and a clear is a stroke that can be taken back.
 - Sixteen drawings can exist at once, a megabyte. A balloon gets its drawing at its first stroke, and the player is told when there is no room. Nothing frees a drawing yet, because a balloon is never thrown away.
-- Drawings are not saved or sent anywhere yet. The codec of the arena, in `tv_proto`, is not called from here, and a canvas is the same shape as what it takes.
+- Drawings are saved with the loadout, see `loadout_save.odin`, in the byte layout of the codec of the arena, `tv_proto::art`, which `art_codec.odin` matches byte for byte. They are not sent anywhere yet.
 
 **Tests:** `art_test.odin`.
 
@@ -363,6 +363,28 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - The done button is large and always there, as every screen must have a visible way out.
 
 **Tests:** `paint_layout_test.odin`.
+
+### `art_codec.odin`
+**What it does:** Encodes and decodes a drawing in the byte layout of `tv_proto::art`, in package `carry`, so the bytes saved on the phone are the bytes the server will take. A format byte, the 16 colors of the palette as three bytes each, then either the pixels two to a byte with the first in the low half, or runs of a color byte and two bytes of length, low first. `art_encode` uses run-length only when it is strictly shorter, as the Rust codec does. `art_decode` refuses what the Rust decoder refuses: another format byte, input too short, a run of nothing, a run past the end, a color outside the palette, anything left over, or a raw drawing of the wrong length. `hex_encode` and `hex_decode` turn bytes into text and back.
+
+**Decisions:**
+- The test vectors come from the Rust code: the encoding of a flat drawing in full, and the length and hash of a noisy one, made by a small program that uses `tv_proto` and set into the test, so a change on either side that breaks the agreement fails here.
+- The palette written is that of the lab, and the palette read is skipped, because a drawing here is indices and the palette is the lab's. Color 0 is no paint, which is a convention of this client and not in the bytes, so another client has to draw index 0 as bare rubber.
+- A drawing that does not decode leaves the canvas as it was.
+- A decoded drawing counts as wholly changed, so what shows it sends the whole thing.
+
+**Tests:** `art_codec_test.odin`.
+
+### `loadout_save.odin`
+**What it does:** Turns the balloons of the player into text and back, in package `carry`. `loadout_serialize` writes a header line and a line for each place that holds a balloon, the hand, the paint station, and each hook, with the place, the liquid, the amount to the nearest millilitre, and the drawing as the hexadecimal of its encoding or a dash. `loadout_deserialize` reads it back and makes a drawing in the store for each balloon that had one. It skips what it cannot read, a line of the wrong shape, an unknown place, a number out of range, a drawing that does not decode, and a balloon whose drawing is bad comes back without one. Text without the header is not read at all.
+
+**Decisions:**
+- It is plain text, because the file functions of the client write text on every platform, the phone included.
+- The temperature is not saved, because it does not last, and the drawing ids are not saved, because they are places in a store that is made again. Each drawing gets a new id.
+- One bad line never stops the rest being read, and the game never fails to start for a damaged file.
+- When the store has no room, a balloon comes back without its drawing and is told nothing, which is better than losing the balloon.
+
+**Tests:** `loadout_save_test.odin`.
 
 ### `heat.odin`
 **What it does:** The hot plate and the ice bath, in package `carry`. `station_heat` says what a vessel is standing on: 1 for the hot plate, -1 for the ice bath, 0 for anything else, when its middle is inside the footprint and it is resting near the counter top. `props_heat_update` moves the temperature of the liquid in every vessel on by a frame: on the plate it rises by 0.2 a second, in the bath it falls by 0.2 a second, and anywhere else, in the hands too, it drifts back toward the room by 0.03 a second. A vessel with nothing in it has no temperature. `loadout_heat_update` does the same for the liquid in every tied balloon, and the balloon at the fill station cools the same way in `filler_update`. `heat_word` gives a word for the line under the crosshair: warm and hot above 0.25 and 0.75, cool and cold below -0.25 and -0.75, and nothing near the room.
@@ -386,7 +408,7 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - A balloon with nothing in it cannot be tied off and taken.
 - The drawing is one per balloon, and its pixels are in `art.odin`. Each balloon carries its own id, so each can be painted differently, and the server is sent the drawing of each preset. That follows from the loadout holding balloons that are painted one by one. If the art is to be one per player instead, the id moves out of the item.
 - The number of hooks is `LOADOUT_SLOTS` in the lab, set in one place because it is not decided. A preset is made for each hook that holds a balloon, in the order of the hooks.
-- Nothing here is saved to disk yet. The loadout and the drawings live in `Game`, so they outlive a visit to another scene, and are lost when the program ends. Saving it goes with the local database, and sending the presets goes with the server.
+- The loadout and the drawings live in `Game`, so they outlive a visit to another scene, and are saved to a file, see `loadout_save.odin`. Sending the presets to the server is not done.
 
 **Tests:** `loadout_test.odin`.
 
@@ -406,6 +428,14 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - A finger that was down when drawing began, or landed on a button, does nothing more, as in the walking controls.
 - A drag across the balloon turns it so that the surface follows the finger, about a quarter of the screen height for a radian.
 - The turn is only how the balloon is seen. The tablet and the drawing are not turned.
+
+### `loadout_file.odin`
+**What it does:** Reads and writes the file of balloons, in the client. `loadout_load` makes the store for drawings if there is none, and reads `tv_loadout.txt` into the loadout when the game starts. `loadout_save` writes it. The lab saves the frame after a balloon is moved, tied, taken, or stored, and after a drawing is finished, so a frame with several changes writes once, and again when the lab is left.
+
+**Decisions:**
+- A missing file is the first run, and a failure to write is a line on the error output and nothing more.
+- A drawing that is half made when the game is stopped is not saved, only a finished one.
+- The path is the one the file functions of the client use, which on the phone is the private storage of the game.
 
 ### `stream_view.odin`
 **What it does:** Draws the liquid in the air as small diamonds in the color of the liquid, lighter on top and darker underneath. They are drawn by the batch renderer with no lighting, without back-face culling.
@@ -496,6 +526,12 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 
 ### `paint_layout_test.odin`
 **What it does:** On six screen sizes, everything is on the screen, the tablet is twice as wide as high and big enough to draw on, and nothing covers anything else. A touch is on the thing under it: done, undo, clear, each brush, each swatch, the tablet, the balloon, and nothing in a corner. The edges of the tablet are the edges of the drawing, and a point outside it is not on it. The balloon area is to the right of the middle. The test of overlaps found that the row of brushes had been put halfway up the tablet instead of under it, before it was ever run on a screen.
+
+### `art_codec_test.odin`
+**What it does:** A flat drawing encodes to the same bytes as the Rust codec, in full, and a noisy one is raw and has the same length and hash. The bytes the Rust codec made decode to the drawing they were made from. Both formats round trip, and a blank drawing is a few bytes. Bad bytes are refused and the drawing is left alone: nothing, too short, a missing run, bytes left over, a format that is neither, a color outside the palette, a run of nothing even when the rest adds up, runs past the end, and a raw drawing that is short. A decoded drawing is marked as changed. The hexadecimal goes both ways and refuses an odd length and characters that are not digits. Each test was checked by changing the code on purpose and seeing it fail, and four gaps that found were closed.
+
+### `loadout_save_test.odin`
+**What it does:** A loadout survives being saved and read back: every field except the temperature, and each drawing pixel for pixel, each with an id of its own. An empty loadout is the header and reads back empty. Text without the header, or with another version, is not read at all. Bad lines are skipped and the good ones come back, and a balloon whose drawing is bad or does not decode comes back without it and leaves no drawing in use. When the store is full the balloons still come back. The amount is rounded to the nearest millilitre. The places are named hand, paint, and one for each hook.
 
 ### `mpm.odin`
 **What it does:** Package `mpm`, the liquid simulator for the lab: the Moving Least Squares Material Point Method of Hu et al. (2018) for a weakly compressible fluid, in 3D. Particles carry the liquid and a background grid works out the forces. Each substep sends mass and momentum from the particles to the grid, updates the grid with gravity and walls, and reads velocities back with the affine matrix of APIC. The stress comes from each particle's volume ratio alone and is folded into the transfer, as in section 3.4 of the paper, so no kernel gradient is ever evaluated. It has no raylib dependency. After `sim_init` nothing is allocated, so stepping never touches the allocator.
@@ -969,4 +1005,19 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 
 ### `art_view.odin`
 - A balloon in the hand showed the old drawing after the drawing had been changed in the clamp. Each balloon had its own texture and all of them took the same rectangle of what had changed, so whichever updated first left the others with nothing to update from. It was found by running the real flow, a drawing taken from the clamp to the hand, back, changed, and taken again, and counting the colors on the screen. A texture now takes the rectangle only if it has everything before it.
+
+### `art_codec.odin`
+- None recorded yet. The palette of the bytes is not read, so a drawing made with another palette would come back with the lab's colors.
+
+### `art_codec_test.odin`
+- The first vectors were made by the Rust code with a made-up palette, and the pixel data matched but the palette bytes did not, because the encoder writes the palette of the lab. The vectors were made again with the palette of the lab. The change-on-purpose check found four gaps in these tests and the save tests: a run of nothing that the rest makes up for, the mark that a decoded drawing changed, the header check, and the rounding of the amount. Each has a test now.
+
+### `loadout_save.odin`
+- None recorded yet. The file is read once, when the game starts, and written on changes. A round trip was run on the real client twice: the first run wrote a balloon with a drawing and the second read it back with the same pixels.
+
+### `loadout_save_test.odin`
+- None recorded yet.
+
+### `loadout_file.odin`
+- None recorded yet. Not tried on the phone, where the file is in the private storage of the game. Writing a file of a few hundred kilobytes at the worst, with five drawings, has not been timed on the old phone.
 

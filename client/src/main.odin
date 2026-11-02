@@ -120,6 +120,9 @@ run :: proc(opts: Options) {
 	// the game: a failure becomes a line of text on the overlay.
 	store.run_check(&game.store, raylib_files(), mdix_library_path())
 
+	// The balloons the player made last time.
+	loadout_load(&game)
+
 	game_enter(&game, opts.scene)
 	defer game_leave(&game)
 
