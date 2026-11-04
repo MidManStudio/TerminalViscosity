@@ -43,24 +43,27 @@ Determinism here means: the same seed and the same command stream give the same 
 **Benchmarks:** `sim_bench.rs`, bench `impact_outcome_4_chambers`.
 
 ### `world.rs`
-**What it does:** `World`, the fixed tick, balloon flight, detonation events, snapshots, and `state_hash`.
+**What it does:** `World`, the fixed tick, players walking a round arena, balloon flight, detonation events, snapshots, and `state_hash`. A player joins on the first command it sends, or by `join`, and starts on one of eight spawn points on a ring of 14 m, facing the middle. An input command sets the stick and the heading, and every tick moves each player by the stick last sent, at 3.2 m a second, with the diagonals no faster than straight ahead, and keeps them inside the arena wall. A player that sends nothing for half a second stops. A throw leaves from the thrower, at a height of 1.5 m and half a metre along the aim.
 
 **Decisions:**
 - 60 ticks per second. Semi-implicit Euler integration under constant gravity, and a balloon bursts when it reaches the ground.
-- Placeholders until players exist in the sim: spawn position, launch speed per unit of power, the blast radius formula.
-- At most 48 balloons in flight, so one snapshot always fits one datagram. Extra throws are counted in `rejected()`.
-- `state_hash` is FNV-1a over tick, RNG state, ids, recipes, positions, and velocities. It is the tool for spotting nondeterminism.
+- Placeholders: the launch speed per unit of power, the blast radius formula, the walking speed, the throw height, and the spawn ring. The owner has not specified combat rules, so there are no hit points, damage, or respawn.
+- The arena is a circle of 20 m radius. A player stops 0.3 m short of the wall and slides along it. A balloon that crosses the wall bursts on it at the height it had, and one that reaches the ground bursts there. The client draws its wall from the same number, and its self-test checks that the two agree.
+- Spawn points are constants and not computed from sine and cosine, so a spawn cannot differ between machines. Walking does use `sin_cos` on the heading, so the determinism claim above still stands for the same build and no further.
+- A command from a player id beyond `MAX_PLAYERS` is refused and counted. Any command joins its sender, so a throw from a player who never sent an input still has somewhere to leave from.
+- At most 40 balloons in flight, so one snapshot with a full player list always fits one datagram. Extra throws are counted in `rejected()`.
+- `state_hash` is FNV-1a over tick, RNG state, players, ids, slots, recipes, positions, and velocities. It is the tool for spotting nondeterminism.
 - Balloons are kept in creation order and removed with `retain_mut`, so event order is stable.
 
 **Benchmarks:** `sim_bench.rs`, groups `step_60_ticks` and `scripted_match_3600_ticks`.
 
 ### `testkit.rs`
-**What it does:** Reproducible command scripts and synthetic chemistry for tests, benchmarks, and the server self-test.
+**What it does:** Reproducible command scripts and synthetic chemistry for tests, benchmarks, and the server self-test. The script now has players walk in random directions every third tick as well as throw every fifth, so the determinism check covers movement.
 
 **Decisions:** The synthetic table carries no chemical meaning. It exists to exercise lookup cost and the determinism check.
 
 ### `world_tests.rs`
-**What it does:** Same seed gives the same hash on every tick of a 1200-tick scripted match, different seeds differ, a lobbed balloon lands and bursts exactly once, bad commands are counted, the balloon cap matches the snapshot capacity, and wire units are right.
+**What it does:** Same seed gives the same hash on every tick of a 1200-tick scripted match, different seeds differ, and the hash sees where players are and which way they face. Players join at their spawn point facing the middle, walk at walking speed along their heading, are no faster sideways or on a diagonal, stop when their client goes quiet, and cannot leave the arena or climb the wall by pressing into it at an angle. A throw leaves from the thrower and carries its slot, a lobbed balloon lands and bursts exactly once, and one that hits the wall bursts on it at its height. Bad commands and players beyond the limit are counted, the balloon cap matches the snapshot capacity, and a full match of 8 players and 40 balloons fits one datagram.
 
 ## CI and Workflows
 
@@ -73,4 +76,5 @@ Determinism here means: the same seed and the same command stream give the same 
 - Clippy flagged an unparenthesized multiply-then-shift in `below`. The expression was already correct under Rust precedence rules, and it now has explicit parentheses.
 
 ### `world.rs`
-- None recorded yet.
+- The tests joined a player with an input command, and then read the spawn heading back. The input carries its own heading, so it replaced the one the player spawned with and the test saw zero. The sim was right and the test was wrong. The tests now join with a throw, or with `join`, which exists so a client can learn where it starts without sending anything.
+- A first check of the tests with deliberate bugs found that the hash test could not tell positions apart: a player walking and a player standing differed in their stick and quiet counter as well. It now compares two worlds that end on the same input and differ only in where the player is.

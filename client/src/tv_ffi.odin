@@ -8,7 +8,7 @@ package main
 // Bindings for crates/tv_ffi/include/tv.h. Keep the two in step, and bump
 // TV_ABI_VERSION on both sides together.
 
-TV_ABI_VERSION :: 1
+TV_ABI_VERSION :: 2
 
 TV_OK :: 0
 TV_ERR_NULL :: -1
@@ -44,6 +44,7 @@ TvChamber :: struct {
 	volume_ml: u16,
 }
 
+// `flags` is the loadout slot the balloon was thrown from.
 TvBalloonView :: struct {
 	id:       u16,
 	owner:    u8,
@@ -53,6 +54,16 @@ TvBalloonView :: struct {
 	pos_mm:   [3]i32,
 	vel_cms:  [3]i16,
 	reserved2: i16,
+}
+
+// `yaw_mrad` is the heading in thousandths of a radian, from 0 up to a full turn. Zero
+// faces -z and a quarter turn faces +x, which is how the lab's player turns too.
+TvPlayerView :: struct {
+	id:       u8,
+	flags:    u8,
+	reserved: u16,
+	pos_mm:   [3]i32,
+	yaw_mrad: i32,
 }
 
 TvDetonateView :: struct {
@@ -66,6 +77,7 @@ TvDetonateView :: struct {
 
 #assert(size_of(TvChamber) == 4)
 #assert(size_of(TvBalloonView) == 28)
+#assert(size_of(TvPlayerView) == 20)
 #assert(size_of(TvDetonateView) == 24)
 
 @(default_calling_convention = "c")
@@ -74,11 +86,15 @@ foreign tv {
 	tv_sizeof_chamber :: proc() -> u32 ---
 	tv_sizeof_balloon_view :: proc() -> u32 ---
 	tv_sizeof_detonate_view :: proc() -> u32 ---
+	tv_sizeof_player_view :: proc() -> u32 ---
+	tv_arena_radius_mm :: proc() -> u32 ---
 
 	tv_world_new :: proc(seed: u64) -> ^TvWorld ---
 	tv_world_free :: proc(w: ^TvWorld) ---
 
-	tv_encode_throw :: proc(chambers: [^]TvChamber, n: u32, dx, dy, dz: i16, power: u8, out: [^]u8, cap: u32) -> i32 ---
+	tv_encode_throw :: proc(chambers: [^]TvChamber, n: u32, slot: u8, dx, dy, dz: i16, power: u8, out: [^]u8, cap: u32) -> i32 ---
+	tv_encode_input :: proc(forward, strafe: i8, yaw_mrad: i32, out: [^]u8, cap: u32) -> i32 ---
+	tv_world_join :: proc(w: ^TvWorld, player: u8) -> i32 ---
 	tv_world_submit :: proc(w: ^TvWorld, player: u8, bytes: [^]u8, len: u32) -> i32 ---
 	tv_world_step :: proc(w: ^TvWorld) -> i32 ---
 	tv_world_snapshot :: proc(w: ^TvWorld, out: [^]u8, cap: u32) -> i32 ---
@@ -86,5 +102,6 @@ foreign tv {
 	tv_world_state_hash :: proc(w: ^TvWorld) -> u64 ---
 
 	tv_snapshot_decode :: proc(buf: [^]u8, len: u32, out: [^]TvBalloonView, out_cap: u32, out_tick: ^u32) -> i32 ---
+	tv_snapshot_decode_players :: proc(buf: [^]u8, len: u32, out: [^]TvPlayerView, out_cap: u32) -> i32 ---
 	tv_events_decode :: proc(buf: [^]u8, len: u32, out: [^]TvDetonateView, out_cap: u32) -> i32 ---
 }

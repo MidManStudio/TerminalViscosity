@@ -28,7 +28,11 @@
 ### Game rules that are still placeholders
 
 - Total balloon volume (1000 ml), chamber count (4), the burst combining rule, the blast radius formula, launch speed per unit of power, and spawn positions are scaffold values in `tv_sim`.
-- Players, hit detection, and the arena do not exist in the simulation yet.
+- Players walking a round arena of 20 m radius exist in the simulation, and balloons burst on the ground and on the wall. Hit detection, damage, hit points, respawn, and the kill cam do not, because the combat rules are not specified.
+- The arena numbers are first guesses to tune by feel: walking speed 3.2 m/s, throw power 6 to 18 m/s over 1.2 s of holding, 0.5 s between throws, a throw height of 1.5 m, eight spawn points on a ring of 14 m, and a coliseum with five tiers and an outer wall 12 m high.
+- A throw does not use up the balloon, and with no balloon on any hook the arena offers a plain water balloon of 500 ml. Neither was asked for.
+- Drawn between ticks, the arena shows the world one tick, 17 ms, late.
+- Other players' balloons are drawn plain at 500 ml, because the snapshot carries neither their fill nor their drawing. Drawings are meant to be sent once, when a player joins, and that is not built.
 - Tick rate is 60 Hz. The snapshot rate is not chosen.
 
 ### The lab room

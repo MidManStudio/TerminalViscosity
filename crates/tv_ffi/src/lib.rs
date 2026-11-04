@@ -13,12 +13,12 @@
 #![allow(unsafe_code)]
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use tv_proto::wire::{decode_events, encode_events, Command, Event, Snapshot};
+use tv_proto::wire::{decode_events, encode_events, q_to_yaw, yaw_to_q, Command, Event, Snapshot};
 use tv_proto::{Chamber, Recipe, MAX_CHAMBERS};
 use tv_sim::{NullChem, World};
 
 /// Bumped whenever any signature or struct layout in `tv.h` changes.
-pub const TV_ABI_VERSION: u32 = 1;
+pub const TV_ABI_VERSION: u32 = 2;
 /// Success.
 pub const TV_OK: i32 = 0;
 /// A required pointer was null.
@@ -57,7 +57,7 @@ pub struct TvBalloonView {
     pub id: u16,
     /// Owning player.
     pub owner: u8,
-    /// Reserved flags.
+    /// The loadout slot the balloon was thrown from.
     pub flags: u8,
     /// Dominant compound.
     pub compound: u16,
@@ -69,6 +69,23 @@ pub struct TvBalloonView {
     pub vel_cms: [i16; 3],
     /// Padding, always zero.
     pub reserved2: i16,
+}
+
+/// A player in a decoded snapshot.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TvPlayerView {
+    /// Player index.
+    pub id: u8,
+    /// Reserved flags.
+    pub flags: u8,
+    /// Padding, always zero.
+    pub reserved: u16,
+    /// Position of the feet in millimetres.
+    pub pos_mm: [i32; 3],
+    /// Heading in thousandths of a radian, from 0 up to a full turn. Zero faces -z and a
+    /// quarter turn faces +x.
+    pub yaw_mrad: i32,
 }
 
 /// A detonation in a decoded event batch.
@@ -139,6 +156,19 @@ pub extern "C" fn tv_sizeof_balloon_view() -> u32 {
     std::mem::size_of::<TvBalloonView>() as u32
 }
 
+/// `sizeof(TvPlayerView)`.
+#[no_mangle]
+pub extern "C" fn tv_sizeof_player_view() -> u32 {
+    std::mem::size_of::<TvPlayerView>() as u32
+}
+
+/// Radius of the round arena floor in millimetres, so the client can draw its walls where
+/// the simulation puts them.
+#[no_mangle]
+pub extern "C" fn tv_arena_radius_mm() -> u32 {
+    (tv_sim::ARENA_RADIUS_M * 1000.0).round() as u32
+}
+
 /// `sizeof(TvDetonateView)`.
 #[no_mangle]
 pub extern "C" fn tv_sizeof_detonate_view() -> u32 {
@@ -170,7 +200,8 @@ pub unsafe extern "C" fn tv_world_free(w: *mut TvWorld) {
     }
 }
 
-/// Encodes a throw command into `out`. Returns bytes written or a negative error.
+/// Encodes a throw command into `out`. `slot` is the loadout slot the balloon comes from.
+/// Returns bytes written or a negative error.
 ///
 /// # Safety
 /// `chambers` must be valid for `n` reads and `out` for `cap` writes.
@@ -178,6 +209,7 @@ pub unsafe extern "C" fn tv_world_free(w: *mut TvWorld) {
 pub unsafe extern "C" fn tv_encode_throw(
     chambers: *const TvChamber,
     n: u32,
+    slot: u8,
     dx: i16,
     dy: i16,
     dz: i16,
@@ -204,6 +236,7 @@ pub unsafe extern "C" fn tv_encode_throw(
                 .collect(),
         };
         let bytes = Command::Throw {
+            slot,
             recipe,
             dir: [dx, dy, dz],
             power,
@@ -213,6 +246,59 @@ pub unsafe extern "C" fn tv_encode_throw(
         match unsafe { bytes_out(out, cap) } {
             Some(buf) => copy_out(&bytes, buf),
             None => TV_ERR_NULL,
+        }
+    })
+}
+
+/// Encodes an input command into `out`: the stick (-127 to 127 each way) and the heading in
+/// thousandths of a radian, of any size, which is wrapped to one turn. Returns bytes written
+/// or a negative error.
+///
+/// # Safety
+/// `out` must be valid for `cap` writes.
+#[no_mangle]
+pub unsafe extern "C" fn tv_encode_input(
+    forward: i8,
+    strafe: i8,
+    yaw_mrad: i32,
+    out: *mut u8,
+    cap: u32,
+) -> i32 {
+    guard(|| {
+        if forward == i8::MIN || strafe == i8::MIN {
+            return TV_ERR_ARG;
+        }
+        let bytes = Command::Input {
+            forward,
+            strafe,
+            yaw_q: yaw_to_q(yaw_mrad as f32 / 1000.0),
+        }
+        .encode();
+        // SAFETY: the caller promises `cap` writable bytes at `out`.
+        match unsafe { bytes_out(out, cap) } {
+            Some(buf) => copy_out(&bytes, buf),
+            None => TV_ERR_NULL,
+        }
+    })
+}
+
+/// Puts `player` in the match at its spawn point, facing the middle of the arena, without
+/// waiting for a command. Joining a player already in the match changes nothing. Returns
+/// `TV_OK`, or `TV_ERR_ARG` for a player index the match has no room for.
+///
+/// # Safety
+/// `world` must be a pointer from `tv_world_new` that has not been freed.
+#[no_mangle]
+pub unsafe extern "C" fn tv_world_join(world: *mut TvWorld, player: u8) -> i32 {
+    guard(|| {
+        // SAFETY: the caller promises `world` is live, see above.
+        let Some(w) = (unsafe { world.as_mut() }) else {
+            return TV_ERR_NULL;
+        };
+        if w.world.join(player) {
+            TV_OK
+        } else {
+            TV_ERR_ARG
         }
     })
 }
@@ -372,6 +458,47 @@ pub unsafe extern "C" fn tv_snapshot_decode(
         // SAFETY: non-null, and the caller promises one writable u32.
         unsafe { *out_tick = snap.tick };
         snap.balloons.len() as i32
+    })
+}
+
+/// Decodes the players of a snapshot into `out`. Returns the player count. If `out_cap` is
+/// smaller than the count, returns `TV_ERR_CAPACITY`.
+///
+/// # Safety
+/// `buf` valid for `len` reads and `out` valid for `out_cap` elements.
+#[no_mangle]
+pub unsafe extern "C" fn tv_snapshot_decode_players(
+    buf: *const u8,
+    len: u32,
+    out: *mut TvPlayerView,
+    out_cap: u32,
+) -> i32 {
+    guard(|| {
+        // SAFETY: the caller promises `len` readable bytes at `buf`.
+        let Some(data) = (unsafe { bytes_in(buf, len) }) else {
+            return TV_ERR_NULL;
+        };
+        if out.is_null() {
+            return TV_ERR_NULL;
+        }
+        let Ok(snap) = Snapshot::decode(data) else {
+            return TV_ERR_DECODE;
+        };
+        if snap.players.len() > out_cap as usize {
+            return TV_ERR_CAPACITY;
+        }
+        // SAFETY: non-null, and the caller promises room for `out_cap` elements.
+        let views = unsafe { std::slice::from_raw_parts_mut(out, out_cap as usize) };
+        for (view, p) in views.iter_mut().zip(&snap.players) {
+            *view = TvPlayerView {
+                id: p.id,
+                flags: p.flags,
+                reserved: 0,
+                pos_mm: p.pos_mm,
+                yaw_mrad: (q_to_yaw(p.yaw_q) * 1000.0).round() as i32,
+            };
+        }
+        snap.players.len() as i32
     })
 }
 

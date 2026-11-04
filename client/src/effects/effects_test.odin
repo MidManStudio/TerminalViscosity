@@ -279,3 +279,68 @@ rumble_only_raises_the_shake :: proc(t: ^testing.T) {
 	rumble(e, 0.004)
 	testing.expect_value(t, e.shake, big)
 }
+
+@(test)
+a_pop_of_scale_one_is_a_plain_pop :: proc(t: ^testing.T) {
+	a, b := fresh(), fresh()
+	defer free(a)
+	defer free(b)
+	pop(a, {1, 1.5, 2}, BLUE, 0.7, 0.2)
+	pop_scaled(b, {1, 1.5, 2}, BLUE, 0.7, 0.2, 1)
+	testing.expect_value(t, a.count, b.count)
+	for i in 0 ..< a.count {
+		testing.expectf(t, a.particles[i] == b.particles[i], "particle %d differs", i)
+	}
+	testing.expect_value(t, a.rings[0], b.rings[0])
+	testing.expect_value(t, a.shake, b.shake)
+	testing.expect(t, a.shake > 0, "a plain pop shakes the view a little")
+}
+
+@(test)
+a_larger_pop_has_larger_drops_mist_ring_and_light_and_flies_further :: proc(t: ^testing.T) {
+	small, big := fresh(), fresh()
+	defer free(small)
+	defer free(big)
+	pop_scaled(small, {0, 1.5, 0}, BLUE, 1, 0, 1)
+	pop_scaled(big, {0, 1.5, 0}, BLUE, 1, 0, 4)
+	testing.expect_value(t, big.count, small.count)
+	for i in 0 ..< small.count {
+		s, b := small.particles[i], big.particles[i]
+		testing.expectf(t, b.size > s.size * 3.9 && b.size < s.size * 4.1, "particle %d is not 4 times as large: %v against %v", i, b.size, s.size)
+		testing.expectf(t, abs(b.vel.x) >= abs(s.vel.x) * 1.9 || abs(s.vel.x) < 0.01, "particle %d is not faster", i)
+		testing.expectf(t, abs(b.grow - s.grow * 4) < 0.0001, "particle %d does not grow 4 times as fast", i)
+		// Each one starts 4 times as far from the burst, in the same direction.
+		so := [3]f32{s.pos.x, s.pos.y - 1.5, s.pos.z}
+		bo := [3]f32{b.pos.x, b.pos.y - 1.5, b.pos.z}
+		testing.expectf(t, abs(bo.x - so.x * 4) < 0.0001 && abs(bo.y - so.y * 4) < 0.0001 && abs(bo.z - so.z * 4) < 0.0001, "particle %d starts at %v, not 4 times %v", i, bo, so)
+	}
+	testing.expect(t, count_of(big, .Mist) > 0 && count_of(big, .Liquid) > 0, "there are drops and mist to compare")
+	testing.expect(t, big.rings[0].radius > small.rings[0].radius * 3.9, "the ring is wider")
+	testing.expect(t, big.light.radius > small.light.radius * 3.9, "the light reaches further")
+}
+
+@(test)
+a_scale_of_nothing_is_a_tenth_and_never_negative :: proc(t: ^testing.T) {
+	one, zero, negative := fresh(), fresh(), fresh()
+	defer free(one)
+	defer free(zero)
+	defer free(negative)
+	pop_scaled(one, {0, 1.5, 0}, BLUE, 1, 0, 1)
+	pop_scaled(zero, {0, 1.5, 0}, BLUE, 1, 0, 0)
+	pop_scaled(negative, {0, 1.5, 0}, BLUE, 1, 0, -3)
+	for i in 0 ..< one.count {
+		testing.expectf(t, zero.particles[i].size > 0 && abs(zero.particles[i].size - one.particles[i].size * 0.1) < 0.00001, "scale 0 gives size %v", zero.particles[i].size)
+		testing.expectf(t, negative.particles[i].size == zero.particles[i].size, "a negative scale is the same as zero")
+	}
+	testing.expect(t, zero.rings[0].radius > 0 && negative.rings[0].radius == zero.rings[0].radius, "the ring is not turned inside out")
+}
+
+@(test)
+a_pop_seen_from_afar_does_not_shake_the_view :: proc(t: ^testing.T) {
+	e := fresh()
+	defer free(e)
+	pop_scaled(e, {0, 1.5, 0}, BLUE, 1, 0, 4)
+	testing.expect_value(t, e.shake, f32(0))
+	pop_scaled(e, {0, 1.5, 0}, BLUE, 1, 0, 1)
+	testing.expect(t, e.shake > 0, "one at scale 1 does")
+}

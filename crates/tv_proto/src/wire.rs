@@ -9,7 +9,7 @@
 //! second, so a balloon costs a fixed 24 bytes in a snapshot.
 
 use crate::codec::{DecodeError, EncodeError, Reader, Writer};
-use crate::{MAX_BALLOONS_PER_SNAPSHOT, MAX_CHAMBERS};
+use crate::{MAX_BALLOONS_PER_SNAPSHOT, MAX_CHAMBERS, MAX_PLAYERS};
 
 /// Index of a connected player.
 pub type PlayerId = u8;
@@ -20,13 +20,29 @@ pub type CompoundId = u16;
 
 const TAG_SNAPSHOT: u8 = 0x01;
 const TAG_CMD_THROW: u8 = 0x10;
+const TAG_CMD_INPUT: u8 = 0x11;
 const TAG_EVT_DETONATE: u8 = 0x20;
 const TAG_EVENT_LIST: u8 = 0x21;
 
 /// Bytes one balloon occupies inside a snapshot.
 pub const BALLOON_STATE_BYTES: usize = 24;
-/// Bytes of snapshot header (tag, tick, count).
-pub const SNAPSHOT_HEADER_BYTES: usize = 6;
+/// Bytes one player occupies inside a snapshot.
+pub const PLAYER_STATE_BYTES: usize = 16;
+/// Bytes of snapshot header (tag, tick, player count, balloon count).
+pub const SNAPSHOT_HEADER_BYTES: usize = 7;
+
+/// Turns a heading in radians into the wire form: a full turn is 65536, so the
+/// resolution is about 0.005 degrees and the value wraps by itself.
+pub fn yaw_to_q(radians: f32) -> u16 {
+    let turns = radians / std::f32::consts::TAU;
+    let wrapped = turns - turns.floor();
+    ((wrapped * 65536.0) as u32 & 0xFFFF) as u16
+}
+
+/// The heading of a wire value, in radians from 0 up to a full turn.
+pub fn q_to_yaw(q: u16) -> f32 {
+    q as f32 / 65536.0 * std::f32::consts::TAU
+}
 
 /// One sealed compartment of a balloon.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,12 +96,25 @@ impl Recipe {
 pub enum Command {
     /// Throw a balloon. The recipe travels with the throw until an inventory design exists.
     Throw {
+        /// Which slot of the thrower's loadout the balloon came from. It comes back in the
+        /// balloon's `flags`, so every client can pick the drawing that goes with it.
+        slot: u8,
         /// Contents of the balloon.
         recipe: Recipe,
         /// Aim direction, not required to be normalized.
         dir: [i16; 3],
         /// 0 to 255, mapped to launch speed by the simulation.
         power: u8,
+    },
+    /// What the player is doing with the walking controls this tick. The simulation moves
+    /// the player, so the client only says where it wants to go and which way it faces.
+    Input {
+        /// Stick forward, from -127 (back) to 127 (forward).
+        forward: i8,
+        /// Stick sideways, from -127 (left) to 127 (right).
+        strafe: i8,
+        /// Heading, see [`yaw_to_q`]. Zero faces -z and a quarter turn faces +x.
+        yaw_q: u16,
     },
 }
 
@@ -94,13 +123,29 @@ impl Command {
     pub fn encode(&self) -> Vec<u8> {
         let mut w = Writer::with_capacity(32);
         match self {
-            Command::Throw { recipe, dir, power } => {
+            Command::Throw {
+                slot,
+                recipe,
+                dir,
+                power,
+            } => {
                 w.u8(TAG_CMD_THROW);
+                w.u8(*slot);
                 recipe.write(&mut w);
                 for d in dir {
                     w.i16(*d);
                 }
                 w.u8(*power);
+            }
+            Command::Input {
+                forward,
+                strafe,
+                yaw_q,
+            } => {
+                w.u8(TAG_CMD_INPUT);
+                w.i8(*forward);
+                w.i8(*strafe);
+                w.u16(*yaw_q);
             }
         }
         w.finish()
@@ -111,11 +156,22 @@ impl Command {
         let mut r = Reader::new(bytes);
         let out = match r.u8()? {
             TAG_CMD_THROW => {
+                let slot = r.u8()?;
                 let recipe = Recipe::read(&mut r)?;
                 let dir = [r.i16()?, r.i16()?, r.i16()?];
                 let power = r.u8()?;
-                Command::Throw { recipe, dir, power }
+                Command::Throw {
+                    slot,
+                    recipe,
+                    dir,
+                    power,
+                }
             }
+            TAG_CMD_INPUT => Command::Input {
+                forward: r.i8()?,
+                strafe: r.i8()?,
+                yaw_q: r.u16()?,
+            },
             t => return Err(DecodeError::BadTag(t)),
         };
         r.finish()?;
@@ -227,6 +283,19 @@ pub struct BalloonState {
     pub pos_mm: [i32; 3],
     /// Velocity in centimetres per second.
     pub vel_cms: [i16; 3],
+    /// The loadout slot the balloon was thrown from.
+    pub flags: u8,
+}
+
+/// One player as the other clients see them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlayerState {
+    /// Player index.
+    pub id: PlayerId,
+    /// Position of the feet in millimetres.
+    pub pos_mm: [i32; 3],
+    /// Heading, see [`yaw_to_q`].
+    pub yaw_q: u16,
     /// Reserved, zero for now.
     pub flags: u8,
 }
@@ -236,6 +305,8 @@ pub struct BalloonState {
 pub struct Snapshot {
     /// Simulation tick this snapshot describes.
     pub tick: u32,
+    /// Players in the match, ordered by id.
+    pub players: Vec<PlayerState>,
     /// Balloons in flight, in creation order.
     pub balloons: Vec<BalloonState>,
 }
@@ -249,12 +320,29 @@ impl Snapshot {
                 max: MAX_BALLOONS_PER_SNAPSHOT,
             });
         }
+        if self.players.len() > MAX_PLAYERS {
+            return Err(EncodeError::TooMany {
+                got: self.players.len(),
+                max: MAX_PLAYERS,
+            });
+        }
         let mut w = Writer::with_capacity(
-            SNAPSHOT_HEADER_BYTES + self.balloons.len() * BALLOON_STATE_BYTES,
+            SNAPSHOT_HEADER_BYTES
+                + self.players.len() * PLAYER_STATE_BYTES
+                + self.balloons.len() * BALLOON_STATE_BYTES,
         );
         w.u8(TAG_SNAPSHOT);
         w.u32(self.tick);
+        w.u8(self.players.len() as u8);
         w.u8(self.balloons.len() as u8);
+        for p in &self.players {
+            w.u8(p.id);
+            for c in p.pos_mm {
+                w.i32(c);
+            }
+            w.u16(p.yaw_q);
+            w.u8(p.flags);
+        }
         for b in &self.balloons {
             w.u16(b.id);
             w.u8(b.owner);
@@ -278,11 +366,27 @@ impl Snapshot {
             t => return Err(DecodeError::BadTag(t)),
         }
         let tick = r.u32()?;
+        let players_n = r.u8()? as usize;
         let n = r.u8()? as usize;
+        if players_n > MAX_PLAYERS {
+            return Err(DecodeError::TooMany {
+                got: players_n,
+                max: MAX_PLAYERS,
+            });
+        }
         if n > MAX_BALLOONS_PER_SNAPSHOT {
             return Err(DecodeError::TooMany {
                 got: n,
                 max: MAX_BALLOONS_PER_SNAPSHOT,
+            });
+        }
+        let mut players = Vec::with_capacity(players_n);
+        for _ in 0..players_n {
+            players.push(PlayerState {
+                id: r.u8()?,
+                pos_mm: [r.i32()?, r.i32()?, r.i32()?],
+                yaw_q: r.u16()?,
+                flags: r.u8()?,
             });
         }
         let mut balloons = Vec::with_capacity(n);
@@ -297,6 +401,10 @@ impl Snapshot {
             });
         }
         r.finish()?;
-        Ok(Self { tick, balloons })
+        Ok(Self {
+            tick,
+            players,
+            balloons,
+        })
     }
 }

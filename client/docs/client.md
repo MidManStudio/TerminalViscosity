@@ -4,7 +4,9 @@
 
 The Odin client: window, input, rendering, scenes, and the crafting-lab prototype. It links the Rust simulation through the C ABI in `tv_ffi`. Raylib comes from the `vendor:raylib` package that ships with the Odin compiler (raylib 6.0 in the release used here).
 
-The game is arranged in scenes, as in Unity. There are two scenes. The lab room is the chemistry lab, walked around in first person: a large open room with long counters along the walls and one in the middle. Glass vessels with colored liquid in them stand on the middle counter, ten with one of each stock liquid and the rest empty, and can be picked up, carried in the player's hands, and poured into each other, which makes the liquids react: the held vessel tips over and its liquid runs out as a stream of drops, simulated, into the vessel under the crosshair. A bottle wall along the east side fills a held vessel from a tap for each stock liquid, when the vessel is within half a metre of the nozzle, and the stream is aimed into the vessel's mouth. Four workstations stand on the counters: a sink with a drain on the west side, a fume hood on the north side that takes most of the force out of a blast inside it, and a balloon fill station on the south side, where a balloon hangs by its neck from a clamp under a funnel and is filled by pouring, with a gauge beside it, until it is overfilled and bursts, and a reaction oven on the north side with four ports that each take one liquid, which mixes them inside the machine when it runs, so a violent mixture gives its product and hurts no one. A speed button sets how fast liquid runs, 1, 2, 4, or 8 times normal, for pours, taps, the spout of the oven, and its run. A hot plate and an ice bath on the north counter heat and cool the liquid in a vessel that stands on them, and heat adds to how violent a mixture is while cold takes some of it away. The balloons the player makes, with their drawings, are saved to a text file when they change and read back when the game starts. A balloon can be tied off at the fill station and carried in the hand, where it swings from its knot. It can be clamped into the paint station, where the balloon wears a drawing that is made on a tablet beside it, or hung on a hook of the loadout rack, which has three hooks and is the set of balloons that goes into a match. Blasts, spatters, and bursting balloons have a look of their own: fire, sparks, smoke, drops, a ring, a flash of light on the room, a knock to the view, and a wobble of the picture. Some reactions are violent enough to hurt the player and break the vessel, and a menu shows every reaction and which are volatile. The player can also jump. The balloon lab is the balloon on its own: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The lab overlay also shows the result of a start-up check of the local database, which reads and writes DixScript through its C library. The balloon editing menu, the arena, networking, and balloon painting are not started.
+The game is arranged in scenes, as in Unity. There are four scenes: the lab room, the balloon lab, the sim test, and the arena. The lab room is the chemistry lab, walked around in first person: a large open room with long counters along the walls and one in the middle. Glass vessels with colored liquid in them stand on the middle counter, ten with one of each stock liquid and the rest empty, and can be picked up, carried in the player's hands, and poured into each other, which makes the liquids react: the held vessel tips over and its liquid runs out as a stream of drops, simulated, into the vessel under the crosshair. A bottle wall along the east side fills a held vessel from a tap for each stock liquid, when the vessel is within half a metre of the nozzle, and the stream is aimed into the vessel's mouth. Four workstations stand on the counters: a sink with a drain on the west side, a fume hood on the north side that takes most of the force out of a blast inside it, and a balloon fill station on the south side, where a balloon hangs by its neck from a clamp under a funnel and is filled by pouring, with a gauge beside it, until it is overfilled and bursts, and a reaction oven on the north side with four ports that each take one liquid, which mixes them inside the machine when it runs, so a violent mixture gives its product and hurts no one. A speed button sets how fast liquid runs, 1, 2, 4, or 8 times normal, for pours, taps, the spout of the oven, and its run. A hot plate and an ice bath on the north counter heat and cool the liquid in a vessel that stands on them, and heat adds to how violent a mixture is while cold takes some of it away. The balloons the player makes, with their drawings, are saved to a text file when they change and read back when the game starts. A balloon can be tied off at the fill station and carried in the hand, where it swings from its knot. It can be clamped into the paint station, where the balloon wears a drawing that is made on a tablet beside it, or hung on a hook of the loadout rack, which has three hooks and is the set of balloons that goes into a match. Blasts, spatters, and bursting balloons have a look of their own: fire, sparks, smoke, drops, a ring, a flash of light on the room, a knock to the view, and a wobble of the picture. Some reactions are violent enough to hurt the player and break the vessel, and a menu shows every reaction and which are volatile. The player can also jump. The balloon lab is the balloon on its own: a 3D water balloon that can be grabbed and dragged. Lifting it by its tied tip makes it hang as a teardrop, and dropping it makes it squash and wobble. The lab overlay also shows the result of a start-up check of the local database, which reads and writes DixScript through its C library. The balloon editing menu, the arena, networking, and balloon painting are not started.
+
+The fourth scene is the arena, a coliseum with sand in the middle and stands round it, walked in first person, with the balloons of the loadout to throw. It is a thin client. The match is in the Rust simulation, which places the player and flies the balloons, and the scene sends the stick, the heading, and the throws, and draws what comes back. A button under the speed button in the lab room goes there, and a button in the top right corner goes back. The three balloons of the loadout are the three slot buttons, a throw is held to charge and let go to throw, and with no balloons made there is a plain water balloon to try it with. Other players are not drawn yet, because the local match has only the one.
 
 Commands, run from the repository root with `cargo` and `odin` on the path:
 
@@ -13,13 +15,14 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - `odin test client/src/lab` runs the lab layout, player, collision, and workstation placement tests.
 - `odin test client/src/chem` runs the compound and reaction matrix tests.
 - `odin test client/src/mpm` runs the liquid simulation tests.
-- `odin test client/src/effects` runs the tests of the look of blasts, spatters, and bursting balloons.
+- `odin test client/src/effects` runs the tests of the look of blasts, spatters, and bursting balloons, near and far.
+- `odin test client/src/arena` runs the tests of the match as data: looking, throwing, the charge, the balloons the loadout offers, drawing between ticks, and the shape of the coliseum.
 - `odin test client/src/carry` runs the tests for picking up, carrying, and dropping vessels, what a vessel holds, mixing and its blasts, health, the vessel and hand shapes, the hand poses, the balloon fill station and its gauge, the sink, the fume hood, the reaction oven, the speed of liquid, the taps, heat, the loadout, the drawings, and the layout of the drawing screen.
 - `odin test client/src/balloon` runs the balloon tests, and `odin test client/src/softbody` runs the older 2D ring tests.
 - `odin test client/src/store` runs the local-database tests. Three of them need a DixScript library and skip themselves without one. `TV_MDIX_FAKE_LIB` points at the stand-in built with `cc -shared -fPIC -o libfake_mdix.so client/src/store/testdata/fake_mdix_ffi.c`, and `TV_MDIX_LIB` points at the real DixScript library.
 - `odin run client/bench -o:speed` runs the soft-body, balloon, and liquid simulation benchmarks.
 - From `build/`, `./tv_client --fixed-step --frames 240 --screenshot lab.png` runs the lab for a fixed number of frames and saves a screenshot. The screenshot path is relative to the working directory. Under a virtual display this works in CI: `xvfb-run -a ./tv_client ...`.
-- `--demo hang` and `--demo swing` script the pointer: after 90 frames the tip is grabbed and lifted, and `swing` then sways it side to side. `--fixed-step` advances the game by exactly 1/60 s per frame, so a given frame count always shows the same picture. `--size 1600x720` opens a window of that size, which is handy for trying a phone's wide screen. `--scene room`, `--scene balloon`, or `--scene bench` picks the scene to start in, and the demos only act in the balloon scene. In the lab room a desktop walks with WASD or the arrow keys and looks by dragging the mouse. A small button in the top right corner switches scenes, a button in the bottom right corner grabs the vessel under the crosshair or lets go of the one held, and a jump button sits above it. A pour button sits left of the grab button: held down it tips the held vessel over to pour into the vessel under the crosshair, and it says mix when there is one close enough, fill under a tap, balloon with the crosshair on the fill station, port 1 to 4 with the crosshair on the oven, and pour otherwise. With the crosshair on the oven and nothing held, the grab button says run and starts a run. At the fill clamp, the paint station, and the hooks of the rack, it ties off and takes, clamps, stores, or takes a balloon, and says which. With a balloon in the hand and nothing to do with it, it says full. With a balloon clamped and the crosshair on the tablet beside the paint station, it says paint, and the drawing screen opens: the tablet is the big rectangle on the left, with the 16 colors in two columns beside it and three brushes, undo, and clear under it, and the balloon is in the clamp on the right, where a drag turns it. A done button at the top right is always there. The speed button under the matrix button goes to the next speed, and V does the same on a desktop. On a desktop E grabs, M held pours, R opens the reaction matrix, and space jumps. A button under the sim test button opens the reaction matrix, a menu with a close button that shows which mixes are volatile. A button under the scene switch opens the liquid sim test.
+- `--demo hang` and `--demo swing` script the pointer: after 90 frames the tip is grabbed and lifted, and `swing` then sways it side to side. `--fixed-step` advances the game by exactly 1/60 s per frame, so a given frame count always shows the same picture. `--size 1600x720` opens a window of that size, which is handy for trying a phone's wide screen. `--scene room`, `--scene balloon`, `--scene bench`, or `--scene arena` picks the scene to start in, and the demos only act in the balloon scene. In the lab room a desktop walks with WASD or the arrow keys and looks by dragging the mouse. A small button in the top right corner switches scenes, a button in the bottom right corner grabs the vessel under the crosshair or lets go of the one held, and a jump button sits above it. A pour button sits left of the grab button: held down it tips the held vessel over to pour into the vessel under the crosshair, and it says mix when there is one close enough, fill under a tap, balloon with the crosshair on the fill station, port 1 to 4 with the crosshair on the oven, and pour otherwise. With the crosshair on the oven and nothing held, the grab button says run and starts a run. At the fill clamp, the paint station, and the hooks of the rack, it ties off and takes, clamps, stores, or takes a balloon, and says which. With a balloon in the hand and nothing to do with it, it says full. With a balloon clamped and the crosshair on the tablet beside the paint station, it says paint, and the drawing screen opens: the tablet is the big rectangle on the left, with the 16 colors in two columns beside it and three brushes, undo, and clear under it, and the balloon is in the clamp on the right, where a drag turns it. A done button at the top right is always there. The speed button under the matrix button goes to the next speed, and V does the same on a desktop. On a desktop E grabs, M held pours, R opens the reaction matrix, and space jumps. A button under the sim test button opens the reaction matrix, a menu with a close button that shows which mixes are volatile. A button under the scene switch opens the liquid sim test.
 
 ## Modules
 
@@ -103,7 +106,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 **Decisions:**
 - A scene allocates its own state in `load` and returns it as a pointer, and the manager only hands it back. That keeps scenes independent of one another.
 - `draw` renders into the shared render target, which the heat shader puts on screen. `draw_ui` draws on the screen afterwards, so text is never distorted.
-- The balloon lab and the lab room each have a button in the top right corner that moves to the other. The sim-test scene is a third scene, opened by a button under the scene switch in the lab room, and its button in the top right corner goes back to the lab room.
+- The balloon lab and the lab room each have a button in the top right corner that moves to the other. The sim-test scene is a third scene, opened by a button under the scene switch in the lab room, and its button in the top right corner goes back to the lab room. The arena is a fourth, opened by the last button in that column, and its button in the top right corner goes back to the lab room too. The lab starts afresh on the way back, as it does from the other scenes, and the loadout is kept.
 - The scene table is a `switch` inside a procedure, not a constant array of procedures, so nothing needs package-level initialization, which does not run on Android.
 
 ### `scene_lab.odin`
@@ -209,7 +212,7 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 **What it does:** The ids and the table agree, and names are unique. Every pair of classes has exactly one rule, and every product is a known compound. The outcome does not depend on the order. Nothing reacts with itself or with nothing. A reaction always makes a real compound. Water thins acids, bases, oxidizers, and dyes. The known recipes make what they should. Only the planned pairs are dangerous, two blasts and two spatters, all around the oxidizer. Damage falls with distance and grows with volatility, and the worst blast at arm's length hurts a lot but does not kill. Heat only raises volatility and cold only lowers it, both stay between 0 and 1, and the ends count for anything beyond them. A calm pair spatters when warm and blasts when hot, and the worst blast is a spatter when fully cold.
 
 ### `effects.odin`
-**What it does:** Package `effects`, the look of a violent reaction as data. It holds the particles of a blast, a spatter, or a burst balloon, the rings that spread from it, the one flash of light it throws on the room, how hard it knocks the view, and how hard it wobbles the picture. It decides nothing about the game and has no raylib dependency, so it is tested without a window. `blast`, `spatter`, and `pop` make an effect, `vent` puffs steam from a vent, `steam` makes a wisp of it, `rumble` gives the view a small steady shake, `step` moves everything on, and `tint`, `opacity`, `ring_state`, `light_intensity`, and `look_shake` give the drawing code what it needs.
+**What it does:** Package `effects`, the look of a violent reaction as data. It holds the particles of a blast, a spatter, or a burst balloon, the rings that spread from it, the one flash of light it throws on the room, how hard it knocks the view, and how hard it wobbles the picture. It decides nothing about the game and has no raylib dependency, so it is tested without a window. `blast`, `spatter`, and `pop` make an effect, `pop_scaled` makes a burst balloon larger for a viewer far away, `vent` puffs steam from a vent, `steam` makes a wisp of it, `rumble` gives the view a small steady shake, `step` moves everything on, and `tint`, `opacity`, `ring_state`, `light_intensity`, and `look_shake` give the drawing code what it needs.
 
 **Decisions:**
 - A blast has five parts: fire that cools from white-yellow through orange to dark red, sparks that fall under gravity, smoke made dark from the colors of the two liquids that met, drops of those two liquids, and a ring. A spatter is drops of the liquid and a little mist, with a faint light and no ring. A burst balloon is drops in the color of its liquid, mist, and a small ring.
@@ -219,13 +222,14 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - Only one light is kept, the strongest of those still going, because the room shaders take one. A weaker light does not replace a stronger one that has not faded.
 - The random numbers come from a small generator with a fixed start, so a given blast looks the same each time and the tests can be exact.
 - Debris is wiped when it falls below the height of what it lands on, which the caller gives as `floor`. Smoke ignores the floor.
+- `pop_scaled` is `pop` with a scale that multiplies the drops, the mist, the ring, the light, and how far from the middle each starts, and the drops fly out at the square root of the scale. At scale 1 it is exactly `pop`. Only a pop of scale 1 or less shakes the view, because one that is larger is one that happens across an arena, and a view that shook for a splash 20 m away would be wrong. A scale of nothing or less is a tenth, so nothing is ever turned inside out.
 - `steam` is a single thin wisp, with no sparks, for a vessel of hot liquid, made a few times a second.
 - `vent` is steam that rises, with now and then a spark, for a machine that is running. It throws no light and has no ring. `rumble` only ever raises the shake, so it cannot make a blast weaker.
 
 **Tests:** `effects_test.odin`.
 
 ### `effects_test.odin`
-**What it does:** A blast makes fire, sparks, smoke, drops, a ring, a light, a knock, and a wobble. A stronger blast is bigger in each of those. A blast in the hood is smaller, dimmer, and softer, but not nothing. Everything ends, and the light, knock, and wobble reach zero. The pool never overflows, and when it is full the particle nearest its end is the one replaced. Liquid falls and is gone at the floor. The same start gives the same blast. A burst balloon is in the color of its liquid. A spatter has no ring and is fainter than the weakest blast. A weaker light does not replace a stronger one until the stronger has faded. Fire cools and fades as it ages. The knock is zero when idle and never more than the shake. A ring spreads and fades. A vent makes steam that rises and throws no light, and a wisp of steam is thin and has no sparks. A rumble only raises the shake.
+**What it does:** A pop of scale 1 is exactly a plain pop. A larger pop has larger drops, mist, ring, and light, that start further out and fly faster, a scale of nothing is a tenth and never negative, and a larger pop does not shake the view. A blast makes fire, sparks, smoke, drops, a ring, a light, a knock, and a wobble. A stronger blast is bigger in each of those. A blast in the hood is smaller, dimmer, and softer, but not nothing. Everything ends, and the light, knock, and wobble reach zero. The pool never overflows, and when it is full the particle nearest its end is the one replaced. Liquid falls and is gone at the floor. The same start gives the same blast. A burst balloon is in the color of its liquid. A spatter has no ring and is fainter than the weakest blast. A weaker light does not replace a stronger one until the stronger has faded. Fire cools and fades as it ages. The knock is zero when idle and never more than the shake. A ring spreads and fades. A vent makes steam that rises and throws no light, and a wisp of steam is thin and has no sparks. A rumble only raises the shake.
 
 ### `carry.odin`
 **What it does:** Package `carry`, the things in the lab room that the player can pick up, in metres. It has no raylib dependency, so it is tested without a window. A `Prop` is a vessel standing on a counter or the floor, holding one compound as an id and an amount in millilitres. Each frame `update` finds the prop under the crosshair, puts the held prop at a hold point in front of the eyes, and lets every other prop fall until it stands on something. `grab` takes the prop under the crosshair when the hands are empty and `release` lets go. `state_of` says whether the hands are idle, reaching, or holding, and that drives the hands, the crosshair, and the grab button. `props_remove` takes a vessel out when it breaks and keeps the held and aimed indices right, `focus` names the vessel the contents label is about, and `far_to_near` orders the props for drawing see-through glass. The view follows the player's eye, so it rises with a jump. While the pour button is down the held vessel tips over, to 137 degrees, and comes back when it is released. `update` aims every frame, even while a vessel is held, so the crosshair can pick the vessel to pour into, and `pour_target` is that vessel when it is within 1.5 m and has room.
@@ -707,14 +711,14 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 **Decisions:** One pair of read and write functions serves both platforms, so no path has to be found in C. DixScript's own file functions are not used, because the Rust library cannot see files inside the APK.
 
 ### `tv_ffi.odin`
-**What it does:** Odin declarations for `tv.h`, with compile-time `#assert`s on struct sizes.
+**What it does:** Odin declarations for `tv.h`, with compile-time `#assert`s on struct sizes. ABI version 2 adds `TvPlayerView`, `tv_world_join`, `tv_encode_input`, `tv_snapshot_decode_players`, `tv_arena_radius_mm`, and the slot in `tv_encode_throw`.
 
 **Decisions:**
 - The library path is the `TV_LIB` config value, so other targets can point at a different build with `-define:TV_LIB=...`.
 - The system libraries listed are the ones `rustc --print native-static-libs` reports for Linux. Other operating systems are not set up yet.
 
 ### `selftest.odin`
-**What it does:** Windowless check. It compares the ABI version and struct sizes with the Rust side, plays one balloon from throw to detonation through the C ABI, decodes the snapshot and event bytes, and steps the soft-body ring. It also drops the 3D balloon, then lifts it by the tip, and checks the volume, the resting position, and the teardrop shape.
+**What it does:** Windowless check. It compares the ABI version and struct sizes with the Rust side, plays one balloon from throw to detonation through the C ABI, decodes the snapshot and event bytes, and steps the soft-body ring. It also drops the 3D balloon, then lifts it by the tip, and checks the volume, the resting position, and the teardrop shape. Last it plays a short match through the local host: the player starts on its spawn point facing the middle, walks at walking speed, keeps the heading it is sent, throws a balloon that carries its slot, compound, and owner and flies at the speed its power gives, and sees it burst once on the sand where it was last seen, with the next balloon getting the next id. Frames that are not whole ticks move the player smoothly, and a client that is another player starts at that player's spawn and owns its balloons.
 
 ### `main.odin`
 **What it does:** Entry point, argument handling, and the frame loop. Each frame it updates the current scene, renders the scene into an off-screen texture, copies that through the heat shader, and then draws the scene's overlay.
@@ -724,7 +728,7 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - Layout comes from the real screen size, so the same code fits a 1280 by 720 desktop window and a phone.
 - The 4x multisampling hint is skipped on Android.
 - A missing `os.args` is handled, because it is empty on Android.
-- The first scene is the lab room, and `--scene` can pick the other.
+- The first scene is the lab room, and `--scene` can pick any of the others.
 - `--fixed-step`, `--demo`, and `--size` exist so headless runs are repeatable and can show a held balloon. They are for CI and screenshots, and the phone never passes them.
 - The database check runs before any scene starts, and its result sits in `Game` for the overlay.
 - The heat-wobble strength starts at 0 and lives in `Game`. The wobble belongs to blasts, so it is off until something asks for it.
@@ -750,6 +754,7 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - `load_lab_shader` loads the room shader the same way as the balloon shader.
 - The scene is copied to the screen with blending off. A translucent balloon leaves an alpha below 1 in the scene texture, and blending that onto black would darken the picture. This holds with and without the heat shader.
 - `load_vessel_shader` pairs the lab vertex shader with `vessel.fs`, so the vessels share the room's way of moving a mesh into the world.
+- `load_arena_shader` pairs the same vertex shader with `arena.fs`, and the coliseum falls back to raylib's default shader if it fails to compile.
 
 ### `heat_distort.fs`
 **What it does:** A small screen-space ripple. There are two versions, `shaders/glsl330/` for desktop and `shaders/glsl100/` for OpenGL ES 2 and the browser.
@@ -757,6 +762,79 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 **Decisions:**
 - The two files are kept in step by hand. Both pass `glslangValidator`, and the desktop one compiled and ran on a software OpenGL context in a headless test.
 - The output alpha is forced to 1. The scene is opaque on screen, and the translucent balloon would otherwise leave a lower alpha in the scene texture.
+
+### `arena.odin`
+**What it does:** Package `arena`, the match as the client sees it, as data. A `Match_View` holds the tick, the players (id, feet position in metres, heading in radians), the balloons in flight (id, owner, slot, compound, position, velocity), and the bursts since the last step. An `Input` is a stick and a heading, and a `Throw` is a slot, what is in it, an aim, and a power. A `Host` is a table of four procedures, submit an input, submit a throw, step by a time, and give the view, which is all a scene may use to talk to a match. `Look` is where the player looks, with the pitch held short of straight up or down, and `look_dir` turns it into a direction, with yaw 0 looking toward -z as in the lab. `dir_wire` scales an aim so its longest side is 1000, the form the wire carries. `charge_step` and `charge_power` turn how long the throw button is held into a power, and `Thrower` runs the button: holding charges, letting go throws at the power reached, a tap is the weakest throw, and a throw has to wait out a short cooldown. `slots_from_loadout` makes the three slots of the arena out of the three hooks of the lab, and `view_blend` and `lerp_angle` draw the players and balloons between two ticks. It has no raylib dependency, so it is tested without a window.
+
+**Decisions:**
+- The owner's words were that the arena only uses the data and does not simulate. So nothing here moves a player or a balloon: positions come from the match and are only placed. The one thing the client keeps is where the player looks, so the view turns the moment a finger moves, and only the heading is sent.
+- The host is a table of procedures, so the first host, which runs the Rust world in this process, can be replaced by a network client without the scene changing, and the tests use a fake that only records what it is told.
+- The simulation ticks at 60 Hz and the frames do not line up with it, so the view is drawn between the last two ticks, which keeps it smooth at any frame rate and costs up to one tick, 17 ms, of delay. A player or balloon that was not in the earlier tick is placed where it is, and headings turn the short way round.
+- The power runs from 60 to 180, which is 6 to 18 m/s, over 1.2 s of holding, with 0.5 s before the next throw can start. These are first guesses to tune by feel. A tap is a gentle lob, and a throw level from 1.5 m up lands about 3 m away at the weakest and 10 m away at the strongest.
+- Slot 0, 1, and 2 are hook 0, 1, and 2. A slot with no balloon cannot be chosen, and the throw button says so. With no balloon on any hook, the first slot is a plain water balloon of 500 ml, marked as practice, so the arena can be tried before anything is made. That was not asked for, and is an assumption.
+- A throw does not use up the balloon. Nothing says how many a player has in a match, so it stays in the slot, and the hand shows it again when the cooldown is over.
+- The fill is rounded to whole millilitres and kept between 1 and what a balloon holds, because the wire carries whole millilitres and the simulation refuses a recipe of nothing.
+
+**Tests:** `arena_test.odin`.
+
+### `arena_test.odin`
+**What it does:** Looking follows the lab's headings, and the pitch stops short of straight up and down. The direction on the wire keeps its heading and is scaled to 1000. A throw charges over the set time and stops at full, and the power runs from the weakest to the strongest and never falls as the charge grows. Slots follow the hooks one for one, the fill is rounded and kept inside what a balloon holds, and an empty loadout offers one practice balloon while any other loadout gets none. The thrower starts on the first balloon it has, only a slot with a balloon can be chosen, and choosing another drops a throw in progress. Holding charges and letting go throws at the power reached, a full charge is the strongest however long it is held, a tap is a weak throw and not no throw, the cooldown has to be waited out and shows before the button is pressed, nothing is thrown from an empty slot or without a press, and a balloon that goes while it is being charged is not thrown. Players are found by id and the eye is above the feet. A host is driven only through its table. Headings turn the short way round, drawing between ticks lies between them with the ends where they should be and the alpha kept inside 0 to 1, things that are new appear where they are, things that are gone do not, and balloons are matched by id and not by place in the list.
+
+### `coliseum.odin`
+**What it does:** The shape of the coliseum, as a list of boxes that may be turned about the vertical axis, built by `coliseum_build`. The sand is one slab with two rings drawn on it, 2 cm up. The podium wall stands where the floor of 20 m radius ends, 2.4 m high. Five tiers of seats rise outward from it, each 1.8 m deep and 1 m higher than the one before, in 72 boxes a ring, with a stair every ninth box, a little lower and darker, so the seats read as blocks. An outer wall 12 m high stands behind them with a ledge on top, dark openings and columns along its inside, and a banner over each of four gates, red and blue in turn. The four gates are in the podium wall at the compass points, a door between two pillars under a lintel. It comes to about 800 boxes. `piece_distance` measures from the middle of the arena to the nearest point of a box, `piece_corner` and `radial_yaw` spell out the turn, and `ring_chord` is how wide a box in a ring has to be to meet its neighbours.
+
+**Decisions:**
+- Boxes that can be turned are enough for a round building. A ring of 72 boxes, each 6 percent wider than the gap it covers, has no cracks and no visible corners at the distances it is seen from.
+- Nothing of the building stands inside the 20 m of the floor, except the gates, which stand 8 cm out of the wall. The simulation stops players 0.3 m from the wall, so a door that far out is only a lump in the corner of the eye, and there is no collision in the client at all. The tests check this for every box.
+- The numbers are the radius of the arena, which the simulation owns, and a few sizes chosen by eye. The building has not been seen, only built and measured.
+- A mesh with 16-bit indices holds 2730 boxes, and the coliseum stops at 1200 so there is room to grow.
+
+**Tests:** `coliseum_test.odin`.
+
+### `coliseum_test.odin`
+**What it does:** The coliseum is hundreds of boxes and stays under the limit of its mesh. Every box has volume and is opaque. Nothing tall stands on the sand, and what lies on it lies flat and inside the arena. The distance to a turned box is measured along its own axes, ring boxes meet their neighbours, are on the ring, and face outward, and the corners of a turned box are a rectangle of the right size round its middle. The tiers rise as they go out, there are stairs in every tier, four gates stand at the compass points, the whole building is within about 31 m of the middle, and building twice gives the same coliseum.
+
+### `host_local.odin`
+**What it does:** The match host that runs the Rust world in this process through the C ABI. `local_host_new` makes a world and puts the player in it. The input is sent again every tick, because the simulation stops a player whose client goes quiet. Each step runs as many ticks as the frame time holds, up to eight, reads the snapshot back through the Rust decoders, collects what burst, and gives out the players and balloons between the last two ticks. A throw is encoded by the Rust library with one chamber, the compound and amount of the slot.
+
+**Decisions:**
+- Everything the scene knows comes back through the wire format, the same bytes a network client would get, so what is seen here is what a server would show. No position, heading, or velocity is read from the simulation's own structures.
+- The player joins by `tv_world_join` before the first frame, so the scene can read where it starts and face the middle. If it joined by sending an input, the heading in the input would replace the spawn heading before the scene could see it.
+- Only eight ticks are run for one frame, so a slow frame cannot make the next one slower still.
+- The simulation's volatility is a placeholder zero until the compound database is shared, so every burst is a plain splash and the field is read, passed on, and never seen to be anything else. The self-test cannot check it for that reason.
+
+### `arena_view.odin`
+**What it does:** The coliseum mesh and the balloons. `arena_mesh_init` builds the mesh the way the lab's is built, a colour for each vertex, from boxes that may be turned, into a `Lab_Mesh`, so it is drawn and freed with the lab's own procedures. `Arena_View` holds a balloon body for the hand, one for each slot to draw its balloons in flight, and a plain one for everybody else's. Only the one in the hand is simulated, and swings from the hand as the lab's does. The others are posed once, hanging, and drawn wherever the match says a balloon is. The player's own balloons wear the drawing of the slot they came from, and the picture goes slowly round them as they fly.
+
+**Decisions:**
+- A balloon in flight is drawn three times life size. At life size it is 15 cm across and a speck across 20 m of sand.
+- The balloons in flight have no soft body of their own, so any number cost the same as one: a mesh drawn again with another matrix. A balloon is posed again only when its slot changes.
+- The balloon in the hand is hidden while the throw is cooling down, which is how the player sees that the balloon has left.
+- The balloon of another player is drawn plain, at 500 ml, because the snapshot does not say how full it is or what drawing it wears. Drawings are meant to travel once, when a player joins, and that is not built.
+
+### `arena_ui.odin`
+**What it does:** The overlay of the arena. The throw button sits where the grab button does in the lab, a row of three slot squares sits just left of it, and the arena button of the lab sits under the speed button. A slot square shows the colour of what is in it, its number, and its amount, is outlined brighter when chosen, and is dim and says empty when it has no balloon. The throw button says throw, release while charging, wait during the cooldown, or no balloon, is bright when it would throw and dim when it would not, and a bar over it fills as the throw charges. A small cross marks the middle of the screen.
+
+**Decisions:**
+- A button shows whether it can be used before it is pressed, as the other buttons do.
+- Text is formatted into buffers the caller owns, and not into the temporary allocator, so a frame costs no allocation.
+
+### `scene_arena.odin`
+**What it does:** The arena scene. On load it builds the coliseum, starts the local match, takes the three slots from the loadout, and faces the player toward the middle. Each frame it reads the pointers, chooses a slot from a slot square or the keys 1, 2, and 3, turns the look by the drag, and sends the stick and the heading to the match. It runs the throw button and sends a throw where the player looks when the button is let go, steps the match, and shows each burst as a splash four times the size of a lab pop, or as a blast and a flash of the screen if the simulation ever says the burst was violent. The camera is at the eye of the player as the match places it, with the view knocked by a blast. The coliseum is drawn first, then the balloon in the hand and the balloons in flight, then the effects. A desktop walks with WASD or the arrows, drags the mouse to look, holds space and lets go to throw, and chooses with 1, 2, and 3. A phone walks with the left thumb and looks with the right.
+
+**Decisions:**
+- The scene does not move anything. It sends and draws. The player's look is the one thing it keeps.
+- The clip planes are 0.08 to 70 as in the lab. The outer wall is 31 m from the middle, so from the far side of the sand it is about 51 m away, and fits.
+- The balloons are the loadout, hook for hook. Nothing here changes the loadout, so nothing is saved on leaving.
+- A throw does not use the balloon up, and the practice balloon is a guess, see `arena.odin`.
+
+### `arena.fs`
+**What it does:** The fragment shader of the coliseum. There are two versions, `shaders/glsl330/` for desktop and `shaders/glsl100/` for OpenGL ES 2 and the browser, and both use the lab's vertex shader. It is the lab's shading, a ground and sky ambient term, a key light, full brightness for anything emissive, a sheen on glossy surfaces, and the light of a blast, in a sunlit setting: the ambient is warmer from below, the key light is stronger and from a lower angle, and the haze is the colour of the sky and starts at 45 m instead of 10.
+
+**Decisions:**
+- It is a copy of the lab shader with changed numbers, and not a new uniform on the lab shader, so no scene of the lab can change by it. The lab's haze would have put the far stands in fog.
+- The sky colour is the colour the screen is cleared to, so the far wall fades into it. It is `ARENA_SKY` in `scene_arena.odin`, as 8-bit values.
+- The two versions are kept in step by hand, and both pass `glslangValidator`.
 
 ## CI and Workflows
 
@@ -799,6 +877,7 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - Raylib's `TakeScreenshot` prepends the working directory to the path it is given, so absolute paths fail. The flag documentation says the path is relative to the working directory.
 
 ### `tv_ffi.odin`
+- ABI version 2 changed the throw encoder, so the selftest and the local host were updated together with the header, and the header test in `ffi_tests.rs` checks every exported function is declared.
 - Odin rejects an absolute path in a foreign import ("Invalid import path"), so the Android build passes `TV_LIB` as a path relative to `client/src`.
 
 ### `android_entry.odin`
@@ -892,6 +971,7 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - Tapping the button in the balloon scene loaded the lab room and then immediately returned to the balloon scene. The finger was still down when the room started, the room's controls had not seen it before, and it sat on the same corner where the room draws its own button, so it counted as a new press. The controls now start knowing which fingers are already down.
 
 ### `scene_room.odin`
+- The arena button is the eighth button of the lab, and a press of it is index 7. Only the button list and the handler changed.
 - A first check that forced blasts, oven runs, and balloons into the scene put the forcing in the loading code and not the update, because the two have the same lines, so it never ran those paths. It was redone in the update, with a control run that had no drawing and no blasts: that had no red pixels on the screen where the run with the drawing had tens of thousands.
 - The carrying, hands, crosshair, and grab button were written and compile for desktop and Android, but have not been seen running on a phone yet.
 - The effects, the fill station, the hood, and the sink compile for desktop and for Android with `-o:minimal` and `-o:size`, and the ABI check passes, but none of it has been seen running on a phone.
@@ -921,7 +1001,7 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - raylib's `SaveFileText` takes its text as a pointer to bytes and not as a C string, which the Odin binding spells `[^]byte`. A cast is needed, and the text it is given must end in a zero byte.
 
 ### `selftest.odin`
-- None recorded yet.
+- The first match through the local host passed checks that deliberate changes then showed were weak: a speed ten times too large still passed a test that asked only for the balloon to be going the right way, and only player 0 was ever played, so a wrong owner or spawn heading was invisible. The checks are tighter and a second match is played as player 3.
 
 ### `softbody_bench.odin`
 - None recorded yet.
@@ -932,6 +1012,7 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 
 ### `effects.odin`
 - None recorded yet. The size, count, and timing of every part are first guesses. Nothing has been seen on a phone.
+- A pop at the size of the lab is a few centimetres across, and from 20 m away in the arena it was too small to see. `pop_scaled` was added, and the first checks of it with deliberate changes found that the growth of the mist and the distance the drops start from were not tested, so the tests now check each part.
 
 ### `effects_test.odin`
 - The first test of the full pool could not tell the particle nearest its end from any other. Changing the code to replace a fixed one, and then to replace the youngest, still passed. The test now marks one particle nearest its end and one young one, and checks which is replaced.
@@ -1021,3 +1102,38 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 ### `loadout_file.odin`
 - None recorded yet. Not tried on the phone, where the file is in the private storage of the game. Writing a file of a few hundred kilobytes at the worst, with five drawings, has not been timed on the old phone.
 
+### `arena.odin`
+- The first test of the throw button could not tell a release of an empty slot from a release of a full one: changing the check to always throw still passed, because the slot never changed while charging. A test now takes the balloon away mid-charge and checks nothing is thrown and no cooldown starts.
+- A check with deliberate changes, 36 of them, found one more weak spot: a charge let go after the balloon had gone from its slot still threw, and no test noticed. The test above covers it. A change to the power range first did not compile because it left a variable unused, and a change that does not compile is not a result, so it was made again.
+- Nothing here has been tried on a phone: how long 1.2 s of holding feels, whether 0.5 s between throws is too slow, and whether 6 to 18 m/s is the right range are all first guesses.
+
+### `arena_test.odin`
+- None recorded yet.
+
+### `coliseum.odin`
+- The first door and pillars stood 0.03 m inside the line of the arena wall, and the test that nothing stands on the sand failed. They now stand 0.08 m out, a limit the test knows about, and a door flush with the wall would have drawn the same face twice. The look of the building has not been seen, only measured.
+
+### `coliseum_test.odin`
+- Two of the first tests were wrong and not the code. One asked for every box to be above the floor when the slab of sand has its top at the floor, and one expected two turns of a box to give different distances when they happen to give the same one. Both were rewritten with answers worked out by hand.
+- A check with deliberate changes found that the size of the ledge could change from half a metre of depth to three without a test failing, because the test only asked for the building to be under 33 m. It now asks for between 31.0 and 31.2 m.
+
+### `host_local.odin`
+- The first self-test checked that the player stands on the spawn point with an exact comparison of floats, which failed on the last digit after converting millimetres to metres. It compares within a millimetre now.
+- A check of a heading sent to the match failed the first time because the view is drawn between the last two ticks, so it is one tick behind the world. The test steps one more tick, and the delay is written in `arena.odin`.
+- A check with deliberate changes found that seven of the conversions were not seen by the first self-test: the owner, the speed, the heading both ways, the power, and the balloon and place of a burst. The test now starts a second match as another player, fires two balloons, and compares the speed and the place a balloon burst against where it was last seen. The volatility of a burst is still not checked, because the simulation says zero for everything until the compound database is shared.
+
+### `arena_view.odin`
+- A pixel check of the drawing of the arena counted the colours that differ between a run and a control. The balloon in the hand differed from nothing by about 13000 pixels, the balloon in flight by about 4800 when near and a hundred when across the sand, and nothing differed before the balloon was thrown. With a saturated drawing on slot 0, the purple pixels were 7700 on the balloon in the hand and a further 2300 on the one in flight, and none without the drawing.
+- The look of the balloons, how large three times life size is on a phone, and the cost of five soft bodies in this scene have not been seen or timed on a phone.
+
+### `arena_ui.odin`
+- The first slot square formatted its number and amount with `ctprintf`, which allocates from the temporary allocator, and the client avoids allocating each frame on Android. They are formatted into buffers on the stack.
+- The layout of the three squares beside the throw button was worked out and not tried with a thumb.
+
+### `scene_arena.odin`
+- The first headless run of the scene only showed that it starts. A check was written that throws one balloon at a frame it picks, in the update and not in the loading code, with a control that draws the same frame without the balloons, the hand, and the effects: the burst at about 19 m from the player was 18 pixels when drawn as a lab pop, and from about 190 to over 1300 pixels when drawn at four times the size. That is why `pop_scaled` exists.
+- A balloon that bursts is seen. Whether it is seen well enough on a phone, how the coliseum looks, whether the controls feel right, and the frame rate have not been checked on a phone.
+- The view is drawn a tick behind the world, 17 ms. How that feels on a phone is not known.
+
+### `arena.fs`
+- None recorded yet. Both versions pass `glslangValidator` and the desktop one compiled and ran on a software OpenGL context in a headless test, and neither has been seen on a device.

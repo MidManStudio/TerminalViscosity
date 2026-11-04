@@ -5,12 +5,22 @@
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use tv_proto::art::{ArtCanvas, ART_H, ART_W};
-use tv_proto::wire::{decode_events, encode_events, BalloonState, Command, Event, Snapshot};
-use tv_proto::{Chamber, Recipe, MAX_BALLOONS_PER_SNAPSHOT};
+use tv_proto::wire::{
+    decode_events, encode_events, BalloonState, Command, Event, PlayerState, Snapshot,
+};
+use tv_proto::{Chamber, Recipe, MAX_BALLOONS_PER_SNAPSHOT, MAX_PLAYERS};
 
 fn full_snapshot() -> Snapshot {
     Snapshot {
         tick: 1,
+        players: (0..MAX_PLAYERS as u8)
+            .map(|i| PlayerState {
+                id: i,
+                pos_mm: [i as i32 * 1500, 0, -9000],
+                yaw_q: i as u16 * 8192,
+                flags: 0,
+            })
+            .collect(),
         balloons: (0..MAX_BALLOONS_PER_SNAPSHOT as u16)
             .map(|i| BalloonState {
                 id: i,
@@ -39,7 +49,7 @@ fn noisy_canvas() -> ArtCanvas {
 fn snapshot(c: &mut Criterion) {
     let snap = full_snapshot();
     let bytes = snap.encode().unwrap();
-    let mut g = c.benchmark_group("snapshot_48_balloons");
+    let mut g = c.benchmark_group("snapshot_full");
     g.throughput(Throughput::Bytes(bytes.len() as u64));
     g.bench_function("encode", |b| b.iter(|| black_box(&snap).encode().unwrap()));
     g.bench_function("decode", |b| b.iter(|| Snapshot::decode(black_box(&bytes)).unwrap()));
@@ -48,6 +58,7 @@ fn snapshot(c: &mut Criterion) {
 
 fn command(c: &mut Criterion) {
     let cmd = Command::Throw {
+        slot: 1,
         recipe: Recipe {
             chambers: vec![Chamber { compound: 3, volume_ml: 120 }; 4],
         },
@@ -65,7 +76,7 @@ fn events(c: &mut Criterion) {
     let e = Event::Detonate { balloon: 1, compound: 2, volatility_q: 200, pos_mm: [1, 0, 2], radius_mm: 900 };
     let list = vec![e; MAX_BALLOONS_PER_SNAPSHOT];
     let bytes = encode_events(&list).unwrap();
-    let mut g = c.benchmark_group("events_48");
+    let mut g = c.benchmark_group("events_40");
     g.throughput(Throughput::Bytes(bytes.len() as u64));
     g.bench_function("encode", |b| b.iter(|| encode_events(black_box(&list)).unwrap()));
     g.bench_function("decode", |b| b.iter(|| decode_events(black_box(&bytes)).unwrap()));

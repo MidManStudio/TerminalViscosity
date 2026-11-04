@@ -25,6 +25,7 @@ fn encode_lob(power: u8) -> Vec<u8> {
         tv_encode_throw(
             chambers.as_ptr(),
             2,
+            1,
             0,
             1000,
             0,
@@ -55,6 +56,7 @@ fn full_cycle_through_the_c_abi() {
     assert!(n > 0);
 
     let mut views = [TvBalloonView::default(); 48];
+    let mut people = [TvPlayerView::default(); 8];
     let mut tick = 0u32;
     // SAFETY: `snap` holds `n` valid bytes, `views` has 48 slots, `tick` is writable.
     let count =
@@ -62,7 +64,16 @@ fn full_cycle_through_the_c_abi() {
     assert_eq!(count, 1);
     assert_eq!(tick, 1);
     assert_eq!(views[0].owner, 1);
+    assert_eq!(
+        views[0].flags, 1,
+        "the slot of the throw comes back in flags"
+    );
     assert!(views[0].vel_cms[1] > 900);
+    // SAFETY: `snap` holds `n` valid bytes and `people` has 8 slots.
+    let players =
+        unsafe { tv_snapshot_decode_players(snap.as_ptr(), n as u32, people.as_mut_ptr(), 8) };
+    assert_eq!(players, 1);
+    assert_eq!(people[0].id, 1);
 
     // Run until the balloon lands, then read the detonation.
     let mut events = 0;
@@ -82,6 +93,148 @@ fn full_cycle_through_the_c_abi() {
     assert_eq!(dets[0].pos_mm[1], 0);
     // SAFETY: `w` was created above and is freed exactly once.
     unsafe { tv_world_free(w) };
+}
+
+fn encode_walk(forward: i8, strafe: i8, yaw_mrad: i32) -> Vec<u8> {
+    let mut buf = vec![0u8; 16];
+    // SAFETY: `buf` has 16 writable bytes.
+    let n = unsafe { tv_encode_input(forward, strafe, yaw_mrad, buf.as_mut_ptr(), 16) };
+    assert!(n > 0, "encode failed: {n}");
+    buf.truncate(n as usize);
+    buf
+}
+
+fn players_of(w: *mut TvWorld) -> Vec<TvPlayerView> {
+    let mut snap = vec![0u8; 1200];
+    let mut views = [TvPlayerView::default(); 8];
+    // SAFETY: `w` is live, `snap` has 1200 writable bytes and `views` has 8 slots.
+    unsafe {
+        let n = tv_world_snapshot(w, snap.as_mut_ptr(), 1200);
+        assert!(n > 0);
+        let count = tv_snapshot_decode_players(snap.as_ptr(), n as u32, views.as_mut_ptr(), 8);
+        assert!(count >= 0, "decode failed: {count}");
+        views[..count as usize].to_vec()
+    }
+}
+
+#[test]
+fn walking_through_the_c_abi_moves_the_decoded_player() {
+    let w = tv_world_new(1);
+    // A quarter turn (1571 mrad) faces +x; player 0 starts at x = 0, z = 14 m.
+    let cmd = encode_walk(127, 0, 1571);
+    for _ in 0..60 {
+        // SAFETY: `w` is live and `cmd` is a valid slice for its length.
+        unsafe {
+            assert_eq!(tv_world_submit(w, 0, cmd.as_ptr(), cmd.len() as u32), TV_OK);
+            tv_world_step(w);
+        }
+    }
+    let p = players_of(w)[0];
+    assert!((p.pos_mm[0] - 3200).abs() < 40, "x = {}", p.pos_mm[0]);
+    assert!((p.pos_mm[2] - 14_000).abs() < 40, "z = {}", p.pos_mm[2]);
+    assert!((p.yaw_mrad - 1571).abs() <= 1, "yaw = {}", p.yaw_mrad);
+    // SAFETY: `w` was created above and is freed exactly once.
+    unsafe { tv_world_free(w) };
+}
+
+#[test]
+fn headings_wrap_and_negative_ones_come_back_positive() {
+    let w = tv_world_new(1);
+    let cmd = encode_walk(0, 0, -1571); // a quarter turn to the left
+                                        // SAFETY: `w` is live and `cmd` is a valid slice for its length.
+    unsafe {
+        assert_eq!(tv_world_submit(w, 0, cmd.as_ptr(), cmd.len() as u32), TV_OK);
+        tv_world_step(w);
+    }
+    let yaw = players_of(w)[0].yaw_mrad;
+    assert!((yaw - 4712).abs() <= 2, "yaw = {yaw}, wanted 3/4 of a turn");
+    let cmd = encode_walk(0, 0, 6283 + 500); // a full turn and a bit
+                                             // SAFETY: as above.
+    unsafe {
+        assert_eq!(tv_world_submit(w, 0, cmd.as_ptr(), cmd.len() as u32), TV_OK);
+        tv_world_step(w);
+    }
+    let yaw = players_of(w)[0].yaw_mrad;
+    assert!(
+        (yaw - 500).abs() <= 3,
+        "yaw = {yaw}, wanted 500 after a full turn"
+    );
+    // SAFETY: `w` was created above and is freed exactly once.
+    unsafe { tv_world_free(w) };
+}
+
+#[test]
+fn decoding_players_needs_room_and_a_valid_snapshot() {
+    let w = tv_world_new(1);
+    let cmd = encode_walk(0, 0, 0);
+    let mut views = [TvPlayerView::default(); 1];
+    let mut snap = vec![0u8; 1200];
+    // SAFETY: `w` is live; each buffer is as large as the size passed with it.
+    unsafe {
+        for id in 0..2u8 {
+            assert_eq!(
+                tv_world_submit(w, id, cmd.as_ptr(), cmd.len() as u32),
+                TV_OK
+            );
+        }
+        tv_world_step(w);
+        let n = tv_world_snapshot(w, snap.as_mut_ptr(), 1200);
+        assert_eq!(
+            tv_snapshot_decode_players(snap.as_ptr(), n as u32, views.as_mut_ptr(), 1),
+            TV_ERR_CAPACITY
+        );
+        assert_eq!(
+            tv_snapshot_decode_players(snap.as_ptr(), 3, views.as_mut_ptr(), 1),
+            TV_ERR_DECODE
+        );
+        assert_eq!(
+            tv_snapshot_decode_players(std::ptr::null(), 0, views.as_mut_ptr(), 1),
+            TV_ERR_NULL
+        );
+        assert_eq!(
+            tv_encode_input(1, 1, 0, std::ptr::null_mut(), 8),
+            TV_ERR_NULL
+        );
+        let mut tiny = [0u8; 2];
+        assert_eq!(
+            tv_encode_input(1, 1, 0, tiny.as_mut_ptr(), 2),
+            TV_ERR_CAPACITY
+        );
+        assert_eq!(
+            tv_encode_input(-128, 0, 0, tiny.as_mut_ptr(), 2),
+            TV_ERR_ARG
+        );
+        tv_world_free(w);
+    }
+}
+
+#[test]
+fn joining_through_the_c_abi_spawns_the_player_facing_the_middle() {
+    let w = tv_world_new(1);
+    // SAFETY: `w` is live until freed below, and null is handled.
+    unsafe {
+        assert_eq!(tv_world_join(w, 2), TV_OK);
+        assert_eq!(tv_world_join(w, 2), TV_OK);
+        assert_eq!(tv_world_join(w, 8), TV_ERR_ARG);
+        assert_eq!(tv_world_join(std::ptr::null_mut(), 0), TV_ERR_NULL);
+    }
+    let people = players_of(w);
+    assert_eq!(people.len(), 1);
+    assert_eq!(people[0].id, 2);
+    assert_eq!(people[0].pos_mm, [14_000, 0, 0]);
+    // A quarter of a turn to the left of -z faces -x, which is three quarters of a turn.
+    assert!(
+        (people[0].yaw_mrad - 4712).abs() <= 2,
+        "yaw = {}",
+        people[0].yaw_mrad
+    );
+    // SAFETY: `w` was created above and is freed exactly once.
+    unsafe { tv_world_free(w) };
+}
+
+#[test]
+fn the_client_can_ask_how_big_the_arena_is() {
+    assert_eq!(tv_arena_radius_mm(), 20_000);
 }
 
 #[test]
@@ -123,12 +276,12 @@ fn null_pointers_and_bad_input_return_errors() {
         let mut tiny = [0u8; 2];
         assert_eq!(tv_world_snapshot(w, tiny.as_mut_ptr(), 2), TV_ERR_CAPACITY);
         assert_eq!(
-            tv_encode_throw(std::ptr::null(), 1, 0, 1, 0, 1, tiny.as_mut_ptr(), 2),
+            tv_encode_throw(std::ptr::null(), 1, 0, 0, 1, 0, 1, tiny.as_mut_ptr(), 2),
             TV_ERR_NULL
         );
         let ch = [TvChamber::default(); 5];
         assert_eq!(
-            tv_encode_throw(ch.as_ptr(), 5, 0, 1, 0, 1, tiny.as_mut_ptr(), 2),
+            tv_encode_throw(ch.as_ptr(), 5, 0, 0, 1, 0, 1, tiny.as_mut_ptr(), 2),
             TV_ERR_ARG
         );
         tv_world_free(w);
@@ -166,6 +319,10 @@ fn header_matches_rust_side() {
         header_define(header, "TV_DETONATE_VIEW_SIZE"),
         tv_sizeof_detonate_view()
     );
+    assert_eq!(
+        header_define(header, "TV_PLAYER_VIEW_SIZE"),
+        tv_sizeof_player_view()
+    );
     assert_eq!(header_define(header, "TV_OK") as i32, TV_OK);
     for (name, value) in [
         ("TV_ERR_NULL", TV_ERR_NULL),
@@ -199,7 +356,7 @@ fn header_matches_rust_side() {
         })
         .collect();
     assert!(
-        exported.len() >= 14,
+        exported.len() >= 19,
         "found only {} exports",
         exported.len()
     );

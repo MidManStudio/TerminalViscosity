@@ -44,29 +44,43 @@ pub fn random_recipe(rng: &mut SplitMix64, compounds: u16) -> Recipe {
     }
 }
 
-/// Commands for one tick: every fifth tick a random player throws a random balloon.
+/// Commands for one tick: every third tick a random player sends a random stick and
+/// heading, and every fifth tick a random player throws a random balloon.
 pub fn scripted_commands(
     rng: &mut SplitMix64,
     tick: u32,
     players: u8,
     compounds: u16,
 ) -> Vec<(PlayerId, Command)> {
-    if tick % 5 != 0 {
-        return Vec::new();
+    let mut out = Vec::new();
+    if tick % 3 == 0 {
+        let player = rng.below(players.max(1) as u32) as PlayerId;
+        out.push((
+            player,
+            Command::Input {
+                forward: (rng.below(255) as i32 - 127) as i8,
+                strafe: (rng.below(255) as i32 - 127) as i8,
+                yaw_q: rng.below(65536) as u16,
+            },
+        ));
     }
-    let player = rng.below(players.max(1) as u32) as PlayerId;
-    let dir = [
-        rng.below(2001) as i16 - 1000,
-        200 + rng.below(800) as i16,
-        rng.below(2001) as i16 - 1000,
-    ];
-    let power = 50 + rng.below(150) as u8;
-    vec![(
-        player,
-        Command::Throw {
-            recipe: random_recipe(rng, compounds),
-            dir,
-            power,
-        },
-    )]
+    if tick % 5 == 0 {
+        let player = rng.below(players.max(1) as u32) as PlayerId;
+        let dir = [
+            rng.below(2001) as i16 - 1000,
+            200 + rng.below(800) as i16,
+            rng.below(2001) as i16 - 1000,
+        ];
+        let power = 50 + rng.below(150) as u8;
+        out.push((
+            player,
+            Command::Throw {
+                slot: rng.below(3) as u8,
+                recipe: random_recipe(rng, compounds),
+                dir,
+                power,
+            },
+        ));
+    }
+    out
 }

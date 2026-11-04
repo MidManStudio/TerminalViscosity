@@ -345,7 +345,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 		return
 	}
 
-	buttons := [7][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h), bench_button(w, h), pour_button(w, h), matrix_button(w, h), speed_button(w, h)}
+	buttons := [8][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h), bench_button(w, h), pour_button(w, h), matrix_button(w, h), speed_button(w, h), arena_button(w, h)}
 	controls_update(&room.controls, &pointers, w, h, buttons[:])
 	if room.controls.pressed == 0 {
 		game_switch(game, .Balloon_Lab)
@@ -353,6 +353,10 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	}
 	if room.controls.pressed == 3 {
 		game_switch(game, .Sim_Bench)
+		return
+	}
+	if room.controls.pressed == 7 {
+		game_switch(game, .Arena)
 		return
 	}
 	grab_pressed := room.controls.pressed == 1
@@ -622,6 +626,7 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 	draw_bench_button(w, h)
 	draw_matrix_button(w, h)
 	draw_speed_button(w, h, carry.flow_speed(&room.props))
+	draw_arena_button(w, h)
 	controls_draw(&room.controls, w, h)
 	if room.menu_open {
 		draw_matrix_menu(w, h)

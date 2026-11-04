@@ -74,6 +74,8 @@ main :: proc() {
 					opts.scene = .Balloon_Lab
 				case "bench":
 					opts.scene = .Sim_Bench
+				case "arena":
+					opts.scene = .Arena
 				}
 			}
 		case "--demo":

@@ -54,6 +54,11 @@ impl Writer {
         self.buf.push(v);
     }
 
+    /// Writes one signed byte.
+    pub fn i8(&mut self, v: i8) {
+        self.buf.push(v as u8);
+    }
+
     /// Writes a little-endian `u16`.
     pub fn u16(&mut self, v: u16) {
         self.buf.extend_from_slice(&v.to_le_bytes());
@@ -115,6 +120,11 @@ impl<'a> Reader<'a> {
     /// Reads one byte.
     pub fn u8(&mut self) -> Result<u8, DecodeError> {
         Ok(self.take(1)?[0])
+    }
+
+    /// Reads one signed byte.
+    pub fn i8(&mut self) -> Result<i8, DecodeError> {
+        Ok(self.take(1)?[0] as i8)
     }
 
     /// Reads a little-endian `u16`.

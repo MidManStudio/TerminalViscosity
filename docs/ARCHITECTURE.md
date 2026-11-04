@@ -20,6 +20,8 @@ Multiplayer-first here means the simulation boundary is shaped like a network pr
 
 The client does not sync soft-body vertices. It receives high-level balloon state and runs the jiggle itself. Detonations arrive as one event each.
 
+Players walk in the simulation as well. The client sends a stick and a heading, never a position, and every snapshot carries the place and heading of every player. The arena scene of the client is a thin client over this: it draws what the match says and simulates nothing. The only match host so far runs the Rust world in the client's own process through the C ABI, and a network client can take its place without the scene changing.
+
 Rules the code follows:
 - Only the server's simulation is authoritative. Clients never decide a detonation.
 - A snapshot always fits one 1200-byte datagram. A test enforces it.

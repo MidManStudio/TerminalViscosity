@@ -11,6 +11,7 @@ use tv_sim::{ChemBackend, NullChem, SplitMix64, World};
 
 fn high_lob() -> Command {
     Command::Throw {
+        slot: 0,
         recipe: Recipe { chambers: vec![Chamber { compound: 1, volume_ml: 100 }] },
         dir: [0, 1000, 0],
         power: 255,
@@ -21,7 +22,7 @@ fn high_lob() -> Command {
 /// Setup runs outside the timed region.
 fn step_one_second(c: &mut Criterion) {
     let mut g = c.benchmark_group("step_60_ticks");
-    for n in [0usize, 16, 48] {
+    for n in [0usize, 16, 40] {
         g.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, &n| {
             b.iter_batched(
                 || {

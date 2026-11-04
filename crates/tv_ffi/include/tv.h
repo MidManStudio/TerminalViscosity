@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-#define TV_ABI_VERSION 1u
+#define TV_ABI_VERSION 2u
 
 #define TV_OK 0
 #define TV_ERR_NULL -1
@@ -23,6 +23,7 @@ extern "C" {
 
 #define TV_CHAMBER_SIZE 4u
 #define TV_BALLOON_VIEW_SIZE 28u
+#define TV_PLAYER_VIEW_SIZE 20u
 #define TV_DETONATE_VIEW_SIZE 24u
 
 typedef struct TvWorld TvWorld;
@@ -32,6 +33,7 @@ typedef struct TvChamber {
     uint16_t volume_ml;
 } TvChamber;
 
+/* flags is the loadout slot the balloon was thrown from. */
 typedef struct TvBalloonView {
     uint16_t id;
     uint8_t owner;
@@ -42,6 +44,15 @@ typedef struct TvBalloonView {
     int16_t vel_cms[3];
     int16_t reserved2;
 } TvBalloonView;
+
+/* yaw_mrad is the heading in thousandths of a radian from 0 up to a full turn; 0 faces -z. */
+typedef struct TvPlayerView {
+    uint8_t id;
+    uint8_t flags;
+    uint16_t reserved;
+    int32_t pos_mm[3];
+    int32_t yaw_mrad;
+} TvPlayerView;
 
 typedef struct TvDetonateView {
     uint16_t balloon;
@@ -56,12 +67,17 @@ uint32_t tv_abi_version(void);
 uint32_t tv_sizeof_chamber(void);
 uint32_t tv_sizeof_balloon_view(void);
 uint32_t tv_sizeof_detonate_view(void);
+uint32_t tv_sizeof_player_view(void);
+uint32_t tv_arena_radius_mm(void);
 
 TvWorld *tv_world_new(uint64_t seed);
 void tv_world_free(TvWorld *w);
 
-int32_t tv_encode_throw(const TvChamber *chambers, uint32_t n, int16_t dx, int16_t dy,
-                        int16_t dz, uint8_t power, uint8_t *out, uint32_t cap);
+int32_t tv_encode_throw(const TvChamber *chambers, uint32_t n, uint8_t slot, int16_t dx,
+                        int16_t dy, int16_t dz, uint8_t power, uint8_t *out, uint32_t cap);
+int32_t tv_encode_input(int8_t forward, int8_t strafe, int32_t yaw_mrad, uint8_t *out,
+                        uint32_t cap);
+int32_t tv_world_join(TvWorld *w, uint8_t player);
 int32_t tv_world_submit(TvWorld *w, uint8_t player, const uint8_t *bytes, uint32_t len);
 int32_t tv_world_step(TvWorld *w);
 int32_t tv_world_snapshot(const TvWorld *w, uint8_t *out, uint32_t cap);
@@ -70,6 +86,8 @@ uint64_t tv_world_state_hash(const TvWorld *w);
 
 int32_t tv_snapshot_decode(const uint8_t *buf, uint32_t len, TvBalloonView *out,
                            uint32_t out_cap, uint32_t *out_tick);
+int32_t tv_snapshot_decode_players(const uint8_t *buf, uint32_t len, TvPlayerView *out,
+                                   uint32_t out_cap);
 int32_t tv_events_decode(const uint8_t *buf, uint32_t len, TvDetonateView *out,
                          uint32_t out_cap);
 

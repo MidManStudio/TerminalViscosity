@@ -17,4 +17,6 @@ pub mod world;
 
 pub use chem::{ChemBackend, NullChem, Outcome, TableChem};
 pub use rng::SplitMix64;
-pub use world::{World, DT, TICK_HZ};
+pub use world::{
+    World, ARENA_RADIUS_M, DT, INPUT_TIMEOUT_TICKS, PLAYER_RADIUS_M, TICK_HZ, WALK_SPEED_MS,
+};

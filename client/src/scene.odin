@@ -15,6 +15,7 @@ Scene_Id :: enum {
 	Lab_Room, // the chemistry lab, walked around in first person
 	Balloon_Lab, // the balloon on its own, for grabbing and dropping
 	Sim_Bench, // times the liquid simulation on the device
+	Arena, // the coliseum, with balloons to throw
 }
 
 // Scripted pointer input for headless runs, so CI and screenshots can show the
@@ -62,6 +63,8 @@ scene_procs :: proc(id: Scene_Id) -> Scene {
 		return {load = lab_load, update = lab_update, draw = lab_draw, draw_ui = lab_draw_ui, unload = lab_unload}
 	case .Sim_Bench:
 		return {load = bench_load, update = bench_update, draw = bench_draw, draw_ui = bench_draw_ui, unload = bench_unload}
+	case .Arena:
+		return {load = arena_load, update = arena_update, draw = arena_draw, draw_ui = arena_draw_ui, unload = arena_unload}
 	}
 	return {}
 }

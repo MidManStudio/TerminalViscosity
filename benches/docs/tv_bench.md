@@ -19,10 +19,10 @@ The Odin soft-body benchmark lives with the client, see `client/docs/client.md`.
 **What it does:** Empty library target so the benches have a package to hang off.
 
 ### `proto_bench.rs`
-**What it does:** Snapshot encode and decode with 48 balloons, throw command encode and decode, event batch encode and decode, and art encode and decode for blank and noisy canvases.
+**What it does:** Snapshot encode and decode with 8 players and 40 balloons (group `snapshot_full`), throw command encode and decode, event batch encode and decode (40 events, group `events_40`), and art encode and decode for blank and noisy canvases.
 
 ### `sim_bench.rs`
-**What it does:** 60 ticks with 0, 16, and 48 balloons in the air (setup excluded from timing), a full 3600-tick scripted match, 1000 chemistry lookups against tables of 16, 256, and 1024 compounds, and the combined outcome of a four-chamber balloon.
+**What it does:** 60 ticks with 0, 16, and 40 balloons in the air (40 is the most the world allows) (setup excluded from timing), a full 3600-tick scripted match, 1000 chemistry lookups against tables of 16, 256, and 1024 compounds, and the combined outcome of a four-chamber balloon.
 
 **Decisions:**
 - Group names are stable ids. `scripts/bench_compare.py` matches results by id, so renaming a bench breaks comparison against an old baseline.

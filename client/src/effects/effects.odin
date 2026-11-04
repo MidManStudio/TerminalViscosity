@@ -219,18 +219,30 @@ spatter :: proc(e: ^Effects, at: Vec3, color: [3]f32, floor: f32) {
 // burst at, from 0 to 1: the liquid flies out in all directions in its own color,
 // with a quick ring and some mist. It does not hurt anyone.
 pop :: proc(e: ^Effects, at: Vec3, color: [3]f32, fill: f32, floor: f32) {
+	pop_scaled(e, at, color, fill, floor, 1)
+}
+
+// A pop drawn `scale` times as large: drops, mist, ring, and light grow with it, and the
+// drops fly out `sqrt(scale)` times as fast. It is for a burst seen from across an arena,
+// where a counter-sized pop is a speck. Only a pop of scale 1 or less shakes the view, which
+// is one the viewer is standing at. At scale 1 it is exactly `pop`.
+pop_scaled :: proc(e: ^Effects, at: Vec3, color: [3]f32, fill: f32, floor: f32, scale: f32) {
 	share := clamp(fill, 0, 1)
+	k := max(scale, 0.1)
+	speed := math.sqrt(k)
 	floor_y := min(floor, at.y - 0.02)
 	for _ in 0 ..< int(18 + 10 * share) {
 		d := direction(e)
-		spawn(e, {kind = .Liquid, pos = at + d * 0.03, vel = d * range(e, 1.0, 2.6 + share) + {0, 0.5, 0}, color = color, life = range(e, 0.7, 1.3), size = range(e, 0.014, 0.026), grow = 0, gravity = 9.8, drag = 0.25, floor = floor_y})
+		spawn(e, {kind = .Liquid, pos = at + d * 0.03 * k, vel = (d * range(e, 1.0, 2.6 + share) + {0, 0.5, 0}) * speed, color = color, life = range(e, 0.7, 1.3), size = range(e, 0.014, 0.026) * k, grow = 0, gravity = 9.8, drag = 0.25, floor = floor_y})
 	}
 	for _ in 0 ..< 8 {
-		spawn(e, {kind = .Mist, pos = at + direction(e) * 0.05, vel = direction(e) * range(e, 0.2, 0.7), color = mix_color(color, {1, 1, 1}, 0.55), life = range(e, 0.5, 1.0), size = 0.07, grow = 0.25, gravity = 0, drag = 1.4, floor = floor_y - 5})
+		spawn(e, {kind = .Mist, pos = at + direction(e) * 0.05 * k, vel = direction(e) * range(e, 0.2, 0.7) * speed, color = mix_color(color, {1, 1, 1}, 0.55), life = range(e, 0.5, 1.0), size = 0.07 * k, grow = 0.25 * k, gravity = 0, drag = 1.4, floor = floor_y - 5})
 	}
-	add_ring(e, {pos = at, color = mix_color(color, {1, 1, 1}, 0.6), life = 0.3, radius = 0.45 + 0.25 * share})
-	add_light(e, {pos = at, color = mix_color(color, {1, 1, 1}, 0.6), radius = 1.5, peak = 0.35, life = 0.2})
-	e.shake = max(e.shake, 0.003)
+	add_ring(e, {pos = at, color = mix_color(color, {1, 1, 1}, 0.6), life = 0.3, radius = (0.45 + 0.25 * share) * k})
+	add_light(e, {pos = at, color = mix_color(color, {1, 1, 1}, 0.6), radius = 1.5 * k, peak = 0.35, life = 0.2})
+	if k <= 1 {
+		e.shake = max(e.shake, 0.003)
+	}
 }
 
 // A puff of steam from a vent at `at`, with now and then a spark, as from the
