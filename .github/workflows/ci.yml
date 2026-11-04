@@ -99,6 +99,8 @@ jobs:
         run: odin test client/src/chem -vet -strict-style
       - name: Effects tests
         run: odin test client/src/effects -vet -strict-style
+      - name: Arena tests
+        run: odin test client/src/arena -vet -strict-style
       - name: Liquid simulation tests
         run: odin test client/src/mpm -vet -strict-style
       - name: Store tests with a stand-in DixScript library
@@ -127,6 +129,8 @@ jobs:
           glslangValidator -S frag client/shaders/glsl100/lab.fs
           glslangValidator -S frag client/shaders/glsl330/vessel.fs
           glslangValidator -S frag client/shaders/glsl100/vessel.fs
+          glslangValidator -S frag client/shaders/glsl330/arena.fs
+          glslangValidator -S frag client/shaders/glsl100/arena.fs
       - name: Build client and run selftest
         run: bash scripts/build_client.sh --selftest
       - name: Headless render, lab room
@@ -135,9 +139,13 @@ jobs:
       - name: Headless render, balloon held by its tip
         working-directory: build
         run: xvfb-run -a -s "-screen 0 1280x720x24" ./tv_client --fixed-step --scene balloon --demo hang --frames 330 --screenshot lab_hang.png
+      - name: Headless render, coliseum
+        working-directory: build
+        run: xvfb-run -a -s "-screen 0 1280x720x24" ./tv_client --fixed-step --scene arena --frames 180 --screenshot arena.png
       - uses: actions/upload-artifact@v4
         with:
           name: lab-screenshot
           path: |
             build/lab.png
             build/lab_hang.png
+            build/arena.png
