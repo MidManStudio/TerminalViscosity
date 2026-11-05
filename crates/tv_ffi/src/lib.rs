@@ -18,7 +18,7 @@ use tv_proto::{Chamber, Recipe, MAX_CHAMBERS};
 use tv_sim::{NullChem, World};
 
 /// Bumped whenever any signature or struct layout in `tv.h` changes.
-pub const TV_ABI_VERSION: u32 = 2;
+pub const TV_ABI_VERSION: u32 = 3;
 /// Success.
 pub const TV_OK: i32 = 0;
 /// A required pointer was null.
@@ -250,9 +250,12 @@ pub unsafe extern "C" fn tv_encode_throw(
     })
 }
 
-/// Encodes an input command into `out`: the stick (-127 to 127 each way) and the heading in
-/// thousandths of a radian, of any size, which is wrapped to one turn. Returns bytes written
-/// or a negative error.
+/// The bit of `buttons` for the jump button, `tv_proto::BUTTON_JUMP`.
+pub const TV_BUTTON_JUMP: u8 = tv_proto::BUTTON_JUMP;
+
+/// Encodes an input command into `out`: the stick (-127 to 127 each way), the heading in
+/// thousandths of a radian, of any size, which is wrapped to one turn, and the buttons held,
+/// one bit each, see `TV_BUTTON_JUMP`. Returns bytes written or a negative error.
 ///
 /// # Safety
 /// `out` must be valid for `cap` writes.
@@ -261,6 +264,7 @@ pub unsafe extern "C" fn tv_encode_input(
     forward: i8,
     strafe: i8,
     yaw_mrad: i32,
+    buttons: u8,
     out: *mut u8,
     cap: u32,
 ) -> i32 {
@@ -272,6 +276,7 @@ pub unsafe extern "C" fn tv_encode_input(
             forward,
             strafe,
             yaw_q: yaw_to_q(yaw_mrad as f32 / 1000.0),
+            buttons,
         }
         .encode();
         // SAFETY: the caller promises `cap` writable bytes at `out`.

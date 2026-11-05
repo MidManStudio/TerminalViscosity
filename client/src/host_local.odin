@@ -117,7 +117,8 @@ local_send_input :: proc(h: ^Local_Host) {
 		return i8(clamp(math.round(v * 127), -127, 127))
 	}
 	cmd: [16]u8
-	n := tv_encode_input(stick(h.input.forward), stick(h.input.strafe), i32(math.round(h.input.yaw * 1000)), raw_data(cmd[:]), len(cmd))
+	buttons := h.input.jump ? TV_BUTTON_JUMP : 0
+	n := tv_encode_input(stick(h.input.forward), stick(h.input.strafe), i32(math.round(h.input.yaw * 1000)), buttons, raw_data(cmd[:]), len(cmd))
 	if n > 0 {
 		tv_world_submit(h.world, h.player, raw_data(cmd[:]), u32(n))
 	}

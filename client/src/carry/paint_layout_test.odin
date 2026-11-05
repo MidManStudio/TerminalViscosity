@@ -110,10 +110,63 @@ the_edges_of_the_tablet_are_the_edges_of_the_drawing :: proc(t: ^testing.T) {
 }
 
 @(test)
-the_balloon_is_on_the_right_of_the_screen :: proc(t: ^testing.T) {
+the_balloon_is_on_the_left_of_the_screen :: proc(t: ^testing.T) {
 	for sc in SCREENS {
 		l := paint_layout(sc.x, sc.y)
 		n := balloon_ndc(&l, sc.x)
-		testing.expect(t, n > 0.2 && n < 1, "to the right of the middle and on the screen")
+		testing.expect(t, n < -0.2 && n > -1, "to the left of the middle and on the screen")
+	}
+}
+
+inside_box :: proc(inner, outer: [4]f32) -> bool {
+	return inner[0] >= outer[0] - 0.01 && inner[1] >= outer[1] - 0.01 && inner[0] + inner[2] <= outer[0] + outer[2] + 0.01 && inner[1] + inner[3] <= outer[1] + outer[3] + 0.01
+}
+
+@(test)
+everything_to_draw_with_is_down_the_right_side_and_the_balloon_and_done_are_on_the_left :: proc(t: ^testing.T) {
+	for sc in SCREENS {
+		l := paint_layout(sc.x, sc.y)
+		// The balloon area ends before the tablet begins, so nothing is over the balloon.
+		testing.expect(t, l.balloon[0] + l.balloon[2] + sc.y * 0.02 <= l.panel[0], "the balloon is left of the panel, with a gap")
+		testing.expect(t, l.done[0] + l.done[2] <= l.canvas[0], "and so is the done button")
+		testing.expect(t, l.done[0] < sc.x * 0.2 && l.done[1] < sc.y * 0.1, "the done button is in the top left corner")
+		// The palette is to the right of the tablet, with the first swatch in its left column.
+		for k in 0 ..< len(l.swatches) {
+			testing.expect(t, l.swatches[k][0] >= l.canvas[0] + l.canvas[2] + sc.y * 0.02, "a swatch is right of the tablet, with a gap")
+		}
+		testing.expect(t, l.swatches[0][0] < l.swatches[1][0] && l.swatches[0][1] == l.swatches[1][1], "swatch 0 is left of swatch 1, as before")
+		testing.expect(t, l.swatches[1][0] + l.swatches[1][2] <= sc.x, "and the palette stops at the edge of the screen")
+		// The backing covers all the tools and none of the balloon or the done button.
+		testing.expect(t, inside_box(l.canvas, l.panel) && inside_box(l.undo, l.panel) && inside_box(l.clear, l.panel) && inside_box(l.blend, l.panel), "the panel backs the tablet and its buttons")
+		for k in 0 ..< len(l.swatches) {
+			testing.expect(t, inside_box(l.swatches[k], l.panel), "and the palette")
+		}
+		for k in 0 ..< len(l.sizes) {
+			testing.expect(t, inside_box(l.sizes[k], l.panel), "and the brushes")
+		}
+		testing.expect(t, !overlaps(l.balloon, l.panel) && !overlaps(l.done, l.panel), "but not the balloon or the done button")
+		testing.expect(t, abs(l.panel[0] + l.panel[2] - sc.x) < 0.01 && l.panel[3] == sc.y, "the panel runs to the right edge and the full height")
+	}
+}
+
+@(test)
+the_tablet_does_not_vanish_on_a_screen_that_is_nearly_square :: proc(t: ^testing.T) {
+	// Not a shape the game is played on. But when the balloon takes what it needs, the tablet
+	// stops at 0.3 of the width and is still a tablet, and the layout does not run off the screen.
+	l := paint_layout(600, 600)
+	testing.expect(t, abs(l.canvas[2] - 180) < 0.01, "the tablet stops at 0.3 of the width")
+	testing.expect(t, inside_screen(l.canvas, 600, 600) && abs(l.canvas[2] - 2 * l.canvas[3]) < 0.01, "and is still on the screen and twice as wide as high")
+	l = paint_layout(800, 600)
+	testing.expect(t, l.canvas[2] > 240 && l.canvas[2] < 400, "a 4 by 3 screen gets a smaller tablet than the 2 by 1 phone, so the balloon fits")
+}
+
+@(test)
+the_balloon_has_room_on_every_screen :: proc(t: ^testing.T) {
+	for sc in SCREENS {
+		l := paint_layout(sc.x, sc.y)
+		testing.expect(t, l.balloon[2] >= sc.y * 0.55, "wide enough to see and turn a balloon in: 0.55 of the screen height")
+		testing.expect(t, l.balloon[3] > sc.y * 0.5, "and tall enough")
+		testing.expect(t, l.canvas[2] >= sc.x * 0.3 - 0.01, "without taking the tablet down below 0.3 of the width")
+		testing.expect(t, abs(l.canvas[2] - 2 * l.canvas[3]) < 0.01, "and it is still twice as wide as high")
 	}
 }

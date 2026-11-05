@@ -8,7 +8,10 @@ package main
 // Bindings for crates/tv_ffi/include/tv.h. Keep the two in step, and bump
 // TV_ABI_VERSION on both sides together.
 
-TV_ABI_VERSION :: 2
+TV_ABI_VERSION :: 3
+
+// The bit of the buttons byte of an input for the jump button, tv_proto::BUTTON_JUMP.
+TV_BUTTON_JUMP :: u8(1)
 
 TV_OK :: 0
 TV_ERR_NULL :: -1
@@ -93,7 +96,7 @@ foreign tv {
 	tv_world_free :: proc(w: ^TvWorld) ---
 
 	tv_encode_throw :: proc(chambers: [^]TvChamber, n: u32, slot: u8, dx, dy, dz: i16, power: u8, out: [^]u8, cap: u32) -> i32 ---
-	tv_encode_input :: proc(forward, strafe: i8, yaw_mrad: i32, out: [^]u8, cap: u32) -> i32 ---
+	tv_encode_input :: proc(forward, strafe: i8, yaw_mrad: i32, buttons: u8, out: [^]u8, cap: u32) -> i32 ---
 	tv_world_join :: proc(w: ^TvWorld, player: u8) -> i32 ---
 	tv_world_submit :: proc(w: ^TvWorld, player: u8, bytes: [^]u8, len: u32) -> i32 ---
 	tv_world_step :: proc(w: ^TvWorld) -> i32 ---

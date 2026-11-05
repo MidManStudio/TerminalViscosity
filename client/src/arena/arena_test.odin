@@ -264,6 +264,15 @@ releasing_without_ever_pressing_throws_nothing :: proc(t: ^testing.T) {
 }
 
 @(test)
+a_player_is_on_the_floor_until_the_feet_leave_it :: proc(t: ^testing.T) {
+	testing.expect(t, on_floor({pos = {1, 0, 2}}), "standing")
+	testing.expect(t, on_floor({pos = {1, 0.019, 2}}), "a couple of centimetres is still the floor, for the loose ends of a jump")
+	testing.expect(t, !on_floor({pos = {1, 0.05, 2}}), "five centimetres up is not")
+	testing.expect(t, !on_floor({pos = {1, 0.4, 2}}), "nor is the top of a jump")
+	testing.expect_value(t, eye_of({pos = {0, 0.4, 0}}).y, f32(0.4) + EYE_HEIGHT) // and the eye goes up with the feet
+}
+
+@(test)
 players_are_found_by_id_and_the_eye_is_above_the_feet :: proc(t: ^testing.T) {
 	v: Match_View
 	v.players[0] = {id = 3, pos = {1, 0, 2}, yaw = 0.5}

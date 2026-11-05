@@ -5,6 +5,8 @@
 
 package lab
 
+import bl "../balloon"
+import "core:math"
 import "core:testing"
 
 full_lab :: proc() -> ^Layout {
@@ -232,3 +234,116 @@ no_paint_is_swatch_zero :: proc(t: ^testing.T) {
 	r := palette_color(0)
 	testing.expect(t, r.r > 180 && r.g > 180 && r.b > 180, "pale")
 }
+
+// How far below its tip a balloon hangs once it has settled, at the settings of the paint
+// station: the frequency and substeps are `STATION_FREQUENCY` and `STATION_SUBSTEPS` of
+// `filler_view.odin`, which the main package owns and this one cannot read, so they are
+// repeated here and must be kept the same by hand. `fill` is the fill the body is given.
+settled_depth :: proc(fill: f32) -> f32 {
+	b := new(bl.Balloon)
+	defer free(b)
+	cfg := bl.default_config()
+	cfg.frequency = 4
+	cfg.substeps = 6
+	bl.init(b, cfg)
+	b.floor_y = -1000
+	scale := math.pow(1000 * 1e-6 / b.rest_volume, 1.0 / 3.0) // the rest volume of a balloon is 1000 ml
+	bl.reset(b, -b.rest_pos[bl.TIP])
+	bl.set_fill(b, fill)
+	for _ in 0 ..< 600 {
+		bl.pin(b, bl.TIP, {0, 0, 0})
+		bl.step(b, 1.0 / 60)
+	}
+	lo, _ := bl.bounds(b)
+	return -lo.y * scale
+}
+
+@(test)
+the_cradle_stands_clear_below_a_balloon_hanging_at_any_fill :: proc(t: ^testing.T) {
+	// From the slack balloon of an empty one, through full, to the stretched one just before it pops.
+	for fill in ([]f32{0.55, 0.775, 1.0, 1.35}) {
+		depth := settled_depth(fill)
+		bottom := PAINT_CLAMP.y - depth
+		cradle_top := paint_cradle().y + CLAMP_HALF_HEIGHT
+		testing.expectf(t, depth <= PAINT_DROP, "at fill %v the balloon hangs %.3f m, further than PAINT_DROP %.3f", fill, depth, PAINT_DROP)
+		testing.expectf(t, bottom > cradle_top + 0.01, "at fill %v the bottom of the balloon is at %.3f and the cradle reaches up to %.3f", fill, bottom, cradle_top)
+	}
+}
+
+@(test)
+the_cradle_is_below_the_bottom_of_a_balloon_and_above_the_counter :: proc(t: ^testing.T) {
+	c := paint_cradle()
+	testing.expect(t, c.y < PAINT_CLAMP.y - PAINT_DROP, "lower than the balloon reaches")
+	testing.expect(t, c.y - CLAMP_HALF_HEIGHT - COUNTER_HEIGHT > 0.15, "and clear of the counter, room for a hand")
+	lo, hi := PAINT_AIM_LOW, PAINT_AIM_HIGH
+	testing.expect(t, c.y > lo.y && c.y < hi.y && c.x > lo.x && c.x < hi.x && c.z > lo.z && c.z < hi.z, "inside the box the crosshair tests for the station")
+	// The boxes of the cradle are really there, at that height.
+	l := full_lab()
+	defer free(l)
+	found := 0
+	for i in 0 ..< l.box_count {
+		b := l.boxes[i]
+		if abs(b.center.y - c.y) < 1e-4 && abs(b.center.x - c.x) < 0.05 && abs(b.center.z - c.z) < 0.05 {
+			found += 1
+		}
+	}
+	testing.expect_value(t, found, 4) // the four walls of the clamp
+}
+
+box_overlap :: proc(a_lo, a_hi, b_lo, b_hi: Vec3) -> bool {
+	return a_lo.x < b_hi.x && b_lo.x < a_hi.x && a_lo.y < b_hi.y && b_lo.y < a_hi.y && a_lo.z < b_hi.z && b_lo.z < a_hi.z
+}
+
+@(test)
+the_incinerator_is_on_the_south_counter_clear_of_the_other_stations :: proc(t: ^testing.T) {
+	l := full_lab()
+	defer free(l)
+	testing.expect(t, counter_covers(l, INCINERATOR), "it stands on the counter")
+	testing.expect(t, INCINERATOR.min_z > 0 && INCINERATOR.max_z < ROOM_D * 0.5, "on the south side")
+	// Clear of the fill station and every hook of the rack, by their aim boxes and their boards.
+	testing.expect(t, !box_overlap(INCINERATOR_AIM_LOW, INCINERATOR_AIM_HIGH, FILLER_AIM_LOW, FILLER_AIM_HIGH), "not on the fill station")
+	for i in 0 ..< LOADOUT_SLOTS {
+		low, high := slot_aim(i)
+		testing.expectf(t, !box_overlap(INCINERATOR_AIM_LOW, INCINERATOR_AIM_HIGH, low, high), "not on hook %d", i + 1)
+	}
+	last := slot_clamp(LOADOUT_SLOTS - 1).x
+	testing.expect(t, INCINERATOR.min_x > last + 0.14 + 0.3, "a hand's width or more past the last hook")
+	testing.expect(t, INCINERATOR.max_x < ROOM_W * 0.5 - 0.7, "and short of the bottle wall counter")
+}
+
+@(test)
+the_mouth_of_the_incinerator_is_in_its_aim_box_and_over_its_body :: proc(t: ^testing.T) {
+	m := INCINERATOR_MOUTH
+	lo, hi := INCINERATOR_AIM_LOW, INCINERATOR_AIM_HIGH
+	testing.expect(t, m.x > lo.x && m.x < hi.x && m.y > lo.y && m.y < hi.y && m.z > lo.z && m.z < hi.z, "the mouth is in the box the crosshair tests")
+	testing.expect(t, m.x - INCINERATOR_HOPPER > INCINERATOR.min_x && m.x + INCINERATOR_HOPPER < INCINERATOR.max_x, "over the body, across")
+	testing.expect(t, m.z - INCINERATOR_HOPPER > INCINERATOR.min_z && m.z + INCINERATOR_HOPPER < INCINERATOR.max_z, "and along")
+	testing.expect(t, m.y > INCINERATOR_TOP && m.y - INCINERATOR_TOP < 0.2, "the hopper stands a hand's depth over the body")
+	testing.expect(t, lo.y >= COUNTER_HEIGHT, "the aim box starts on the counter")
+}
+
+@(test)
+the_chimney_is_inside_the_room_and_over_the_back_of_the_body :: proc(t: ^testing.T) {
+	v := incinerator_vent()
+	testing.expect(t, v.y < ROOM_H - 0.5, "well short of the ceiling")
+	testing.expect(t, v.x > INCINERATOR.min_x && v.x < INCINERATOR.max_x && v.z > INCINERATOR.min_z && v.z < INCINERATOR.max_z, "over the body")
+	testing.expect(t, v.z > INCINERATOR_MOUTH.z + INCINERATOR_HOPPER, "behind the hopper")
+	testing.expect(t, v.y > INCINERATOR_TOP + 0.3, "and clear above it, so the smoke does not start in the opening")
+}
+
+@(test)
+the_incinerators_boxes_are_all_in_place :: proc(t: ^testing.T) {
+	l := new(Layout)
+	defer free(l)
+	build(l)
+	before := l.box_count
+	add_incinerator(l)
+	testing.expect_value(t, l.box_count, before + 12) // lip, body, four walls, fire, door, slit, stripe, chimney, cap
+	for i in before ..< l.box_count {
+		b := l.boxes[i]
+		testing.expectf(t, b.center.x - b.size.x * 0.5 >= INCINERATOR.min_x - 0.1 && b.center.x + b.size.x * 0.5 <= INCINERATOR.max_x + 0.1, "box %d is across the incinerator", i - before)
+		testing.expectf(t, b.center.y - b.size.y * 0.5 >= COUNTER_HEIGHT - 0.001, "box %d stands on the counter, not in it", i - before)
+		testing.expectf(t, b.center.z - b.size.z * 0.5 >= INCINERATOR.min_z - 0.03 && b.center.z + b.size.z * 0.5 <= INCINERATOR.max_z + 0.1, "box %d is along it", i - before)
+	}
+}
+

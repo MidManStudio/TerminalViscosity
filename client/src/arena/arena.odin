@@ -73,11 +73,14 @@ Match_View :: struct {
 	burst_count:   int,
 }
 
-// What the player is doing with the walking controls. Stick values run from -1 to 1.
+// What the player is doing with the walking controls. Stick values run from -1 to 1, and
+// `jump` is whether the jump button is held, which the match turns into a jump if the player
+// is on the floor.
 Input :: struct {
 	forward: f32,
 	strafe:  f32,
 	yaw:     f32,
+	jump:    bool,
 }
 
 // A balloon to throw: where it came from in the loadout, what it holds, and how it is
@@ -125,6 +128,13 @@ view_player :: proc(v: ^Match_View, id: u8) -> (p: Player_View, ok: bool) {
 		}
 	}
 	return {}, false
+}
+
+// Whether a player is standing on the floor, within a couple of centimetres, which is what
+// the jump button shows. The view is drawn between ticks, so it is a little loose at the ends
+// of a jump.
+on_floor :: proc(p: Player_View) -> bool {
+	return p.pos.y <= 0.02
 }
 
 // Where the eye of a player is: the feet, and the height of the head.

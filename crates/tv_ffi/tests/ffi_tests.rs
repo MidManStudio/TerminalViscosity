@@ -95,13 +95,17 @@ fn full_cycle_through_the_c_abi() {
     unsafe { tv_world_free(w) };
 }
 
-fn encode_walk(forward: i8, strafe: i8, yaw_mrad: i32) -> Vec<u8> {
+fn encode_input(forward: i8, strafe: i8, yaw_mrad: i32, buttons: u8) -> Vec<u8> {
     let mut buf = vec![0u8; 16];
     // SAFETY: `buf` has 16 writable bytes.
-    let n = unsafe { tv_encode_input(forward, strafe, yaw_mrad, buf.as_mut_ptr(), 16) };
+    let n = unsafe { tv_encode_input(forward, strafe, yaw_mrad, buttons, buf.as_mut_ptr(), 16) };
     assert!(n > 0, "encode failed: {n}");
     buf.truncate(n as usize);
     buf
+}
+
+fn encode_walk(forward: i8, strafe: i8, yaw_mrad: i32) -> Vec<u8> {
+    encode_input(forward, strafe, yaw_mrad, 0)
 }
 
 fn players_of(w: *mut TvWorld) -> Vec<TvPlayerView> {
@@ -192,16 +196,16 @@ fn decoding_players_needs_room_and_a_valid_snapshot() {
             TV_ERR_NULL
         );
         assert_eq!(
-            tv_encode_input(1, 1, 0, std::ptr::null_mut(), 8),
+            tv_encode_input(1, 1, 0, 0, std::ptr::null_mut(), 8),
             TV_ERR_NULL
         );
         let mut tiny = [0u8; 2];
         assert_eq!(
-            tv_encode_input(1, 1, 0, tiny.as_mut_ptr(), 2),
+            tv_encode_input(1, 1, 0, 0, tiny.as_mut_ptr(), 2),
             TV_ERR_CAPACITY
         );
         assert_eq!(
-            tv_encode_input(-128, 0, 0, tiny.as_mut_ptr(), 2),
+            tv_encode_input(-128, 0, 0, 0, tiny.as_mut_ptr(), 2),
             TV_ERR_ARG
         );
         tv_world_free(w);
@@ -228,6 +232,31 @@ fn joining_through_the_c_abi_spawns_the_player_facing_the_middle() {
         "yaw = {}",
         people[0].yaw_mrad
     );
+    // SAFETY: `w` was created above and is freed exactly once.
+    unsafe { tv_world_free(w) };
+}
+
+#[test]
+fn holding_jump_through_the_c_abi_lifts_the_decoded_player_and_it_lands() {
+    let w = tv_world_new(1);
+    let jump = encode_input(0, 0, 0, TV_BUTTON_JUMP);
+    let mut peak = 0;
+    for tick in 0..60 {
+        // The button is held for the first tick only, as a tap would be.
+        let cmd = if tick == 0 {
+            jump.clone()
+        } else {
+            encode_input(0, 0, 0, 0)
+        };
+        // SAFETY: `w` is live and `cmd` is a valid slice for its length.
+        unsafe {
+            assert_eq!(tv_world_submit(w, 0, cmd.as_ptr(), cmd.len() as u32), TV_OK);
+            tv_world_step(w);
+        }
+        peak = peak.max(players_of(w)[0].pos_mm[1]);
+    }
+    assert!(peak > 400 && peak < 480, "peaked at {peak} mm");
+    assert_eq!(players_of(w)[0].pos_mm[1], 0, "and landed");
     // SAFETY: `w` was created above and is freed exactly once.
     unsafe { tv_world_free(w) };
 }
@@ -322,6 +351,10 @@ fn header_matches_rust_side() {
     assert_eq!(
         header_define(header, "TV_PLAYER_VIEW_SIZE"),
         tv_sizeof_player_view()
+    );
+    assert_eq!(
+        header_define(header, "TV_BUTTON_JUMP"),
+        TV_BUTTON_JUMP as u32
     );
     assert_eq!(header_define(header, "TV_OK") as i32, TV_OK);
     for (name, value) in [

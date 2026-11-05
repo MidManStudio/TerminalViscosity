@@ -74,11 +74,16 @@ ICE_BATH :: Rect {
 STATION_RESTING :: COUNTER_HEIGHT + 0.06
 
 // The paint station on the west counter: a frame that holds a balloon by a clamp at
-// its neck and a second clamp under its bottom, with a palette and a rack of
-// brushes beside it. The drawing itself is not built yet. The balloon hangs from
-// `PAINT_CLAMP`, and at its full size its bottom is `PAINT_DROP` below.
+// its neck and a second clamp, a cradle, under its bottom, with a palette and a rack of
+// brushes beside it. The balloon hangs from `PAINT_CLAMP`. Once it has settled, at any
+// fill from empty to stretched, the bottom of it is between 0.176 and 0.192 m below, so
+// `PAINT_DROP` is 0.20, which covers the slackest, and the cradle stands `PAINT_CRADLE_GAP` lower still. The
+// first cradle was placed for a balloon that reached 0.15 m, which is how far the
+// soft body reaches before it has sagged, and it cut into the real one.
 PAINT_CLAMP :: Vec3{-11.63, 1.62, 2.0}
-PAINT_DROP :: f32(0.15)
+PAINT_DROP :: f32(0.20)
+PAINT_CRADLE_GAP :: f32(0.05)
+CLAMP_HALF_HEIGHT :: f32(0.025) // the walls of a clamp are 0.05 m high
 PAINT_AIM_LOW :: Vec3{-11.85, 1.25, 1.78}
 PAINT_AIM_HIGH :: Vec3{-11.41, 1.78, 2.22}
 PALETTE_SIZE :: 16
@@ -93,6 +98,21 @@ TABLET_W :: f32(0.52) // along the counter
 TABLET_H :: f32(0.26)
 TABLET_AIM_LOW :: Vec3{-11.99, 1.2, 1.15}
 TABLET_AIM_HIGH :: Vec3{-11.84, 1.52, 1.71}
+
+// The incinerator on the south counter, east of the loadout rack: a squat furnace with a
+// hopper on top, a glowing door in front, and a chimney. A balloon held over the hopper is
+// burned, which is how the player gets rid of one.
+INCINERATOR :: Rect {
+	min_x = 10.2,
+	min_z = 7.42,
+	max_x = 10.8,
+	max_z = 7.84,
+}
+INCINERATOR_TOP :: f32(1.58) // the top of the body, where the hopper starts
+INCINERATOR_MOUTH :: Vec3{10.5, 1.68, 7.55} // the middle of the opening of the hopper
+INCINERATOR_HOPPER :: f32(0.11) // half the width of the opening
+INCINERATOR_AIM_LOW :: Vec3{10.17, 1.12, 7.38} // the box the crosshair tests for it
+INCINERATOR_AIM_HIGH :: Vec3{10.83, 1.72, 7.88}
 
 // The loadout rack on the south counter: a hook for each balloon of the loadout, a
 // light over each that shows what is on it. The balloons hang by their necks, as
@@ -130,6 +150,7 @@ add_apparatus :: proc(l: ^Layout) {
 	add_ice_bath(l)
 	add_paint_station(l)
 	add_loadout_rack(l)
+	add_incinerator(l)
 }
 
 add_sink :: proc(l: ^Layout) {
@@ -238,10 +259,10 @@ add_paint_station :: proc(l: ^Layout) {
 	add_box(l, {(post_x + c.x) * 0.5, 1.70, c.z}, {0.34, 0.04, 0.04}, COLOR_METAL, 0, 0.5) // the top arm
 	add_box(l, {c.x, 1.675, c.z}, {0.03, 0.05, 0.03}, COLOR_METAL, 0, 0.5) // down to the top clamp
 	add_clamp(l, {c.x, 1.65, c.z})
-	// The second clamp, a cradle under the bottom of the balloon at its full size.
-	bottom := c.y - PAINT_DROP
-	add_box(l, {(post_x + c.x) * 0.5, bottom - 0.05, c.z}, {0.34, 0.04, 0.04}, COLOR_METAL, 0, 0.5)
-	add_clamp(l, {c.x, bottom - 0.01, c.z})
+	// The second clamp, a cradle under the bottom of the balloon, with room to spare.
+	cradle := paint_cradle()
+	add_box(l, {(post_x + c.x) * 0.5, cradle.y - 0.04, c.z}, {0.34, 0.04, 0.04}, COLOR_METAL, 0, 0.5)
+	add_clamp(l, cradle)
 	// The palette: a board standing on the counter with a grid of swatches on it.
 	bz := c.z + 0.6
 	add_box(l, {post_x - 0.01, top + 0.18, bz}, {0.03, 0.36, 0.4}, {30, 36, 46, 255})
@@ -278,6 +299,50 @@ add_loadout_rack :: proc(l: ^Layout) {
 		add_box(l, {c.x, 1.60, (7.885 + c.z) * 0.5}, {0.03, 0.03, 7.885 - c.z}, COLOR_METAL, 0, 0.5) // the arm from the board
 		add_clamp(l, {c.x, 1.55, c.z})
 	}
+}
+
+// The middle of the cradle under the balloon of the paint station.
+paint_cradle :: proc() -> Vec3 {
+	return {PAINT_CLAMP.x, PAINT_CLAMP.y - PAINT_DROP - PAINT_CRADLE_GAP, PAINT_CLAMP.z}
+}
+
+// Where the smoke leaves the chimney of the incinerator.
+incinerator_vent :: proc() -> Vec3 {
+	return {INCINERATOR.max_x - 0.12, 2.18, INCINERATOR.max_z - 0.1}
+}
+
+add_incinerator :: proc(l: ^Layout) {
+	b := INCINERATOR
+	cx := (b.min_x + b.max_x) * 0.5
+	cz := (b.min_z + b.max_z) * 0.5
+	w := b.max_x - b.min_x
+	d := b.max_z - b.min_z
+	top := INCINERATOR_TOP
+	add_box(l, {cx, COUNTER_HEIGHT + 0.02, cz}, {w + 0.04, 0.04, d + 0.04}, COLOR_METAL, 0, 0.5) // the base lip
+	add_box(l, {cx, (COUNTER_HEIGHT + 0.04 + top) * 0.5, cz}, {w, top - COUNTER_HEIGHT - 0.04, d}, {52, 56, 64, 255}, 0, 0.35) // the body
+
+	// The hopper: four thin walls round the opening a balloon is dropped into, and the
+	// fire glowing at the bottom of it.
+	m := INCINERATOR_MOUTH
+	h := INCINERATOR_HOPPER
+	wall := f32(0.012)
+	rim := m.y - top
+	add_box(l, {m.x - h, top + rim * 0.5, m.z}, {wall, rim, 2 * h + wall}, COLOR_STEEL, 0, 0.8)
+	add_box(l, {m.x + h, top + rim * 0.5, m.z}, {wall, rim, 2 * h + wall}, COLOR_STEEL, 0, 0.8)
+	add_box(l, {m.x, top + rim * 0.5, m.z - h}, {2 * h + wall, rim, wall}, COLOR_STEEL, 0, 0.8)
+	add_box(l, {m.x, top + rim * 0.5, m.z + h}, {2 * h + wall, rim, wall}, COLOR_STEEL, 0, 0.8)
+	add_box(l, {m.x, top + 0.004, m.z}, {2 * h - 0.02, 0.008, 2 * h - 0.02}, {255, 110, 30, 255}, 1) // the fire
+
+	// The door in front, facing the player at the counter: a dark panel with a glowing
+	// slit, and a warning stripe above.
+	add_box(l, {cx, 1.36, b.min_z - 0.005}, {0.38, 0.22, 0.012}, {30, 34, 42, 255}, 0, 0.6)
+	add_box(l, {cx, 1.36, b.min_z - 0.012}, {0.28, 0.07, 0.006}, {255, 120, 40, 255}, 1)
+	add_box(l, {cx, 1.52, b.min_z - 0.003}, {w - 0.1, 0.02, 0.008}, {210, 70, 30, 255}, 0.6)
+
+	// The chimney, at the back.
+	v := incinerator_vent()
+	add_box(l, {v.x, top + (v.y - 0.04 - top) * 0.5, v.z}, {0.14, v.y - 0.04 - top, 0.14}, COLOR_METAL, 0, 0.5)
+	add_box(l, {v.x, v.y - 0.02, v.z}, {0.2, 0.03, 0.2}, COLOR_STEEL, 0, 0.8)
 }
 
 // The color of swatch `k` of the palette. Swatch 0 is no paint, so the other 15 are

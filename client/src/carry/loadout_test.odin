@@ -39,6 +39,13 @@ the_crosshair_finds_the_paint_station_and_each_hook :: proc(t: ^testing.T) {
 		testing.expect_value(t, lo.spot_slot, i)
 	}
 
+	p.x, p.z = (lab.INCINERATOR.min_x + lab.INCINERATOR.max_x) * 0.5, 6.9
+	look_at(p, lab.INCINERATOR_MOUTH)
+	filler_aim(&f, props, view_of(p))
+	loadout_aim(&lo, &f, props, view_of(p))
+	testing.expect_value(t, lo.spot, Spot.Burn)
+	testing.expect_value(t, lo.spot_slot, -1)
+
 	p.x, p.z = -10.98, lab.TABLET_CENTER.z
 	look_at(p, lab.TABLET_CENTER)
 	filler_aim(&f, props, view_of(p))
@@ -128,9 +135,23 @@ the_grab_button_does_the_right_thing_at_each_place :: proc(t: ^testing.T) {
 	lo.hand = {}
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.Take_Slot)
 
+	lo.spot = .Burn
+	lo.hand = {}
+	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // nothing in the hand to burn
+	lo.hand = balloon(id(.Water), 100)
+	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.Burn)
+	lo.paint = balloon(id(.Slurry), 50) // balloons elsewhere do not matter
+	lo.slots[0] = balloon(id(.Slurry), 50)
+	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.Burn)
+	lo.hand, lo.paint, lo.slots[0] = {}, {}, {}
+
+	lo.spot, lo.spot_slot = .Slot, 1
 	props_add(props, l, .Beaker, 0, 0.5)
 	props.held = 0
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // a vessel in the hands
+	lo.spot = .Burn
+	lo.hand = balloon(id(.Water), 100)
+	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // and none for burning either
 	lo.spot = .Tablet
 	lo.paint = balloon(id(.Water), 100)
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // and none for drawing either
@@ -208,6 +229,25 @@ balloons_move_between_the_hand_the_paint_station_and_the_hooks_unchanged :: proc
 	_, ok = balloon_do(&lo, &f, .None)
 	testing.expect(t, !ok, "no action, no change")
 	testing.expect(t, loadout_hands_full(&lo), "the hand holds it")
+}
+
+@(test)
+burning_takes_the_balloon_in_the_hand_and_nothing_else :: proc(t: ^testing.T) {
+	f := fresh_filler()
+	lo := new_loadout()
+	kept := Item{used = true, compound = id(.Dye_Red), ml = 600, art = 9}
+	lo.paint = kept
+	lo.slots[0] = kept
+	lo.slots[2] = kept
+	lo.hand = balloon(id(.Slurry), 800)
+	_, ok := balloon_do(&lo, &f, .Burn)
+	testing.expect(t, ok && !lo.hand.used, "the balloon in the hand is gone")
+	testing.expect(t, lo.hand == Item{}, "and nothing of it is left in the hand")
+	testing.expect(t, lo.paint == kept && lo.slots[0] == kept && lo.slots[2] == kept && !lo.slots[1].used, "the others are as they were")
+	testing.expect_value(t, loadout_count(&lo), 2)
+	_, ok = balloon_do(&lo, &f, .Burn)
+	testing.expect(t, !ok, "with empty hands there is nothing to burn")
+	testing.expect_value(t, loadout_count(&lo), 2)
 }
 
 @(test)

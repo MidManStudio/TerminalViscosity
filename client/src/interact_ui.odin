@@ -346,6 +346,8 @@ balloon_action_label :: proc(a: carry.Balloon_Action) -> cstring {
 		return "paint"
 	case .Store:
 		return "store"
+	case .Burn:
+		return "burn"
 	}
 	return ""
 }
@@ -369,6 +371,12 @@ draw_spot_readout :: proc(w, h: f32, lo: ^carry.Loadout, line: int) {
 			text = fmt.bprintf(buf[:120], "paint station  %v  %d ml", chem.compound_name(lo.paint.compound), int(lo.paint.ml + 0.5))
 		} else {
 			text = fmt.bprintf(buf[:120], "paint station  empty")
+		}
+	case .Burn:
+		if lo.hand.used {
+			text = fmt.bprintf(buf[:120], "incinerator  burn the balloon in your hand, for good")
+		} else {
+			text = fmt.bprintf(buf[:120], "incinerator  hold a balloon to burn it")
 		}
 	case .Slot:
 		slot := lo.slots[lo.spot_slot]

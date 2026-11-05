@@ -9,8 +9,8 @@ use tv_proto::wire::{
     Snapshot, BALLOON_STATE_BYTES, PLAYER_STATE_BYTES, SNAPSHOT_HEADER_BYTES,
 };
 use tv_proto::{
-    q_to_yaw, yaw_to_q, DecodeError, MAX_BALLOONS_PER_SNAPSHOT, MAX_CHAMBERS, MAX_PAYLOAD_BYTES,
-    MAX_PLAYERS,
+    q_to_yaw, yaw_to_q, DecodeError, BUTTON_JUMP, MAX_BALLOONS_PER_SNAPSHOT, MAX_CHAMBERS,
+    MAX_PAYLOAD_BYTES, MAX_PLAYERS,
 };
 
 fn recipe(n: usize) -> Recipe {
@@ -69,10 +69,21 @@ fn input_roundtrip_keeps_signs_and_heading() {
         forward: -127,
         strafe: 127,
         yaw_q: 54_321,
+        buttons: BUTTON_JUMP,
     };
     let bytes = cmd.encode();
-    assert_eq!(bytes.len(), 5);
+    assert_eq!(bytes.len(), 6);
     assert_eq!(Command::decode(&bytes), Ok(cmd));
+    // No button, and every bit, come back as they went.
+    for buttons in [0u8, 0xFF, 0x80] {
+        let cmd = Command::Input {
+            forward: 0,
+            strafe: 0,
+            yaw_q: 0,
+            buttons,
+        };
+        assert_eq!(Command::decode(&cmd.encode()), Ok(cmd));
+    }
 }
 
 #[test]
@@ -179,6 +190,7 @@ fn every_truncation_fails_without_panicking() {
         forward: 1,
         strafe: -1,
         yaw_q: 7,
+        buttons: 1,
     }
     .encode();
     for len in 0..input.len() {

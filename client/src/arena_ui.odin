@@ -71,10 +71,11 @@ draw_throw_button :: proc(w, h: f32, t: ^arena.Thrower, slots: ^[carry.LOADOUT_S
 	b := throw_button(w, h)
 	draw_button(b, label, fill, edge, ink)
 	if t.charging {
-		// The power so far, over the button: a bar that fills left to right.
-		bar := rl.Rectangle{b.x, b.y - 24, b.z, 14}
-		rl.DrawRectangleRec(bar, {10, 18, 28, 200})
-		rl.DrawRectangleRec({bar.x, bar.y, bar.width * t.charge, bar.height}, {60, 230, 215, 255})
+		// The power so far, along the bottom of the button: a bar that fills left to right. It
+		// is inside the button because the jump button is just above it.
+		bar := rl.Rectangle{b.x + b.z * 0.08, b.y + b.w - b.w * 0.2, b.z * 0.84, b.w * 0.09}
+		rl.DrawRectangleRec(bar, {10, 18, 28, 220})
+		rl.DrawRectangleRec({bar.x, bar.y, bar.width * t.charge, bar.height}, {255, 214, 120, 255})
 		rl.DrawRectangleLinesEx(bar, 2, {230, 236, 242, 220})
 	}
 }

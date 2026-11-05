@@ -21,6 +21,9 @@ pub type CompoundId = u16;
 const TAG_SNAPSHOT: u8 = 0x01;
 const TAG_CMD_THROW: u8 = 0x10;
 const TAG_CMD_INPUT: u8 = 0x11;
+
+/// A bit of the `buttons` byte of an input command: the jump button is held.
+pub const BUTTON_JUMP: u8 = 1;
 const TAG_EVT_DETONATE: u8 = 0x20;
 const TAG_EVENT_LIST: u8 = 0x21;
 
@@ -115,6 +118,9 @@ pub enum Command {
         strafe: i8,
         /// Heading, see [`yaw_to_q`]. Zero faces -z and a quarter turn faces +x.
         yaw_q: u16,
+        /// The buttons held, one bit each, see [`BUTTON_JUMP`]. Bits nobody has given a meaning
+        /// are ignored.
+        buttons: u8,
     },
 }
 
@@ -141,11 +147,13 @@ impl Command {
                 forward,
                 strafe,
                 yaw_q,
+                buttons,
             } => {
                 w.u8(TAG_CMD_INPUT);
                 w.i8(*forward);
                 w.i8(*strafe);
                 w.u16(*yaw_q);
+                w.u8(*buttons);
             }
         }
         w.finish()
@@ -171,6 +179,7 @@ impl Command {
                 forward: r.i8()?,
                 strafe: r.i8()?,
                 yaw_q: r.u16()?,
+                buttons: r.u8()?,
             },
             t => return Err(DecodeError::BadTag(t)),
         };

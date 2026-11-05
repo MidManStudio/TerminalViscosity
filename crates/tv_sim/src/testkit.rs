@@ -61,6 +61,7 @@ pub fn scripted_commands(
                 forward: (rng.below(255) as i32 - 127) as i8,
                 strafe: (rng.below(255) as i32 - 127) as i8,
                 yaw_q: rng.below(65536) as u16,
+                buttons: (rng.below(3) == 0) as u8,
             },
         ));
     }

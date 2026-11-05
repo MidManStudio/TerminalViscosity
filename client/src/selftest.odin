@@ -6,6 +6,10 @@
 package main
 
 import "arena"
+import "carry"
+import "lab"
+import "core:math"
+import "core:math/linalg"
 import "core:fmt"
 import "balloon"
 import "softbody"
@@ -74,6 +78,7 @@ selftest :: proc() -> int {
 
 	selftest_balloon(&failures)
 	selftest_arena(&failures)
+	selftest_paint_screen(&failures)
 
 	fmt.printf("state_hash=%#016x\n", tv_world_state_hash(w))
 	if failures == 0 {
@@ -152,6 +157,36 @@ selftest_arena :: proc(failures: ^int) {
 	}
 	p, _ = arena.view_player(view, arena.LOCAL_PLAYER)
 	check(failures, abs(p.pos.z - (14 - 3.2)) < 0.08 && abs(p.pos.x) < 0.01, "the player walks at walking speed")
+
+	// A jump: the button is held for a few frames, as a thumb on the screen is, and the player
+	// goes up by about 46 cm and comes down where they were, with the walk going on in the air.
+	arena.host_input(&host, {})
+	for _ in 0 ..< 4 {
+		arena.host_step(&host, TICK_DT)
+	}
+	before_jump, _ := arena.view_player(view, arena.LOCAL_PLAYER)
+	check(failures, arena.on_floor(before_jump), "the player is on the floor before the jump")
+	peak: f32
+	air_frames := 0
+	for frame in 0 ..< 90 {
+		arena.host_input(&host, {forward = 1, jump = frame < 6})
+		arena.host_step(&host, TICK_DT)
+		now, _ := arena.view_player(view, arena.LOCAL_PLAYER)
+		peak = max(peak, now.pos.y)
+		if !arena.on_floor(now) {
+			air_frames += 1
+		}
+	}
+	arena.host_input(&host, {})
+	for _ in 0 ..< 4 {
+		arena.host_step(&host, TICK_DT)
+	}
+	after_jump, _ := arena.view_player(view, arena.LOCAL_PLAYER)
+	check(failures, peak > 0.40 && peak < 0.48, "the jump goes up about 46 cm")
+	check(failures, air_frames > 28 && air_frames < 42, "and is over in about 0.6 s")
+	check(failures, after_jump.pos.y == 0 && arena.on_floor(after_jump), "the player is back on the floor")
+	check(failures, before_jump.pos.z - after_jump.pos.z > 3, "and walked on while they jumped, 90 frames at 3.2 m/s less the ones after the sticks let go")
+	check(failures, after_jump.pos.z > -arena.ARENA_RADIUS, "inside the arena")
 
 	// The heading the client sends is the heading the match keeps.
 	// The view is a tick behind the world, since it is drawn between the last two, so it takes two.
@@ -238,4 +273,67 @@ selftest_arena :: proc(failures: ^int) {
 	arena.host_step(&other_host, TICK_DT)
 	arena.host_step(&other_host, TICK_DT)
 	check(failures, other_view.balloon_count == 1 && other_view.balloons[0].owner == 3 && other_view.balloons[0].slot == 1, "its balloon is marked as player 3's")
+}
+
+// Checks that the drawing screen puts the balloon where its layout leaves room for it: the
+// middle of the balloon, projected through the paint camera by plain matrix arithmetic, falls
+// inside the balloon area on the left of the screen, and the whole balloon, 6.2 cm each side of
+// its axis, fits in the area. It is done on several screen shapes.
+selftest_paint_screen :: proc(failures: ^int) {
+	check :: proc(failures: ^int, ok: bool, what: string) {
+		if ok {
+			fmt.printf("ok    %s\n", what)
+		} else {
+			fmt.printf("FAIL  %s\n", what)
+			failures^ += 1
+		}
+	}
+
+	screens := [?][2]f32{{1280, 720}, {1600, 720}, {2400, 1080}, {960, 540}, {800, 600}}
+	all_inside, all_left, all_fit, all_tall := true, true, true, true
+	for sc in screens {
+		w, h := sc.x, sc.y
+		cam := paint_camera(w, h)
+		l := carry.paint_layout(w, h)
+		view := linalg.matrix4_look_at_f32(cam.position, cam.target, cam.up)
+		proj := linalg.matrix4_perspective_f32(cam.fovy * math.RAD_PER_DEG, w / h, 0.08, 70)
+		across :: proc(m: matrix[4, 4]f32, p: [3]f32, w: f32) -> f32 {
+			clip := m * [4]f32{p.x, p.y, p.z, 1}
+			return (clip.x / clip.w * 0.5 + 0.5) * w
+		}
+		both := proj * view
+		mid := lab.PAINT_CLAMP - {0, lab.PAINT_DROP * 0.5, 0}
+		x := across(both, mid, w)
+		// Down the screen: the tip of the balloon at the clamp and its bottom, `PAINT_DROP` lower, are
+		// both on the screen, with a little to spare. Screen y runs down.
+		down :: proc(m: matrix[4, 4]f32, p: [3]f32, h: f32) -> f32 {
+			clip := m * [4]f32{p.x, p.y, p.z, 1}
+			return (1 - (clip.y / clip.w * 0.5 + 0.5)) * h
+		}
+		tip_y := down(both, lab.PAINT_CLAMP, h)
+		bottom_y := down(both, lab.PAINT_CLAMP - {0, lab.PAINT_DROP, 0}, h)
+		if !(tip_y > h * 0.02 && bottom_y < h * 0.98 && tip_y < bottom_y) {
+			all_tall = false
+			fmt.printf("      screen %vx%v: the balloon spans %.0f to %.0f of %v from the top\n", w, h, tip_y, bottom_y, h)
+		}
+		// The camera looks along -x with the north on the right of the picture, so a point
+		// further south, z larger, is on the left of the screen.
+		x_left := across(both, mid + {0, 0, 0.062}, w)
+		x_right := across(both, mid - {0, 0, 0.062}, w)
+		area_left, area_right := l.balloon[0], l.balloon[0] + l.balloon[2]
+		if !(x > area_left && x < area_right) {
+			all_inside = false
+		}
+		if !(x < w * 0.5) {
+			all_left = false
+		}
+		if !(x_left > area_left && x_right < area_right && x_left < x_right) {
+			all_fit = false
+			fmt.printf("      screen %vx%v: the balloon spans %.0f to %.0f and the area %.0f to %.0f\n", w, h, x_left, x_right, area_left, area_right)
+		}
+	}
+	check(failures, all_inside, "the middle of the balloon is inside the balloon area on every screen shape")
+	check(failures, all_left, "and on the left half of the screen")
+	check(failures, all_fit, "and the whole balloon fits in the area")
+	check(failures, all_tall, "and from its tip to its bottom it is on the screen, down the screen")
 }

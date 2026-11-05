@@ -127,7 +127,7 @@ arena_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 
 	pointers: Pointers
 	platform_pointers(&pointers)
-	buttons := [5][4]f32{switch_button(w, h), throw_button(w, h), slot_button(w, h, 0), slot_button(w, h, 1), slot_button(w, h, 2)}
+	buttons := [6][4]f32{switch_button(w, h), throw_button(w, h), slot_button(w, h, 0), slot_button(w, h, 1), slot_button(w, h, 2), jump_button(w, h)}
 	controls_update(&a.controls, &pointers, w, h, buttons[:])
 	if a.controls.pressed == 0 {
 		game_switch(game, .Lab_Room)
@@ -136,7 +136,7 @@ arena_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	if a.host == nil {
 		return
 	}
-	if a.controls.pressed >= 2 {
+	if a.controls.pressed >= 2 && a.controls.pressed <= 4 {
 		arena_select(a, a.controls.pressed - 2)
 	}
 
@@ -148,9 +148,13 @@ arena_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	// because screen y points down.
 	push := [2]f32{a.controls.stick.x, -a.controls.stick.y}
 	throw_down := a.controls.held == 1
+	jump_down := a.controls.held == 5
 	when ODIN_PLATFORM_SUBTARGET != .Android {
-		if rl.IsKeyDown(.SPACE) {
+		if rl.IsKeyDown(.E) {
 			throw_down = true
+		}
+		if rl.IsKeyDown(.SPACE) {
+			jump_down = true
 		}
 		if rl.IsKeyPressed(.ONE) {
 			arena_select(a, 0)
@@ -177,7 +181,7 @@ arena_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	if length := math.sqrt(push.x * push.x + push.y * push.y); length > 1 {
 		push /= length
 	}
-	arena.host_input(&a.table, {forward = push.y, strafe = push.x, yaw = a.look.yaw})
+	arena.host_input(&a.table, {forward = push.y, strafe = push.x, yaw = a.look.yaw, jump = jump_down})
 
 	// Throwing: holding charges the throw, and letting go throws it where the player looks.
 	if fire, power := arena.thrower_update(&a.thrower, &a.slots, throw_down, dt); fire {
@@ -245,9 +249,9 @@ arena_draw_ui :: proc(game: ^Game, state: rawptr) {
 	size := max(i32(18), game.screen_h / 36)
 	draw_switch_button(w, h, "lab")
 	when ODIN_PLATFORM_SUBTARGET == .Android {
-		rl.DrawText("left thumb walks, right thumb looks, hold throw and let go", 20, 20, size, {40, 52, 66, 255})
+		rl.DrawText("left thumb walks, right thumb looks, hold throw and let go, jump jumps", 20, 20, size, {40, 52, 66, 255})
 	} else {
-		rl.DrawText("WASD or arrows walk, drag the mouse to look, hold space and let go to throw, 1 2 3 choose", 20, 20, size, {40, 52, 66, 255})
+		rl.DrawText("WASD or arrows walk, drag the mouse to look, space jumps, hold E and let go to throw, 1 2 3 choose", 20, 20, size, {40, 52, 66, 255})
 	}
 	rl.DrawFPS(20, 20 + size + 8)
 	if a.host != nil {
@@ -262,6 +266,13 @@ arena_draw_ui :: proc(game: ^Game, state: rawptr) {
 		draw_slot_button(w, h, i, a.slots[i], i == a.thrower.selected)
 	}
 	draw_throw_button(w, h, &a.thrower, &a.slots)
+	grounded := true
+	if a.host != nil {
+		if p, found := arena.view_player(arena.host_view(&a.table), arena.LOCAL_PLAYER); found {
+			grounded = arena.on_floor(p)
+		}
+	}
+	draw_jump_button(w, h, !grounded)
 	if arena.slot_usable(&a.slots, a.thrower.selected) {
 		s := a.slots[a.thrower.selected]
 		line_buf: [64]u8

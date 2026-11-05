@@ -57,6 +57,8 @@ Room :: struct {
 	filler_view: Filler_View,
 	toast:       [96]u8, // what the last mix did, as text
 	toast_timer: f32,
+	burn_vent:   f32, // time since the last puff from the chimney
+	burn_timer:  f32, // seconds the incinerator has left to burn, with smoke from its chimney
 }
 
 // Shows a line of text for a few seconds. It is formatted into the room's own
@@ -133,6 +135,7 @@ room_fill_event :: proc(room: ^Room, e: carry.Fill_Result) {
 // full when it is tied, and the player is told how much was let out.
 room_balloon_action :: proc(room: ^Room, lo: ^carry.Loadout, action: carry.Balloon_Action) {
 	slot := lo.spot_slot
+	burned := lo.hand // what the incinerator is about to take, if that is the action
 	let_out, ok := carry.balloon_do(lo, &room.filler, action)
 	if !ok {
 		return
@@ -154,7 +157,38 @@ room_balloon_action :: proc(room: ^Room, lo: ^carry.Loadout, action: carry.Ballo
 		room_toast(room, "hung on hook %d", slot + 1)
 	case .Take_Slot:
 		room_toast(room, "took the balloon from hook %d", slot + 1)
+	case .Burn:
+		room_burn(room, burned)
 	case .Paint:
+	}
+}
+
+// A balloon dropped in the incinerator: a flash of fire in the hopper, in the colours of what was
+// in it, and smoke from the chimney for a few seconds.
+room_burn :: proc(room: ^Room, item: carry.Item) {
+	color := chem.compound_color(item.compound)
+	effects.blast(&room.fx, lab.INCINERATOR_MOUTH, 0.2, 0, color, color, lab.COUNTER_HEIGHT)
+	room.burn_timer = 2.5
+	room.burn_vent = 0
+	room_toast(room, "burned the balloon")
+}
+
+// Smoke from the chimney while the incinerator burns, and a low rumble if the player is near.
+room_burn_effects :: proc(room: ^Room, dt: f32) {
+	if room.burn_timer <= 0 {
+		return
+	}
+	room.burn_timer = max(room.burn_timer - dt, 0)
+	room.burn_vent += dt
+	vent := lab.incinerator_vent()
+	for room.burn_vent >= 0.1 {
+		room.burn_vent -= 0.1
+		effects.vent(&room.fx, vent, {0.3, 0.28, 0.27})
+	}
+	eye := carry.view_of(&room.player).eye
+	d := eye - lab.INCINERATOR_MOUTH
+	if d.x * d.x + d.y * d.y + d.z * d.z < 16 {
+		effects.rumble(&room.fx, 0.003)
 	}
 }
 
@@ -445,7 +479,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 		case action != .None:
 			room_balloon_action(room, &game.loadout, action)
 		case carry.loadout_hands_full(&game.loadout):
-			room_toast(room, "hands full: hang the balloon on a hook, or clamp it at the paint station")
+			room_toast(room, "hands full: hang the balloon on a hook, clamp it at the paint station, or burn it")
 		case room.props.held != -1:
 			carry.release(&room.props)
 		case:
@@ -490,6 +524,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	carry.stream_drain(&room.stream)
 	room_oven_event(room, carry.oven_update(&room.oven, dt))
 	room_oven_effects(room, dt)
+	room_burn_effects(room, dt)
 	carry.filler_update(&room.filler, dt)
 	filler_view_update(&room.filler_view, &room.filler, dt)
 	loadout_view_update(&room.loadout_view, &game.loadout, game.art, carry.view_of(&room.player), dt)

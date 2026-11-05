@@ -128,23 +128,24 @@ paint_touch_update :: proc(input: ^Paint_Input, pointers: ^Pointers, l: ^carry.P
 
 // The camera while drawing: close to the balloon in the clamp, looking along the
 // counter at it, turned a little to the side so that the balloon is in the middle of the
-// part of the screen left for it, and not in the middle of the screen.
+// part of the screen left for it, and not in the middle of the screen. That part is the
+// left one, so the camera moves to the north of the balloon, which is to its right.
 paint_camera :: proc(w, h: f32) -> rl.Camera3D {
 	l := carry.paint_layout(w, h)
 	n := carry.balloon_ndc(&l, w)
 	half := PAINT_DISTANCE * math.tan(PAINT_FOV * 0.5 * math.RAD_PER_DEG) * (w / h)
 	c := lab.PAINT_CLAMP
 	y := c.y - lab.PAINT_DROP * 0.5
-	z := c.z + n * half // to the left, which is south here, of the balloon, so it is drawn to the right
+	z := c.z + n * half // n is negative, so this is north of the balloon, and the balloon is drawn to the left
 	return rl.Camera3D{position = {c.x + PAINT_DISTANCE, y, z}, target = {c.x, y, z}, up = {0, 1, 0}, fovy = PAINT_FOV, projection = .PERSPECTIVE}
 }
 
 // The screen while drawing, over the picture of the balloon: the tablet, the palette,
-// the brushes, undo and clear, and a done button that is always there.
+// the brushes, undo and clear down the right, and a done button that is always there at
+// the top left.
 draw_paint_ui :: proc(w, h: f32, lv: ^Loadout_View, lo: ^carry.Loadout, p: ^carry.Paint) {
 	l := carry.paint_layout(w, h)
-	margin := h * 0.025
-	rl.DrawRectangle(0, 0, i32(l.canvas[0] + l.canvas[2] + margin), i32(h), {8, 12, 18, 200})
+	rl.DrawRectangleRec({l.panel[0], l.panel[1], l.panel[2], l.panel[3]}, {8, 12, 18, 200})
 
 	// The tablet.
 	rect := rl.Rectangle{l.canvas[0], l.canvas[1], l.canvas[2], l.canvas[3]}

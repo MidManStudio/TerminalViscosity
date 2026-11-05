@@ -6,13 +6,13 @@
 //! World tests: determinism, players walking, balloon flight, rejected commands, and the
 //! snapshot budget.
 use tv_proto::{
-    Chamber, Command, Event, Recipe, Snapshot, MAX_BALLOONS_PER_SNAPSHOT, MAX_PAYLOAD_BYTES,
-    MAX_PLAYERS,
+    Chamber, Command, Event, Recipe, Snapshot, BUTTON_JUMP, MAX_BALLOONS_PER_SNAPSHOT,
+    MAX_PAYLOAD_BYTES, MAX_PLAYERS,
 };
 use tv_sim::testkit::{scripted_commands, synthetic_chem};
 use tv_sim::{
-    ChemBackend, NullChem, SplitMix64, World, ARENA_RADIUS_M, INPUT_TIMEOUT_TICKS, PLAYER_RADIUS_M,
-    TICK_HZ, WALK_SPEED_MS,
+    ChemBackend, NullChem, SplitMix64, World, ARENA_RADIUS_M, INPUT_TIMEOUT_TICKS, JUMP_SPEED_MS,
+    PLAYER_RADIUS_M, TICK_HZ, WALK_SPEED_MS,
 };
 
 fn simple_recipe() -> Recipe {
@@ -42,7 +42,28 @@ fn walk(forward: i8, strafe: i8, yaw_q: u16) -> Command {
         forward,
         strafe,
         yaw_q,
+        buttons: 0,
     }
+}
+
+/// A player standing still with the jump button held.
+fn jump() -> Command {
+    Command::Input {
+        forward: 0,
+        strafe: 0,
+        yaw_q: 0,
+        buttons: BUTTON_JUMP,
+    }
+}
+
+/// Where the feet of player `id` are above the floor, in millimetres.
+fn height<C: ChemBackend>(w: &World<C>, id: u8) -> i32 {
+    w.snapshot()
+        .players
+        .into_iter()
+        .find(|p| p.id == id)
+        .expect("player has not joined")
+        .pos_mm[1]
 }
 
 /// Where player `id` is, in millimetres on the floor (x, z).
@@ -478,4 +499,182 @@ fn snapshot_reports_motion_in_wire_units() {
     );
     assert_eq!(b.owner, 1);
     assert!(b.pos_mm[1] > 1500);
+}
+
+#[test]
+fn players_stand_on_the_floor_until_they_jump() {
+    let mut w = World::new(0, NullChem);
+    w.step(&[(0, walk(127, 0, 0))]);
+    for _ in 0..120 {
+        w.step(&[(0, walk(127, 127, 3000))]);
+        assert_eq!(height(&w, 0), 0);
+    }
+}
+
+#[test]
+fn a_jump_goes_up_comes_down_and_lands_where_it_left() {
+    let mut w = World::new(0, NullChem);
+    w.step(&[(0, jump())]);
+    let start = at(&w, 0);
+    let mut peak = 0;
+    let mut airborne_ticks = 0;
+    for _ in 0..60 {
+        w.step(&[]);
+        peak = peak.max(height(&w, 0));
+        if height(&w, 0) > 0 {
+            airborne_ticks += 1;
+        }
+    }
+    // v squared over twice gravity, from 3 m/s: 0.458 m, a little less for the tick it is counted in.
+    let want = (JUMP_SPEED_MS * JUMP_SPEED_MS / (2.0 * 9.81) * 1000.0) as i32;
+    assert!(
+        (peak - want).abs() < 25,
+        "peaked at {peak} mm, wanted about {want}"
+    );
+    assert_eq!(height(&w, 0), 0, "back on the floor");
+    assert_eq!(at(&w, 0), start, "and where it left");
+    // Up and down take 2 v over g seconds, about 37 ticks.
+    assert!(
+        (34..=40).contains(&airborne_ticks),
+        "was in the air for {airborne_ticks} ticks"
+    );
+}
+
+#[test]
+fn there_is_no_jumping_in_the_air() {
+    // Holding the button in the air does not lift the player higher than one jump does.
+    let mut w = World::new(0, NullChem);
+    w.step(&[(0, jump())]);
+    let mut peak = 0;
+    for _ in 0..30 {
+        w.step(&[(0, jump())]);
+        peak = peak.max(height(&w, 0));
+    }
+    assert!(
+        peak < 480,
+        "peaked at {peak} mm: a second jump started in the air"
+    );
+}
+
+#[test]
+fn holding_jump_jumps_again_on_landing() {
+    let mut w = World::new(0, NullChem);
+    let mut peaks = 0;
+    let mut rising = false;
+    let mut last = 0;
+    for _ in 0..200 {
+        w.step(&[(0, jump())]);
+        let h = height(&w, 0);
+        if h > last {
+            rising = true;
+        } else if h < last && rising {
+            peaks += 1;
+            rising = false;
+        }
+        last = h;
+    }
+    assert!(
+        peaks >= 4,
+        "only {peaks} jumps in 200 ticks of holding the button"
+    );
+}
+
+#[test]
+fn a_jump_without_the_button_held_goes_no_further_than_the_input_lasts() {
+    // One input with the button, then nothing: the quiet timeout lets go of the button, so the
+    // player does not hop for ever, and lands once.
+    let mut w = World::new(0, NullChem);
+    w.step(&[(0, jump())]);
+    let mut landings = 0;
+    let mut last = 0;
+    for _ in 0..200 {
+        w.step(&[]);
+        let h = height(&w, 0);
+        if h == 0 && last > 0 {
+            landings += 1;
+        }
+        last = h;
+    }
+    assert_eq!(landings, 1);
+}
+
+#[test]
+fn a_jump_does_not_stop_the_walk() {
+    let mut w = World::new(0, NullChem);
+    let cmd = Command::Input {
+        forward: 127,
+        strafe: 0,
+        yaw_q: 0,
+        buttons: BUTTON_JUMP,
+    };
+    for _ in 0..TICK_HZ {
+        w.step(&[(0, cmd.clone())]);
+    }
+    let [_, z] = at(&w, 0);
+    let walked = 14_000 - z;
+    assert!(
+        (walked - 3200).abs() < 25,
+        "walked {walked} mm in a second of jumping"
+    );
+}
+
+#[test]
+fn a_throw_from_the_air_leaves_from_where_the_hand_is() {
+    let mut w = World::new(0, NullChem);
+    w.step(&[(0, jump())]);
+    for _ in 0..18 {
+        w.step(&[]);
+    }
+    let up = height(&w, 0);
+    assert!(up > 350, "should be near the top, is at {up} mm");
+    w.step(&[(0, throw(0, [0, 0, 1000], 100))]);
+    let b = w.snapshot().balloons[0];
+    let feet = height(&w, 0);
+    // Level throw: the hand is 1.5 m above the feet, less a tick of gravity.
+    assert!(
+        (b.pos_mm[1] - (feet + 1500)).abs() < 30,
+        "the balloon is at {} and the feet at {feet}",
+        b.pos_mm[1]
+    );
+}
+
+#[test]
+fn the_state_hash_sees_the_height_and_the_buttons() {
+    let mut a = World::new(3, NullChem);
+    let mut b = World::new(3, NullChem);
+    a.step(&[(0, jump())]);
+    b.step(&[(0, walk(0, 0, 0))]);
+    // The same input from here on, so only the height of one of them tells them apart.
+    for _ in 0..5 {
+        a.step(&[(0, walk(0, 0, 0))]);
+        b.step(&[(0, walk(0, 0, 0))]);
+    }
+    assert!(height(&a, 0) > 0 && height(&b, 0) == 0);
+    assert_ne!(
+        a.state_hash(),
+        b.state_hash(),
+        "a jump in the air left no mark on the hash"
+    );
+    // A held button is a different state even when it changes nothing yet: two players in the air
+    // at the same height, one holding the jump button, which cannot do anything up there.
+    let mut c = World::new(3, NullChem);
+    let mut d = World::new(3, NullChem);
+    c.step(&[(0, jump())]);
+    d.step(&[(0, jump())]);
+    for _ in 0..5 {
+        c.step(&[(0, walk(0, 0, 0))]);
+        d.step(&[(0, walk(0, 0, 0))]);
+    }
+    c.step(&[(0, walk(0, 0, 0))]);
+    d.step(&[(0, jump())]);
+    assert_eq!(
+        height(&c, 0),
+        height(&d, 0),
+        "the button changed nothing in the air"
+    );
+    assert_ne!(
+        c.state_hash(),
+        d.state_hash(),
+        "a held button left no mark on the hash"
+    );
 }

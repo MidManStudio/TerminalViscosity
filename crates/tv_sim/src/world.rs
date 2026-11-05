@@ -10,7 +10,7 @@ use crate::balloon::{dominant_compound, impact_outcome, total_volume_ml, validat
 use crate::chem::ChemBackend;
 use crate::rng::SplitMix64;
 use tv_proto::wire::{q_to_yaw, BalloonState, Command, Event, PlayerId, PlayerState, Snapshot};
-use tv_proto::{BalloonId, Recipe, MAX_BALLOONS_PER_SNAPSHOT, MAX_PLAYERS};
+use tv_proto::{BalloonId, Recipe, BUTTON_JUMP, MAX_BALLOONS_PER_SNAPSHOT, MAX_PLAYERS};
 
 /// Simulation ticks per second.
 pub const TICK_HZ: u32 = 60;
@@ -26,6 +26,8 @@ pub const ARENA_RADIUS_M: f32 = 20.0;
 pub const WALK_SPEED_MS: f32 = 3.2;
 /// How far from the arena wall the centre of a player has to stay, in metres.
 pub const PLAYER_RADIUS_M: f32 = 0.3;
+/// Upward speed of a jump in metres per second, the lab's: about a 46 cm jump, over in 0.6 s.
+pub const JUMP_SPEED_MS: f32 = 3.0;
 /// Ticks without an input command after which a walking player stops, so a client that
 /// goes quiet does not leave its player running.
 pub const INPUT_TIMEOUT_TICKS: u8 = 30;
@@ -62,9 +64,14 @@ struct Balloon {
 struct Player {
     /// Position on the floor: x, then z.
     pos: [f32; 2],
+    /// Height of the feet above the floor, in metres, and how fast it is changing.
+    y: f32,
+    vy: f32,
     yaw_q: u16,
     forward: i8,
     strafe: i8,
+    /// The buttons held, see [`BUTTON_JUMP`].
+    buttons: u8,
     /// Ticks since the last input command, saturating.
     quiet: u8,
 }
@@ -149,11 +156,13 @@ impl<C: ChemBackend> World<C> {
                     forward,
                     strafe,
                     yaw_q,
+                    buttons,
                 } => {
                     if let Some(p) = self.players[*player as usize].as_mut() {
                         p.forward = *forward;
                         p.strafe = *strafe;
                         p.yaw_q = *yaw_q;
+                        p.buttons = *buttons;
                         p.quiet = 0;
                     }
                 }
@@ -176,22 +185,39 @@ impl<C: ChemBackend> World<C> {
             let (pos, yaw_q) = SPAWN_POINTS[id as usize];
             *slot = Some(Player {
                 pos,
+                y: 0.0,
+                vy: 0.0,
                 yaw_q,
                 forward: 0,
                 strafe: 0,
+                buttons: 0,
                 quiet: INPUT_TIMEOUT_TICKS,
             });
         }
         true
     }
 
-    /// Moves every player by the stick they last sent, and keeps them inside the arena.
+    /// Moves every player by the stick and buttons they last sent: a jump if the button is held
+    /// on the floor, which cannot be repeated in the air, and a walk, which goes on in the air
+    /// as on the floor. Keeps them inside the arena.
     fn walk(&mut self) {
         for p in self.players.iter_mut().flatten() {
             p.quiet = p.quiet.saturating_add(1);
             if p.quiet >= INPUT_TIMEOUT_TICKS {
                 p.forward = 0;
                 p.strafe = 0;
+                p.buttons = 0;
+            }
+            if p.buttons & BUTTON_JUMP != 0 && p.y <= 0.0 {
+                p.vy = JUMP_SPEED_MS;
+            }
+            if p.vy != 0.0 || p.y > 0.0 {
+                p.vy -= GRAVITY * DT;
+                p.y += p.vy * DT;
+                if p.y <= 0.0 {
+                    p.y = 0.0;
+                    p.vy = 0.0;
+                }
             }
             if p.forward == 0 && p.strafe == 0 {
                 continue;
@@ -243,7 +269,7 @@ impl<C: ChemBackend> World<C> {
             recipe: recipe.clone(),
             pos: [
                 thrower.pos[0] + aim[0] * THROW_REACH_M,
-                THROW_HEIGHT_M + aim[1] * THROW_REACH_M,
+                thrower.y + THROW_HEIGHT_M + aim[1] * THROW_REACH_M,
                 thrower.pos[1] + aim[2] * THROW_REACH_M,
             ],
             vel: aim.map(|a| a * speed),
@@ -305,7 +331,7 @@ impl<C: ChemBackend> World<C> {
                 .filter_map(|(id, p)| {
                     p.map(|p| PlayerState {
                         id: id as PlayerId,
-                        pos_mm: [mm(p.pos[0]), 0, mm(p.pos[1])],
+                        pos_mm: [mm(p.pos[0]), mm(p.y), mm(p.pos[1])],
                         yaw_q: p.yaw_q,
                         flags: 0,
                     })
@@ -341,6 +367,10 @@ impl<C: ChemBackend> World<C> {
                 h.u64(p.forward as u8 as u64);
                 h.u64(p.strafe as u8 as u64);
                 h.u64(p.quiet as u64);
+                h.u64(p.buttons as u64);
+                // The height is hashed and the speed is not: in a jump, with one jump speed and one
+                // gravity, the one follows from the other.
+                h.u64(p.y.to_bits() as u64);
                 h.u64(p.pos[0].to_bits() as u64);
                 h.u64(p.pos[1].to_bits() as u64);
             }

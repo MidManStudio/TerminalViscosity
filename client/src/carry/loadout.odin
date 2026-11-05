@@ -35,6 +35,7 @@ Spot :: enum u8 {
 	Paint, // the clamp of the paint station
 	Tablet, // the tablet beside it
 	Slot, // a hook of the loadout rack
+	Burn, // the incinerator
 }
 
 // The one action the grab button does at a spot, with a balloon or without.
@@ -46,6 +47,7 @@ Balloon_Action :: enum u8 {
 	Paint, // draw on the tablet, which the balloon in the clamp wears
 	Store, // hang the balloon in the hand on a hook
 	Take_Slot, // take the balloon off a hook
+	Burn, // burn the balloon in the hand in the incinerator, which is gone for good
 }
 
 // The balloons the player has: one in the hand, one in the paint station, and the
@@ -65,7 +67,7 @@ loadout_hands_full :: proc(lo: ^Loadout) -> bool {
 }
 
 // Finds what the crosshair is on among the fill clamp, the paint station, the tablet,
-// and the hooks of the rack: the nearest one within reach, and nearer than any vessel. Run it
+// the hooks of the rack, and the incinerator: the nearest one within reach, and nearer than any vessel. Run it
 // after `filler_aim`, which says whether the crosshair is on the fill clamp.
 loadout_aim :: proc(lo: ^Loadout, f: ^Filler, props: ^Props, v: View) {
 	dir := -v.back
@@ -90,6 +92,10 @@ loadout_aim :: proc(lo: ^Loadout, f: ^Filler, props: ^Props, v: View) {
 			lo.spot, lo.spot_slot = .Slot, i
 		}
 	}
+	if t, hit := ray_box(v.eye, dir, lab.INCINERATOR_AIM_LOW, lab.INCINERATOR_AIM_HIGH); hit && t < best_t {
+		best_t = t
+		lo.spot, lo.spot_slot = .Burn, -1
+	}
 	lo.spot_t = best_t
 	if lo.spot == .None || best_t > REACH || (props.aimed != -1 && best_t >= props.aimed_t) {
 		lo.spot, lo.spot_slot = .None, -1
@@ -100,7 +106,8 @@ loadout_aim :: proc(lo: ^Loadout, f: ^Filler, props: ^Props, v: View) {
 // clamp it ties off a balloon that has something in it, and takes it, with empty
 // hands. At the paint station and a hook it puts the balloon in the hand there if the
 // place is free, and takes the balloon there if the hand is free. At the tablet it
-// starts drawing, if a balloon is clamped, in hands that hold no vessel.
+// starts drawing, if a balloon is clamped, in hands that hold no vessel. At the incinerator
+// it burns the balloon in the hand, and with empty hands it does nothing.
 balloon_action :: proc(lo: ^Loadout, f: ^Filler, props: ^Props) -> Balloon_Action {
 	if props.held != -1 {
 		return .None
@@ -127,6 +134,10 @@ balloon_action :: proc(lo: ^Loadout, f: ^Filler, props: ^Props) -> Balloon_Actio
 			return .Store
 		} else if !lo.hand.used && slot.used {
 			return .Take_Slot
+		}
+	case .Burn:
+		if lo.hand.used {
+			return .Burn
 		}
 	}
 	return .None
@@ -178,6 +189,11 @@ balloon_do :: proc(lo: ^Loadout, f: ^Filler, action: Balloon_Action) -> (let_out
 		lo.slots[lo.spot_slot], lo.hand = lo.hand, {}
 	case .Take_Slot:
 		lo.hand, lo.slots[lo.spot_slot] = lo.slots[lo.spot_slot], {}
+	case .Burn:
+		if !lo.hand.used {
+			return 0, false
+		}
+		lo.hand = {} // only the hand: whatever is in the paint station or on a hook stays
 	}
 	return 0, true
 }

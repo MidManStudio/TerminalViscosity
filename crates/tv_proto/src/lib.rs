@@ -15,11 +15,11 @@ pub mod wire;
 pub use codec::DecodeError;
 pub use wire::{
     q_to_yaw, yaw_to_q, BalloonId, BalloonState, Chamber, Command, CompoundId, Event, PlayerId,
-    PlayerState, Recipe, Snapshot,
+    PlayerState, Recipe, Snapshot, BUTTON_JUMP,
 };
 
 /// Bumped whenever an encoded layout changes.
-pub const PROTOCOL_VERSION: u16 = 2;
+pub const PROTOCOL_VERSION: u16 = 3;
 
 /// Largest datagram payload the snapshot encoder is allowed to produce.
 /// 1200 bytes stays under the usual path MTU once IP and UDP/QUIC headers are added.

@@ -29,7 +29,9 @@
 
 - Total balloon volume (1000 ml), chamber count (4), the burst combining rule, the blast radius formula, launch speed per unit of power, and spawn positions are scaffold values in `tv_sim`.
 - Players walking a round arena of 20 m radius exist in the simulation, and balloons burst on the ground and on the wall. Hit detection, damage, hit points, respawn, and the kill cam do not, because the combat rules are not specified.
-- The arena numbers are first guesses to tune by feel: walking speed 3.2 m/s, throw power 6 to 18 m/s over 1.2 s of holding, 0.5 s between throws, a throw height of 1.5 m, eight spawn points on a ring of 14 m, and a coliseum with five tiers and an outer wall 12 m high.
+- The arena numbers are first guesses to tune by feel: walking speed 3.2 m/s, jump speed 3 m/s (the lab's, about 46 cm), throw power 6 to 18 m/s over 1.2 s of holding, 0.5 s between throws, a throw height of 1.5 m, eight spawn points on a ring of 14 m, and a coliseum with five tiers and an outer wall 12 m high.
+- The incinerator takes only the balloon in the hand, and what it burns is gone for good with no undo. It stands at the east end of the south counter, past the loadout rack.
+- The drawing screen has the tools on the right and the balloon on the left, as the owner asked. A way to put an image straight onto a balloon was asked about and is not built: on a phone it needs a way to get the file in, either a fixed file name in the game's folder or an Android file picker.
 - A throw does not use up the balloon, and with no balloon on any hook the arena offers a plain water balloon of 500 ml. Neither was asked for.
 - Drawn between ticks, the arena shows the world one tick, 17 ms, late.
 - Other players' balloons are drawn plain at 500 ml, because the snapshot carries neither their fill nor their drawing. Drawings are meant to be sent once, when a player joins, and that is not built.
