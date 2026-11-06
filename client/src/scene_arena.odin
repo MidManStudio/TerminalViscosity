@@ -35,6 +35,7 @@ Arena :: struct {
 	slots:       [carry.LOADOUT_SLOTS]arena.Slot,
 	thrower:     arena.Thrower,
 	view:        Arena_View,
+	pool:        Character_Pool, // the other players, drawn as the temporary character
 	fx:          effects.Effects,
 	fx_view:     Effects_View,
 	blast_flash: f32,
@@ -56,7 +57,7 @@ arena_load :: proc(game: ^Game) -> rawptr {
 	shader, ok := load_arena_shader()
 	arena_mesh_init(&a.mesh, a.coliseum, shader, ok)
 
-	a.host = local_host_new(ARENA_SEED, arena.LOCAL_PLAYER)
+	a.host = local_host_new(ARENA_SEED, arena.LOCAL_PLAYER, 1) // with a bot to look at
 	if a.host != nil {
 		a.table = local_host_table(a.host)
 		// The player starts facing the middle of the arena, wherever the match put them.
@@ -71,6 +72,7 @@ arena_load :: proc(game: ^Game) -> rawptr {
 	arena_view_init(&a.view, balloon_shader, balloon_ok)
 	effects.init(&a.fx)
 	effects_view_init(&a.fx_view)
+	character_pool_init(&a.pool)
 	if game.art == nil {
 		game.art = new(carry.Art_Store)
 	}
@@ -93,6 +95,7 @@ arena_unload :: proc(game: ^Game, state: rawptr) {
 	a := cast(^Arena)state
 	rlgl.SetClipPlanes(0.05, 4000)
 	arena_view_unload(&a.view)
+	character_pool_unload(&a.pool)
 	effects_view_unload(&a.fx_view)
 	lab_mesh_unload(&a.mesh)
 	local_host_free(a.host)
@@ -203,6 +206,7 @@ arena_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 		eye = arena.eye_of(p)
 	}
 	arena_view_update(&a.view, &a.slots, a.thrower.selected, game.art, view_basis(eye, a.look), dt)
+	character_pool_update(&a.pool, view, arena.LOCAL_PLAYER, dt)
 
 	effects.step(&a.fx, dt)
 	a.blast_flash *= 1 - min(dt * 4, 1)
@@ -235,6 +239,7 @@ arena_draw :: proc(game: ^Game, state: rawptr) {
 	if a.host != nil {
 		view := arena.host_view(&a.table)
 		arena_view_draw(&a.view, view, &a.slots, a.thrower.selected, arena.LOCAL_PLAYER, camera.position, a.thrower.cooldown <= 0)
+		character_pool_draw(&a.pool, view, arena.LOCAL_PLAYER, a.mesh.material)
 	}
 	forward := linalg_normalize(camera.target - camera.position)
 	cam_right := linalg_normalize(linalg_cross(forward, {0, 1, 0}))

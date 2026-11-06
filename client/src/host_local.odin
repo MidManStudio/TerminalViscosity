@@ -6,6 +6,7 @@
 package main
 
 import "arena"
+import "chem"
 import "core:math"
 
 TICK_DT :: f32(1.0 / 60.0) // the simulation's tick, tv_sim::DT
@@ -21,6 +22,9 @@ Local_Host :: struct {
 	player:     u8, // the player this client is
 	input:      arena.Input, // the latest stick and heading, sent again every tick
 	has_input:  bool,
+	bot:        arena.Bot, // the stand-in for another player, if there is one
+	bot_id:     u8,
+	has_bot:    bool,
 	pending:    f32, // seconds of the frame clock not yet stepped
 	prev, curr: arena.Match_View, // the last two ticks
 	out:        arena.Match_View, // what the scene is shown
@@ -31,9 +35,10 @@ Local_Host :: struct {
 	dets:       [arena.MAX_BURSTS]TvDetonateView,
 }
 
-// Starts a match with `player` already standing on its spawn point. Returns nil if the
-// library cannot make a world.
-local_host_new :: proc(seed: u64, player: u8) -> ^Local_Host {
+// Starts a match with `player` already standing on its spawn point, and with a stand-in bot as
+// the next player if `bots` is 1 or more, which the host drives like a client would. Returns nil
+// if the library cannot make a world.
+local_host_new :: proc(seed: u64, player: u8, bots := 0) -> ^Local_Host {
 	h := new(Local_Host)
 	h.world = tv_world_new(seed)
 	if h.world == nil {
@@ -45,6 +50,19 @@ local_host_new :: proc(seed: u64, player: u8) -> ^Local_Host {
 		tv_world_free(h.world)
 		free(h)
 		return nil
+	}
+	if bots > 0 {
+		h.has_bot = true
+		h.bot_id = (player + 1) % arena.MAX_PLAYERS
+		if tv_world_join(h.world, h.bot_id) != TV_OK || !local_read(h, &h.curr) {
+			tv_world_free(h.world)
+			free(h)
+			return nil
+		}
+		// It starts facing the middle, as the match placed it.
+		if p, found := arena.view_player(&h.curr, h.bot_id); found {
+			h.bot.heading = p.yaw
+		}
 	}
 	h.prev = h.curr
 	arena.view_blend(&h.out, &h.prev, &h.curr, 1)
@@ -107,25 +125,27 @@ local_submit_input :: proc(data: rawptr, input: arena.Input) {
 	h.has_input = true
 }
 
-// Sends the latest input to the world. Run once for every tick, so the world keeps
-// walking the player for as long as the sticks are held.
-local_send_input :: proc(h: ^Local_Host) {
-	if !h.has_input {
-		return
-	}
+// Sends an input for `player` to the world. Run once for every tick, so the world keeps walking
+// the player for as long as the sticks are held.
+local_send :: proc(h: ^Local_Host, player: u8, input: arena.Input) {
 	stick :: proc(v: f32) -> i8 {
 		return i8(clamp(math.round(v * 127), -127, 127))
 	}
 	cmd: [16]u8
-	buttons := h.input.jump ? TV_BUTTON_JUMP : 0
-	n := tv_encode_input(stick(h.input.forward), stick(h.input.strafe), i32(math.round(h.input.yaw * 1000)), buttons, raw_data(cmd[:]), len(cmd))
+	buttons := input.jump ? TV_BUTTON_JUMP : 0
+	n := tv_encode_input(stick(input.forward), stick(input.strafe), i32(math.round(input.yaw * 1000)), buttons, raw_data(cmd[:]), len(cmd))
 	if n > 0 {
-		tv_world_submit(h.world, h.player, raw_data(cmd[:]), u32(n))
+		tv_world_submit(h.world, player, raw_data(cmd[:]), u32(n))
 	}
 }
 
-local_submit_throw :: proc(data: rawptr, throw: arena.Throw) -> bool {
-	h := cast(^Local_Host)data
+local_send_input :: proc(h: ^Local_Host) {
+	if h.has_input {
+		local_send(h, h.player, h.input)
+	}
+}
+
+local_throw :: proc(h: ^Local_Host, player: u8, throw: arena.Throw) -> bool {
 	chamber := TvChamber{compound = throw.compound, volume_ml = throw.ml}
 	dir := arena.dir_wire(throw.dir)
 	cmd: [64]u8
@@ -133,7 +153,29 @@ local_submit_throw :: proc(data: rawptr, throw: arena.Throw) -> bool {
 	if n <= 0 {
 		return false
 	}
-	return tv_world_submit(h.world, h.player, raw_data(cmd[:]), u32(n)) == TV_OK
+	return tv_world_submit(h.world, player, raw_data(cmd[:]), u32(n)) == TV_OK
+}
+
+local_submit_throw :: proc(data: rawptr, throw: arena.Throw) -> bool {
+	h := cast(^Local_Host)data
+	return local_throw(h, h.player, throw)
+}
+
+// What the bot does this tick: it sends an input and now and then a throw, as a client would.
+local_bot_tick :: proc(h: ^Local_Host) {
+	if !h.has_bot {
+		return
+	}
+	p, found := arena.view_player(&h.curr, h.bot_id)
+	if !found {
+		return
+	}
+	input, throw := arena.bot_step(&h.bot, p.pos, TICK_DT)
+	local_send(h, h.bot_id, input)
+	if throw {
+		aim := arena.look_dir({yaw = input.yaw, pitch = arena.BOT_THROW_PITCH})
+		local_throw(h, h.bot_id, {slot = 0, compound = u16(chem.Id.Water), ml = 300, dir = aim, power = arena.BOT_THROW_POWER})
+	}
 }
 
 local_step :: proc(data: rawptr, dt: f32) {
@@ -143,6 +185,7 @@ local_step :: proc(data: rawptr, dt: f32) {
 	for h.pending >= TICK_DT {
 		h.pending -= TICK_DT
 		local_send_input(h)
+		local_bot_tick(h)
 		tv_world_step(h.world)
 		h.prev = h.curr
 		local_read(h, &h.curr)

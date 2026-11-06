@@ -273,6 +273,29 @@ a_player_is_on_the_floor_until_the_feet_leave_it :: proc(t: ^testing.T) {
 }
 
 @(test)
+a_throw_is_seen_when_a_balloon_of_the_owner_appears :: proc(t: ^testing.T) {
+	prev, curr: Match_View
+	prev.balloons[0] = {id = 5, owner = 1}
+	prev.balloon_count = 1
+	curr.balloons[0] = {id = 5, owner = 1}
+	curr.balloon_count = 1
+	testing.expect(t, !thrown_by(&prev, &curr, 1), "the same balloon is not a throw")
+	curr.balloons[1] = {id = 6, owner = 1}
+	curr.balloon_count = 2
+	testing.expect(t, thrown_by(&prev, &curr, 1), "a new one of theirs is")
+	testing.expect(t, !thrown_by(&prev, &curr, 2), "and it is not somebody else's")
+	curr.balloons[1].owner = 2
+	testing.expect(t, thrown_by(&prev, &curr, 2) && !thrown_by(&prev, &curr, 1), "it is the owner's that counts")
+	prev.balloon_count = 0
+	curr.balloon_count = 0
+	testing.expect(t, !thrown_by(&prev, &curr, 1), "no balloons, no throw")
+	// A balloon that burst between the views is not a throw either.
+	prev.balloons[0] = {id = 9, owner = 1}
+	prev.balloon_count = 1
+	testing.expect(t, !thrown_by(&prev, &curr, 1), "a balloon that is gone is not a throw")
+}
+
+@(test)
 players_are_found_by_id_and_the_eye_is_above_the_feet :: proc(t: ^testing.T) {
 	v: Match_View
 	v.players[0] = {id = 3, pos = {1, 0, 2}, yaw = 0.5}

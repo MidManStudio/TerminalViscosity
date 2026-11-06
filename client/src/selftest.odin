@@ -273,6 +273,57 @@ selftest_arena :: proc(failures: ^int) {
 	arena.host_step(&other_host, TICK_DT)
 	arena.host_step(&other_host, TICK_DT)
 	check(failures, other_view.balloon_count == 1 && other_view.balloons[0].owner == 3 && other_view.balloons[0].slot == 1, "its balloon is marked as player 3's")
+
+
+	// A match with the stand-in bot: it is a second player on its own spawn point, and in eleven seconds
+	// it walks, throws twice, and the two balloons burst, all inside the arena, while the player who has
+	// sent nothing has not moved.
+	with_bot := local_host_new(7, arena.LOCAL_PLAYER, 1)
+	check(failures, with_bot != nil, "a match with a bot starts")
+	if with_bot == nil {
+		return
+	}
+	defer local_host_free(with_bot)
+	bot_host := local_host_table(with_bot)
+	bot_view := arena.host_view(&bot_host)
+	bot_start, bot_found := arena.view_player(bot_view, 1)
+	check(failures, bot_view.player_count == 2 && bot_found, "the bot is a second player")
+	check(failures, abs(bot_start.pos.x - 9.9) < 0.01 && abs(bot_start.pos.z - 9.9) < 0.01 && abs(bot_start.yaw - 5.4978) < 0.001, "on its own spawn point, facing the middle")
+	// Half a second in, it is still facing the middle as the match placed it: its heading starts there.
+	for _ in 0 ..< 30 {
+		arena.host_step(&bot_host, TICK_DT)
+	}
+	bot_early, _ := arena.view_player(bot_view, 1)
+	check(failures, abs(bot_early.yaw - 5.4978) < 0.25, "the bot starts out facing the middle")
+	bot_balloons, bot_bursts := 0, 0
+	seen_bot_balloon := false
+	bot_far: f32
+	bot_jumped := false
+	for _ in 0 ..< 60 * 11 {
+		arena.host_step(&bot_host, TICK_DT)
+		for i in 0 ..< bot_view.balloon_count {
+			if bot_view.balloons[i].owner == 1 && bot_view.balloons[i].slot == 0 {
+				seen_bot_balloon = true
+				bot_balloons += 1
+			}
+		}
+		bot_bursts += bot_view.burst_count
+		if bp, ok := arena.view_player(bot_view, 1); ok {
+			bot_far = max(bot_far, math.sqrt(bp.pos.x * bp.pos.x + bp.pos.z * bp.pos.z))
+			if !arena.on_floor(bp) {
+				bot_jumped = true
+			}
+		}
+	}
+	bot_end, _ := arena.view_player(bot_view, 1)
+	bot_moved := math.sqrt((bot_end.pos.x - bot_start.pos.x) * (bot_end.pos.x - bot_start.pos.x) + (bot_end.pos.z - bot_start.pos.z) * (bot_end.pos.z - bot_start.pos.z))
+	check(failures, bot_moved > 2, "the bot walks")
+	check(failures, bot_jumped, "and jumps")
+	check(failures, seen_bot_balloon && bot_balloons > 20, "its balloons are in the air, marked as its own")
+	check(failures, bot_bursts == 2, "the two it threw burst")
+	check(failures, bot_far < arena.BOT_RADIUS + 3 && bot_far < arena.ARENA_RADIUS, "all inside the arena")
+	me, me_found := arena.view_player(bot_view, arena.LOCAL_PLAYER)
+	check(failures, me_found && abs(me.pos.z - 14) < 0.001 && abs(me.pos.x) < 0.001, "and the player who sent nothing is where they started")
 }
 
 // Checks that the drawing screen puts the balloon where its layout leaves room for it: the

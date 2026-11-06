@@ -137,6 +137,27 @@ on_floor :: proc(p: Player_View) -> bool {
 	return p.pos.y <= 0.02
 }
 
+// Whether `owner` has just thrown: there is a balloon of theirs in `curr` that was not in `prev`,
+// two views of the match one after the other.
+thrown_by :: proc(prev, curr: ^Match_View, owner: u8) -> bool {
+	for i in 0 ..< curr.balloon_count {
+		if curr.balloons[i].owner != owner {
+			continue
+		}
+		known := false
+		for j in 0 ..< prev.balloon_count {
+			if prev.balloons[j].id == curr.balloons[i].id {
+				known = true
+				break
+			}
+		}
+		if !known {
+			return true
+		}
+	}
+	return false
+}
+
 // Where the eye of a player is: the feet, and the height of the head.
 eye_of :: proc(p: Player_View) -> Vec3 {
 	return p.pos + {0, EYE_HEIGHT, 0}
