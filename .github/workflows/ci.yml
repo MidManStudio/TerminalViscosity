@@ -101,6 +101,8 @@ jobs:
         run: odin test client/src/effects -vet -strict-style
       - name: Arena tests
         run: odin test client/src/arena -vet -strict-style
+      - name: Character tests
+        run: odin test client/src/character -vet -strict-style
       - name: Liquid simulation tests
         run: odin test client/src/mpm -vet -strict-style
       - name: Store tests with a stand-in DixScript library
