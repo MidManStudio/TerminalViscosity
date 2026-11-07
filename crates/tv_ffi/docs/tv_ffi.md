@@ -19,7 +19,7 @@ Every function checks pointers for null, checks buffer sizes before copying, and
 - Commands go in as encoded bytes (`tv_encode_throw` or `tv_encode_input`, then `tv_world_submit`) so the Odin side never builds a Rust enum. A throw names its loadout slot. An input takes the heading in thousandths of a radian, as an integer, so no float crosses the boundary on a 32-bit ARM target, and Rust turns it into the wire value.
 - Players come out of a snapshot with `tv_snapshot_decode_players`, separate from the balloons, so the older call keeps its shape. The heading comes back in thousandths of a radian too, and the client never sees the quantized wire value.
 - `tv_world_join` puts a player in the match without a command, so a client can read where it starts. `tv_arena_radius_mm` says how big the arena is.
-- The ABI version is 3. Version 2: the throw encoder gained a slot and the snapshot gained players. Version 3: the input encoder gained the buttons byte, and the header says which bit is the jump, `TV_BUTTON_JUMP`, which a test checks against the protocol.
+- The ABI version is 4. Version 4: `TvPlayerView` carries `hp`, the hit points left, in the byte that was reserved, so the struct keeps its 20 bytes, and `tv_max_health` says what a full set is. Version 2: the throw encoder gained a slot and the snapshot gained players. Version 3: the input encoder gained the buttons byte, and the header says which bit is the jump, `TV_BUTTON_JUMP`, which a test checks against the protocol.
 - Snapshots and events come out as bytes and are decoded into arrays of view structs in one call, which avoids per-item calls and repeated decoding.
 - `tv_world_take_events` keeps the events if the output buffer is too small.
 - The world uses `NullChem` for now. A chemistry-backed constructor arrives with the chemistry adapter.
@@ -33,6 +33,8 @@ Every function checks pointers for null, checks buffer sizes before copying, and
 ### `ffi_tests.rs`
 **What it does:** A full cycle through the C ABI, including the slot coming back in the balloon and the player in the snapshot. Walking through the ABI moves the decoded player along its heading, holding jump lifts it about 46 cm and it lands, headings wrap and negative ones come back positive, joining spawns the player facing the middle, and the arena radius is 20 m. Also hash equality between identical worlds, null and bad-input handling (a full player buffer, a short snapshot, a stick of -128), and a header check: constants and struct sizes match, and every exported function is declared in `tv.h`.
 
+Hit points through the ABI: `tv_max_health` is 100 and is declared in the header, a joined player starts with all of them, and a balloon walked into at 2.4 m takes exactly 20 off the decoded player and none off the thrower.
+
 ## CI and Workflows
 
 - `.github/workflows/ci.yml` job `rust` runs these tests. Job `odin` links the static library into the client and runs `tv_client --selftest`, which checks the ABI from the Odin side.
@@ -41,6 +43,8 @@ Every function checks pointers for null, checks buffer sizes before copying, and
 
 ### `lib.rs`
 - The test for headings that wrap sent a second heading and read nothing back, so it could not fail. It now checks that a full turn and a bit comes back as the bit.
+
+- Nothing went wrong with the rename of the reserved byte. The new test hits a player through the ABI and reads the hit points back out of the decoded snapshot.
 
 ### `tv.h`
 - None recorded yet.

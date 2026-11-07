@@ -59,7 +59,8 @@ local_host_new :: proc(seed: u64, player: u8, bots := 0) -> ^Local_Host {
 			free(h)
 			return nil
 		}
-		// It starts facing the middle, as the match placed it.
+		// It starts facing the middle, as the match placed it, and plays its own game for each seed.
+		h.bot = arena.bot_new(u32(seed) ~ 0x9E3779B9)
 		if p, found := arena.view_player(&h.curr, h.bot_id); found {
 			h.bot.heading = p.yaw
 		}
@@ -102,6 +103,7 @@ local_read :: proc(h: ^Local_Host, view: ^arena.Match_View) -> bool {
 			id  = p.id,
 			pos = {f32(p.pos_mm[0]), f32(p.pos_mm[1]), f32(p.pos_mm[2])} * 0.001,
 			yaw = f32(p.yaw_mrad) * 0.001,
+			hp  = p.hp,
 		}
 	}
 	view.balloon_count = int(bc)
@@ -161,20 +163,16 @@ local_submit_throw :: proc(data: rawptr, throw: arena.Throw) -> bool {
 	return local_throw(h, h.player, throw)
 }
 
-// What the bot does this tick: it sends an input and now and then a throw, as a client would.
+// What the bot does this tick: it looks at the match as of the last tick, and sends an input and
+// now and then a throw, as a client would. A water balloon of the size the practice balloon is.
 local_bot_tick :: proc(h: ^Local_Host) {
 	if !h.has_bot {
 		return
 	}
-	p, found := arena.view_player(&h.curr, h.bot_id)
-	if !found {
-		return
-	}
-	input, throw := arena.bot_step(&h.bot, p.pos, TICK_DT)
-	local_send(h, h.bot_id, input)
-	if throw {
-		aim := arena.look_dir({yaw = input.yaw, pitch = arena.BOT_THROW_PITCH})
-		local_throw(h, h.bot_id, {slot = 0, compound = u16(chem.Id.Water), ml = 300, dir = aim, power = arena.BOT_THROW_POWER})
+	act := arena.bot_step(&h.bot, &h.curr, h.bot_id, TICK_DT)
+	local_send(h, h.bot_id, act.input)
+	if act.throw {
+		local_throw(h, h.bot_id, {slot = 0, compound = u16(chem.Id.Water), ml = arena.PRACTICE_ML, dir = act.dir, power = act.power})
 	}
 }
 

@@ -23,6 +23,7 @@ ARENA_RADIUS :: f32(20) // metres, tv_sim::ARENA_RADIUS_M. The selftest checks t
 EYE_HEIGHT :: f32(1.6)
 LOCAL_PLAYER :: u8(0) // the player this client is, until a match can say otherwise
 PITCH_LIMIT :: f32(1.25) // radians up or down, as in the lab
+MAX_HEALTH :: u8(100) // hit points a player starts with, tv_proto::MAX_HEALTH. The selftest checks the two agree.
 
 POWER_MIN :: u8(60) // a tap: 6 m/s, a gentle lob
 POWER_MAX :: u8(180) // fully charged: 18 m/s
@@ -39,6 +40,12 @@ Player_View :: struct {
 	id:  u8,
 	pos: Vec3, // the feet, in metres
 	yaw: f32,
+	hp:  u8, // hit points left, 0 when knocked out
+}
+
+// Whether a player is knocked out: out of hit points, down until the match brings them back.
+knocked_out :: proc(p: Player_View) -> bool {
+	return p.hp == 0
 }
 
 // A balloon in flight. `slot` is the slot of its thrower's loadout it came from, which says
@@ -274,6 +281,13 @@ thrower_select :: proc(t: ^Thrower, slots: ^[carry.LOADOUT_SLOTS]Slot, i: int) -
 	return true
 }
 
+// Lets go of a throw that was being charged without throwing it, as when the player is knocked
+// out with a balloon in the hand.
+thrower_cancel :: proc(t: ^Thrower) {
+	t.charging = false
+	t.charge = 0
+}
+
 // Whether the throw button would start a throw right now. The button shows this before it
 // is pressed.
 thrower_ready :: proc(t: ^Thrower, slots: ^[carry.LOADOUT_SLOTS]Slot) -> bool {
@@ -300,6 +314,39 @@ thrower_update :: proc(t: ^Thrower, slots: ^[carry.LOADOUT_SLOTS]Slot, held: boo
 		t.charge = charge_step(0, dt)
 	}
 	return
+}
+
+FIRE_DEAD_ZONE :: f32(0.15) // the part of the stick's travel, from the middle, that does not turn the view
+FIRE_YAW_RATE :: f32(2.6) // radians a second the view turns sideways with the stick pushed all the way
+FIRE_PITCH_RATE :: f32(1.7) // and up or down
+
+// Where a finger is on a round stick centred at `center` with the given `radius`, as a push from
+// -1 to 1 on each axis (screen y points down). A finger outside the circle counts as at its edge,
+// in the direction it is in, so dragging far past the stick turns the view no faster than the edge.
+fire_push :: proc(center: [2]f32, radius: f32, finger: [2]f32) -> [2]f32 {
+	if radius <= 0 {
+		return {}
+	}
+	d := (finger - center) / radius
+	length := math.sqrt(d.x * d.x + d.y * d.y)
+	if length > 1 {
+		d /= length
+	}
+	return d
+}
+
+// How fast the view turns, in radians a second, for a push of the fire stick: (sideways, up).
+// A push inside the dead zone turns nothing, and past it the rate grows with the square of the
+// push, so small moves aim finely and the edge turns fast. Pushing right turns right and pushing
+// up looks up, as dragging a finger across the screen does.
+fire_turn :: proc(push: [2]f32) -> (yaw_rate, pitch_rate: f32) {
+	length := math.sqrt(push.x * push.x + push.y * push.y)
+	if length <= FIRE_DEAD_ZONE {
+		return 0, 0
+	}
+	s := min((length - FIRE_DEAD_ZONE) / (1 - FIRE_DEAD_ZONE), 1)
+	k := s * s / length
+	return push.x * k * FIRE_YAW_RATE, -push.y * k * FIRE_PITCH_RATE
 }
 
 // The angle `a` turned `t` of the short way round to `b`, in radians. Headings wrap, so

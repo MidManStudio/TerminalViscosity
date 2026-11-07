@@ -39,6 +39,11 @@ Arena :: struct {
 	fx:          effects.Effects,
 	fx_view:     Effects_View,
 	blast_flash: f32,
+	hurt_flash:  f32, // red over the screen for a moment when the local player is hit
+	hit_marker:  f32, // a red cross round the crosshair for a moment when somebody else is hit
+	fire_push:   [2]f32, // where the finger is on the fire stick, from -1 to 1
+	last_hp:     [arena.MAX_PLAYERS]u8, // each player's hit points a frame ago
+	hp_known:    [arena.MAX_PLAYERS]bool,
 	toast:       [96]u8,
 	toast_timer: f32,
 	bursts:      int, // balloons that have burst since the arena opened
@@ -130,7 +135,7 @@ arena_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 
 	pointers: Pointers
 	platform_pointers(&pointers)
-	buttons := [6][4]f32{switch_button(w, h), throw_button(w, h), slot_button(w, h, 0), slot_button(w, h, 1), slot_button(w, h, 2), jump_button(w, h)}
+	buttons := [6][4]f32{switch_button(w, h), throw_button(w, h), slot_button(w, h, 0), slot_button(w, h, 1), slot_button(w, h, 2), arena_jump_button(w, h)}
 	controls_update(&a.controls, &pointers, w, h, buttons[:])
 	if a.controls.pressed == 0 {
 		game_switch(game, .Lab_Room)
@@ -146,6 +151,20 @@ arena_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	// Looking: dragging up looks up, and dragging right turns right.
 	delta := a.controls.look_delta
 	arena.look_turn(&a.look, delta.x * LOOK_SPEED, -delta.y * LOOK_SPEED)
+
+	// The fire stick: a finger on it also steers the view, by how far it is pushed from the middle.
+	// The stick is held for as long as the finger is down, wherever the finger wanders.
+	a.fire_push = {}
+	if a.controls.held == 1 {
+		center, radius := fire_stick(w, h)
+		for i in 0 ..< pointers.count {
+			if pointers.items[i].id == a.controls.button_id {
+				a.fire_push = arena.fire_push(center, radius, pointers.items[i].pos)
+			}
+		}
+		yaw_rate, pitch_rate := arena.fire_turn(a.fire_push)
+		arena.look_turn(&a.look, yaw_rate * dt, pitch_rate * dt)
+	}
 
 	// Walking: the joystick, or the keyboard on a desktop. Pushing the stick up is forward,
 	// because screen y points down.
@@ -186,8 +205,14 @@ arena_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	}
 	arena.host_input(&a.table, {forward = push.y, strafe = push.x, yaw = a.look.yaw, jump = jump_down})
 
-	// Throwing: holding charges the throw, and letting go throws it where the player looks.
-	if fire, power := arena.thrower_update(&a.thrower, &a.slots, throw_down, dt); fire {
+	// Throwing: holding charges the throw, and letting go throws it where the player looks. A player
+	// who is knocked out cannot, and a throw that was charging is let go of without throwing.
+	down := arena_down(a)
+	if down {
+		arena.thrower_cancel(&a.thrower)
+		throw_down = false
+	}
+	if fire, power := arena.thrower_update(&a.thrower, &a.slots, throw_down, dt); fire && !down {
 		s := a.slots[a.thrower.selected]
 		thrown := arena.host_throw(&a.table, {slot = u8(a.thrower.selected), compound = s.compound, ml = s.ml, dir = arena.look_dir(a.look), power = power})
 		if !thrown {
@@ -200,6 +225,7 @@ arena_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	for i in 0 ..< view.burst_count {
 		arena_burst(a, view.bursts[i])
 	}
+	arena_watch_health(a, view)
 
 	eye := Vec3{0, arena.EYE_HEIGHT, 0}
 	if p, found := arena.view_player(view, arena.LOCAL_PLAYER); found {
@@ -210,7 +236,51 @@ arena_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 
 	effects.step(&a.fx, dt)
 	a.blast_flash *= 1 - min(dt * 4, 1)
+	a.hurt_flash *= 1 - min(dt * 3, 1)
+	a.hit_marker = max(a.hit_marker - dt * 3, 0)
 	a.toast_timer = max(a.toast_timer - dt, 0)
+}
+
+// Whether the local player is knocked out.
+arena_down :: proc(a: ^Arena) -> bool {
+	if a.host == nil {
+		return false
+	}
+	p, found := arena.view_player(arena.host_view(&a.table), arena.LOCAL_PLAYER)
+	return found && arena.knocked_out(p)
+}
+
+// Notices whose hit points went down or who was knocked out or came back, since the frame before:
+// a red flash when the local player is hit, a cross at the crosshair when somebody else is, and
+// a line of text for a knock-out. Who threw is not known to the view, and with one other player in
+// the match it is the local player's balloon that hurt them.
+arena_watch_health :: proc(a: ^Arena, view: ^arena.Match_View) {
+	for i in 0 ..< view.player_count {
+		p := view.players[i]
+		id := int(p.id) % arena.MAX_PLAYERS
+		if a.hp_known[id] {
+			before := a.last_hp[id]
+			if p.hp < before {
+				lost := f32(before - p.hp) / f32(arena.MAX_HEALTH)
+				if p.id == arena.LOCAL_PLAYER {
+					a.hurt_flash = clamp(0.35 + lost * 2, 0, 0.9)
+				} else {
+					a.hit_marker = 1
+				}
+				if p.hp == 0 {
+					if p.id == arena.LOCAL_PLAYER {
+						arena_toast(a, "you were knocked out")
+					} else {
+						arena_toast(a, "player %d knocked out", p.id + 1)
+					}
+				}
+			} else if before == 0 && p.hp > 0 && p.id == arena.LOCAL_PLAYER {
+				arena_toast(a, "back on your feet")
+			}
+		}
+		a.last_hp[id] = p.hp
+		a.hp_known[id] = true
+	}
 }
 
 arena_camera :: proc(a: ^Arena) -> rl.Camera3D {
@@ -244,6 +314,9 @@ arena_draw :: proc(game: ^Game, state: rawptr) {
 	forward := linalg_normalize(camera.target - camera.position)
 	cam_right := linalg_normalize(linalg_cross(forward, {0, 1, 0}))
 	cam_up := linalg_cross(cam_right, forward)
+	if a.host != nil {
+		character_bars_draw(arena.host_view(&a.table), arena.LOCAL_PLAYER, forward, cam_right, cam_up)
+	}
 	effects_draw(&a.fx_view, &a.fx, cam_right, cam_up)
 	rl.EndMode3D()
 }
@@ -254,9 +327,9 @@ arena_draw_ui :: proc(game: ^Game, state: rawptr) {
 	size := max(i32(18), game.screen_h / 36)
 	draw_switch_button(w, h, "lab")
 	when ODIN_PLATFORM_SUBTARGET == .Android {
-		rl.DrawText("left thumb walks, right thumb looks, hold throw and let go, jump jumps", 20, 20, size, {40, 52, 66, 255})
+		rl.DrawText("left thumb walks, hold the round stick to charge, push it to aim, let go to throw", 20, 20, size, {40, 52, 66, 255})
 	} else {
-		rl.DrawText("WASD or arrows walk, drag the mouse to look, space jumps, hold E and let go to throw, 1 2 3 choose", 20, 20, size, {40, 52, 66, 255})
+		rl.DrawText("WASD or arrows walk, drag the mouse to look, space jumps, hold E (or the round stick) and let go to throw, 1 2 3 choose", 20, 20, size, {40, 52, 66, 255})
 	}
 	rl.DrawFPS(20, 20 + size + 8)
 	if a.host != nil {
@@ -266,18 +339,28 @@ arena_draw_ui :: proc(game: ^Game, state: rawptr) {
 	}
 	draw_arena_crosshair(w, h)
 	draw_flash(w, h, {255, 240, 200, 200}, a.blast_flash)
+	draw_flash(w, h, {220, 40, 30, 200}, a.hurt_flash)
+	draw_hit_marker(w, h, a.hit_marker)
 
 	for i in 0 ..< carry.LOADOUT_SLOTS {
 		draw_slot_button(w, h, i, a.slots[i], i == a.thrower.selected)
 	}
-	draw_throw_button(w, h, &a.thrower, &a.slots)
+	down := arena_down(a)
+	draw_throw_button(w, h, &a.thrower, &a.slots, down, a.controls.held == 1, a.fire_push)
 	grounded := true
+	local_hp := arena.MAX_HEALTH
 	if a.host != nil {
 		if p, found := arena.view_player(arena.host_view(&a.table), arena.LOCAL_PLAYER); found {
 			grounded = arena.on_floor(p)
+			local_hp = p.hp
 		}
 	}
-	draw_jump_button(w, h, !grounded)
+	draw_health_bar(w, h, local_hp)
+	if down {
+		draw_text_centered("knocked out", i32(w * 0.5), i32(h * 0.38), size * 3, {235, 70, 60, 255})
+		draw_text_centered("back in a moment", i32(w * 0.5), i32(h * 0.38) + size * 3 + 8, size, {40, 52, 66, 255})
+	}
+	draw_arena_jump_button(w, h, !grounded || down)
 	if arena.slot_usable(&a.slots, a.thrower.selected) {
 		s := a.slots[a.thrower.selected]
 		line_buf: [64]u8

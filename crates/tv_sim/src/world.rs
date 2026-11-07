@@ -10,7 +10,9 @@ use crate::balloon::{dominant_compound, impact_outcome, total_volume_ml, validat
 use crate::chem::ChemBackend;
 use crate::rng::SplitMix64;
 use tv_proto::wire::{q_to_yaw, BalloonState, Command, Event, PlayerId, PlayerState, Snapshot};
-use tv_proto::{BalloonId, Recipe, BUTTON_JUMP, MAX_BALLOONS_PER_SNAPSHOT, MAX_PLAYERS};
+use tv_proto::{
+    BalloonId, Recipe, BUTTON_JUMP, MAX_BALLOONS_PER_SNAPSHOT, MAX_HEALTH, MAX_PLAYERS,
+};
 
 /// Simulation ticks per second.
 pub const TICK_HZ: u32 = 60;
@@ -31,6 +33,21 @@ pub const JUMP_SPEED_MS: f32 = 3.0;
 /// Ticks without an input command after which a walking player stops, so a client that
 /// goes quiet does not leave its player running.
 pub const INPUT_TIMEOUT_TICKS: u8 = 30;
+/// How far from the vertical line through a player a balloon has to be to hit them, in
+/// metres. A little more than the round belly of the lab-coat character. A first guess.
+pub const PLAYER_BODY_RADIUS_M: f32 = 0.4;
+/// How high a player's body reaches above the feet, in metres: the character is 1.94 m tall.
+pub const PLAYER_BODY_HEIGHT_M: f32 = 1.9;
+/// Hit points a direct hit takes off when the balloon has no volatility. A first guess:
+/// five plain balloons knock a player out.
+pub const DAMAGE_BASE_HP: f32 = 20.0;
+/// Hit points that full volatility adds to a direct hit, on top of [`DAMAGE_BASE_HP`], so
+/// the worst balloon takes off a full set of hit points. Volatility is 0 until compounds
+/// are shared with the server, so for now nothing adds it.
+pub const DAMAGE_VOLATILE_HP: f32 = 80.0;
+/// Ticks a knocked-out player stays down before coming back at their spawn point with
+/// full hit points: three seconds. A first guess.
+pub const RESPAWN_TICKS: u16 = 180;
 
 // Placeholder launch rules: where a balloon leaves the hand, and how fast it goes.
 const THROW_HEIGHT_M: f32 = 1.5;
@@ -74,6 +91,11 @@ struct Player {
     buttons: u8,
     /// Ticks since the last input command, saturating.
     quiet: u8,
+    /// Hit points left. At 0 the player is knocked out: they cannot walk, jump or throw, and
+    /// balloons do not hit them.
+    hp: u8,
+    /// Ticks left before a knocked-out player returns, 0 while standing.
+    down: u16,
 }
 
 /// Authoritative simulation state, generic over the chemistry backend.
@@ -87,6 +109,23 @@ pub struct World<C: ChemBackend> {
     events: Vec<Event>,
     rejected: u32,
     chem: C,
+}
+
+/// How far `at` is from the body of a player, in metres: 0 inside it. The body is a
+/// cylinder of [`PLAYER_BODY_RADIUS_M`] standing on the feet, [`PLAYER_BODY_HEIGHT_M`] high.
+fn body_distance(p: &Player, at: [f32; 3]) -> f32 {
+    let dx = at[0] - p.pos[0];
+    let dz = at[2] - p.pos[1];
+    let side = ((dx * dx + dz * dz).sqrt() - PLAYER_BODY_RADIUS_M).max(0.0);
+    let top = p.y + PLAYER_BODY_HEIGHT_M;
+    let up = if at[1] < p.y {
+        p.y - at[1]
+    } else if at[1] > top {
+        at[1] - top
+    } else {
+        0.0
+    };
+    (side * side + up * up).sqrt()
 }
 
 fn mm(metres: f32) -> i32 {
@@ -192,6 +231,8 @@ impl<C: ChemBackend> World<C> {
                 strafe: 0,
                 buttons: 0,
                 quiet: INPUT_TIMEOUT_TICKS,
+                hp: MAX_HEALTH,
+                down: 0,
             });
         }
         true
@@ -199,14 +240,25 @@ impl<C: ChemBackend> World<C> {
 
     /// Moves every player by the stick and buttons they last sent: a jump if the button is held
     /// on the floor, which cannot be repeated in the air, and a walk, which goes on in the air
-    /// as on the floor. Keeps them inside the arena.
+    /// as on the floor. Keeps them inside the arena. A knocked-out player does not move on
+    /// their own, and when their time is up they come back at their spawn point.
     fn walk(&mut self) {
-        for p in self.players.iter_mut().flatten() {
+        for (id, slot) in self.players.iter_mut().enumerate() {
+            let Some(p) = slot else {
+                continue;
+            };
             p.quiet = p.quiet.saturating_add(1);
-            if p.quiet >= INPUT_TIMEOUT_TICKS {
+            if p.quiet >= INPUT_TIMEOUT_TICKS || p.hp == 0 {
                 p.forward = 0;
                 p.strafe = 0;
                 p.buttons = 0;
+            }
+            if p.hp == 0 {
+                p.down = p.down.saturating_sub(1);
+                if p.down == 0 {
+                    p.pos = SPAWN_POINTS[id].0;
+                    p.hp = MAX_HEALTH;
+                }
             }
             if p.buttons & BUTTON_JUMP != 0 && p.y <= 0.0 {
                 p.vy = JUMP_SPEED_MS;
@@ -258,6 +310,10 @@ impl<C: ChemBackend> World<C> {
             self.rejected += 1;
             return;
         };
+        if thrower.hp == 0 {
+            self.rejected += 1;
+            return;
+        }
         let aim = dir.map(|d| d as f32 / len);
         let speed = power as f32 * SPEED_PER_POWER;
         let id = self.next_id;
@@ -281,6 +337,7 @@ impl<C: ChemBackend> World<C> {
             balloons,
             events,
             chem,
+            players,
             ..
         } = self;
         balloons.retain_mut(|b| {
@@ -292,7 +349,15 @@ impl<C: ChemBackend> World<C> {
             // A balloon that reaches the wall bursts on it, at the height it hit.
             let dist = (b.pos[0] * b.pos[0] + b.pos[2] * b.pos[2]).sqrt();
             let hit_wall = dist > ARENA_RADIUS_M;
-            if !hit_wall && b.pos[1] > 0.0 {
+            // A balloon that reaches a standing player bursts on them. Its own thrower is never
+            // hit by it, and a knocked-out player is not either.
+            let hit_player = !hit_wall
+                && b.pos[1] > 0.0
+                && players.iter().enumerate().any(|(id, p)| {
+                    id != b.owner as usize
+                        && p.is_some_and(|p| p.hp > 0 && body_distance(&p, b.pos) <= 0.0)
+                });
+            if !hit_wall && !hit_player && b.pos[1] > 0.0 {
                 return true;
             }
             if hit_wall {
@@ -303,7 +368,33 @@ impl<C: ChemBackend> World<C> {
             let volatility = outcome.volatility.clamp(0.0, 1.0);
             // Placeholder area-of-effect rule: base radius plus volume scaled by volatility.
             let radius = 500.0 + total_volume_ml(&b.recipe) as f32 * (1.0 + 4.0 * volatility);
-            let height = if hit_wall { b.pos[1].max(0.0) } else { 0.0 };
+            let height = if hit_wall || hit_player {
+                b.pos[1].max(0.0)
+            } else {
+                0.0
+            };
+            // Everyone near enough, bar the thrower, loses hit points: the most at the point of
+            // the burst, down to nothing at the edge of its radius.
+            let at = [b.pos[0], height, b.pos[2]];
+            let reach = radius / 1000.0;
+            let most = DAMAGE_BASE_HP + DAMAGE_VOLATILE_HP * volatility;
+            for (id, slot) in players.iter_mut().enumerate() {
+                let Some(p) = slot else {
+                    continue;
+                };
+                if id == b.owner as usize || p.hp == 0 {
+                    continue;
+                }
+                let d = body_distance(p, at);
+                if d >= reach {
+                    continue;
+                }
+                let dealt = (most * (1.0 - d / reach)).round() as u8;
+                p.hp = p.hp.saturating_sub(dealt);
+                if p.hp == 0 {
+                    p.down = RESPAWN_TICKS;
+                }
+            }
             events.push(Event::Detonate {
                 balloon: b.id,
                 compound: dominant_compound(&b.recipe),
@@ -333,7 +424,7 @@ impl<C: ChemBackend> World<C> {
                         id: id as PlayerId,
                         pos_mm: [mm(p.pos[0]), mm(p.y), mm(p.pos[1])],
                         yaw_q: p.yaw_q,
-                        flags: 0,
+                        hp: p.hp,
                     })
                 })
                 .collect(),
@@ -368,6 +459,8 @@ impl<C: ChemBackend> World<C> {
                 h.u64(p.strafe as u8 as u64);
                 h.u64(p.quiet as u64);
                 h.u64(p.buttons as u64);
+                h.u64(p.hp as u64);
+                h.u64(p.down as u64);
                 // The height is hashed and the speed is not: in a jump, with one jump speed and one
                 // gravity, the one follows from the other.
                 h.u64(p.y.to_bits() as u64);

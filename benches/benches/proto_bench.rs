@@ -18,7 +18,7 @@ fn full_snapshot() -> Snapshot {
                 id: i,
                 pos_mm: [i as i32 * 1500, 0, -9000],
                 yaw_q: i as u16 * 8192,
-                flags: 0,
+                hp: 100,
             })
             .collect(),
         balloons: (0..MAX_BALLOONS_PER_SNAPSHOT as u16)

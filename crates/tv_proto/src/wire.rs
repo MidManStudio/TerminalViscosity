@@ -305,8 +305,8 @@ pub struct PlayerState {
     pub pos_mm: [i32; 3],
     /// Heading, see [`yaw_to_q`].
     pub yaw_q: u16,
-    /// Reserved, zero for now.
-    pub flags: u8,
+    /// Hit points left, from [`crate::MAX_HEALTH`] down to 0. A player at 0 is knocked out.
+    pub hp: u8,
 }
 
 /// Authoritative world state sent at the snapshot rate.
@@ -350,7 +350,7 @@ impl Snapshot {
                 w.i32(c);
             }
             w.u16(p.yaw_q);
-            w.u8(p.flags);
+            w.u8(p.hp);
         }
         for b in &self.balloons {
             w.u16(b.id);
@@ -395,7 +395,7 @@ impl Snapshot {
                 id: r.u8()?,
                 pos_mm: [r.i32()?, r.i32()?, r.i32()?],
                 yaw_q: r.u16()?,
-                flags: r.u8()?,
+                hp: r.u8()?,
             });
         }
         let mut balloons = Vec::with_capacity(n);

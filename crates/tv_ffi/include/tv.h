@@ -12,7 +12,7 @@
 extern "C" {
 #endif
 
-#define TV_ABI_VERSION 3u
+#define TV_ABI_VERSION 4u
 
 #define TV_OK 0
 #define TV_ERR_NULL -1
@@ -46,10 +46,11 @@ typedef struct TvBalloonView {
     int16_t reserved2;
 } TvBalloonView;
 
-/* yaw_mrad is the heading in thousandths of a radian from 0 up to a full turn; 0 faces -z. */
+/* yaw_mrad is the heading in thousandths of a radian from 0 up to a full turn; 0 faces -z.
+   hp is the hit points left, from tv_max_health() down to 0, which is knocked out. */
 typedef struct TvPlayerView {
     uint8_t id;
-    uint8_t flags;
+    uint8_t hp;
     uint16_t reserved;
     int32_t pos_mm[3];
     int32_t yaw_mrad;
@@ -70,6 +71,7 @@ uint32_t tv_sizeof_balloon_view(void);
 uint32_t tv_sizeof_detonate_view(void);
 uint32_t tv_sizeof_player_view(void);
 uint32_t tv_arena_radius_mm(void);
+uint32_t tv_max_health(void);
 
 TvWorld *tv_world_new(uint64_t seed);
 void tv_world_free(TvWorld *w);

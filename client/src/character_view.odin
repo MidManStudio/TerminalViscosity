@@ -115,6 +115,9 @@ character_pool_draw :: proc(pool: ^Character_Pool, view: ^arena.Match_View, loca
 		if p.id == local {
 			continue
 		}
+		if arena.knocked_out(p) {
+			continue
+		}
 		id := int(p.id) % arena.MAX_PLAYERS
 		if !pool.built[id] {
 			character_build(pool, id)
@@ -124,5 +127,49 @@ character_pool_draw :: proc(pool: ^Character_Pool, view: ^arena.Match_View, loca
 		for part in character.Part {
 			rl.DrawMesh(pool.meshes[id][part], material, rl_matrix(character.part_matrix(root, pose, part)))
 		}
+	}
+}
+
+BAR_HEIGHT_ABOVE :: f32(2.15) // metres over the feet, just over the top of the head
+BAR_WIDTH :: f32(0.8)
+BAR_THICK :: f32(0.09)
+
+// A rectangle of the screen's own up and right, centred at `at`, as two triangles that face the camera.
+bar_quad :: proc(at, right, up: Vec3, half_w, half_h: f32, color: rl.Color) {
+	bl := at - right * half_w - up * half_h
+	br := at + right * half_w - up * half_h
+	tr := at + right * half_w + up * half_h
+	tl := at - right * half_w + up * half_h
+	rl.DrawTriangle3D(bl, br, tr, color)
+	rl.DrawTriangle3D(bl, tr, tl, color)
+}
+
+// The colour of a hit point bar: green while healthy, gold at half, red at a quarter.
+bar_color :: proc(hp: u8) -> rl.Color {
+	frac := f32(hp) / f32(arena.MAX_HEALTH)
+	switch {
+	case frac <= 0.25:
+		return {235, 70, 60, 255}
+	case frac <= 0.5:
+		return {240, 190, 60, 255}
+	}
+	return {80, 220, 120, 255}
+}
+
+// Draws a bar of hit points over the head of every player but the local one who is still standing,
+// turned to face the camera: a dark back, and the part that is left in front of it, from the left.
+character_bars_draw :: proc(view: ^arena.Match_View, local: u8, forward, right, up: Vec3) {
+	for i in 0 ..< view.player_count {
+		p := view.players[i]
+		if p.id == local || arena.knocked_out(p) {
+			continue
+		}
+		at := p.pos + {0, BAR_HEIGHT_ABOVE, 0}
+		bar_quad(at, right, up, BAR_WIDTH * 0.5 + 0.02, BAR_THICK * 0.5 + 0.02, {10, 18, 28, 230})
+		frac := f32(p.hp) / f32(arena.MAX_HEALTH)
+		// The fill sits a centimetre nearer the camera than the back, and grows from the left edge.
+		left := at - right * (BAR_WIDTH * 0.5)
+		middle := left + right * (BAR_WIDTH * frac * 0.5) - forward * 0.01
+		bar_quad(middle, right, up, BAR_WIDTH * frac * 0.5, BAR_THICK * 0.5, bar_color(p.hp))
 	}
 }

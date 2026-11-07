@@ -19,7 +19,7 @@ pub use wire::{
 };
 
 /// Bumped whenever an encoded layout changes.
-pub const PROTOCOL_VERSION: u16 = 3;
+pub const PROTOCOL_VERSION: u16 = 4;
 
 /// Largest datagram payload the snapshot encoder is allowed to produce.
 /// 1200 bytes stays under the usual path MTU once IP and UDP/QUIC headers are added.
@@ -34,3 +34,7 @@ pub const MAX_PLAYERS: usize = 8;
 
 /// Most chambers one balloon recipe may carry.
 pub const MAX_CHAMBERS: usize = 4;
+
+/// Hit points a player starts with and is brought back to after a knock-out. A first guess.
+/// A snapshot carries a player's hit points as one byte, and zero means knocked out.
+pub const MAX_HEALTH: u8 = 100;

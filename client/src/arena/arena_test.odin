@@ -444,3 +444,98 @@ balloons_are_matched_by_id_not_by_place_in_the_list :: proc(t: ^testing.T) {
 	testing.expect_value(t, out.balloons[0].pos.x, f32(11))
 	testing.expect_value(t, out.balloons[1].pos.x, f32(1))
 }
+
+@(test)
+a_player_with_no_hit_points_is_knocked_out :: proc(t: ^testing.T) {
+	testing.expect(t, knocked_out({id = 1, hp = 0}), "no hit points")
+	testing.expect(t, !knocked_out({id = 1, hp = 1}), "one is enough to be standing")
+	testing.expect(t, !knocked_out({id = 1, hp = MAX_HEALTH}), "a full set")
+}
+
+@(test)
+blending_shows_the_hit_points_of_the_later_tick :: proc(t: ^testing.T) {
+	prev, curr, out: Match_View
+	prev.player_count, curr.player_count = 1, 1
+	prev.players[0] = {id = 2, pos = {0, 0, 10}, hp = 100}
+	curr.players[0] = {id = 2, pos = {0, 0, 8}, hp = 40}
+	view_blend(&out, &prev, &curr, 0.5)
+	testing.expect_value(t, out.players[0].hp, u8(40))
+	// A player the earlier tick did not have comes as the later tick has them.
+	prev.player_count = 0
+	view_blend(&out, &prev, &curr, 0.5)
+	testing.expect_value(t, out.players[0].hp, u8(40))
+}
+
+@(test)
+cancelling_a_charge_throws_nothing_and_costs_no_cooldown :: proc(t: ^testing.T) {
+	slots: [carry.LOADOUT_SLOTS]Slot
+	slots[0] = {
+		used     = true,
+		compound = u16(chem.Id.Water),
+		ml       = 500,
+	}
+	th: Thrower
+	thrower_init(&th, &slots)
+	thrower_update(&th, &slots, true, 0.3)
+	testing.expect(t, th.charging && th.charge > 0.2, "it is charging")
+	thrower_cancel(&th)
+	testing.expect(t, !th.charging && th.charge == 0, "not any more")
+	fire, _ := thrower_update(&th, &slots, false, 0.1)
+	testing.expect(t, !fire, "letting go after that throws nothing")
+	testing.expect_value(t, th.cooldown, f32(0))
+	// And it can start again at once.
+	thrower_update(&th, &slots, true, 0.1)
+	testing.expect(t, th.charging, "a new charge starts")
+}
+
+@(test)
+a_finger_on_the_fire_stick_is_a_push_from_minus_one_to_one :: proc(t: ^testing.T) {
+	c := [2]f32{100, 100}
+	testing.expect_value(t, fire_push(c, 50, {100, 100}), [2]f32{0, 0})
+	testing.expect_value(t, fire_push(c, 50, {150, 100}), [2]f32{1, 0})
+	testing.expect_value(t, fire_push(c, 50, {100, 50}), [2]f32{0, -1})
+	testing.expect_value(t, fire_push(c, 50, {75, 100}), [2]f32{-0.5, 0})
+	out := fire_push(c, 50, {400, 100})
+	testing.expect(t, near(out.x, 1) && near(out.y, 0), "far off to the side counts as the edge")
+	out = fire_push(c, 50, {200, 200})
+	testing.expect(t, near(out.x, 0.70711) && near(out.y, 0.70711), "far off on the diagonal is the edge that way")
+	testing.expect_value(t, fire_push(c, 0, {150, 100}), [2]f32{0, 0})
+}
+
+@(test)
+the_fire_stick_has_the_documented_dead_zone_and_top_rates :: proc(t: ^testing.T) {
+	yaw, pitch := fire_turn({0.14, 0})
+	testing.expect_value(t, yaw, f32(0))
+	yaw, _ = fire_turn({0.16, 0})
+	testing.expect(t, yaw > 0 && yaw < 0.01, "just past the dead zone of 0.15 it begins to turn, very slowly")
+	yaw, pitch = fire_turn({1, 0})
+	testing.expect(t, near(yaw, 2.6) && pitch == 0, "2.6 rad/s sideways at the edge")
+	_, pitch = fire_turn({0, 1})
+	testing.expect(t, near(pitch, -1.7), "1.7 rad/s up and down at the edge")
+}
+
+@(test)
+the_fire_stick_turns_the_view_past_a_dead_zone_and_faster_toward_the_edge :: proc(t: ^testing.T) {
+	yaw, pitch := fire_turn({FIRE_DEAD_ZONE * 0.9, 0})
+	testing.expect(t, yaw == 0 && pitch == 0, "inside the dead zone nothing turns")
+	yaw, pitch = fire_turn({0, FIRE_DEAD_ZONE})
+	testing.expect(t, yaw == 0 && pitch == 0, "and the edge of it is still inside")
+	yaw, pitch = fire_turn({1, 0})
+	testing.expect(t, near(yaw, FIRE_YAW_RATE) && pitch == 0, "all the way right turns right at the top rate")
+	yaw, _ = fire_turn({-1, 0})
+	testing.expect(t, near(yaw, -FIRE_YAW_RATE), "left turns left")
+	_, pitch = fire_turn({0, -1})
+	testing.expect(t, near(pitch, FIRE_PITCH_RATE), "pushing up looks up (screen y points down)")
+	_, pitch = fire_turn({0, 1})
+	testing.expect(t, near(pitch, -FIRE_PITCH_RATE), "pushing down looks down")
+	// Half way through the live part, a quarter of the rate: the response is a square.
+	half := FIRE_DEAD_ZONE + (1 - FIRE_DEAD_ZONE) * 0.5
+	yaw, _ = fire_turn({half, 0})
+	testing.expect(t, near(yaw, FIRE_YAW_RATE * 0.25), "fine aim near the middle")
+	// On the diagonal the two rates keep the direction of the push.
+	yaw, pitch = fire_turn({0.70711, 0.70711})
+	testing.expect(t, near(yaw, 0.70711 * FIRE_YAW_RATE, 0.001) && near(pitch, -0.70711 * FIRE_PITCH_RATE, 0.001), "a diagonal push")
+	// Pushed past the edge, as the vector would never be after fire_push, it turns no faster.
+	yaw, _ = fire_turn({3, 0})
+	testing.expect(t, near(yaw, FIRE_YAW_RATE), "capped at the top rate")
+}

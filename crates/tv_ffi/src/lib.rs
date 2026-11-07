@@ -18,7 +18,7 @@ use tv_proto::{Chamber, Recipe, MAX_CHAMBERS};
 use tv_sim::{NullChem, World};
 
 /// Bumped whenever any signature or struct layout in `tv.h` changes.
-pub const TV_ABI_VERSION: u32 = 3;
+pub const TV_ABI_VERSION: u32 = 4;
 /// Success.
 pub const TV_OK: i32 = 0;
 /// A required pointer was null.
@@ -77,8 +77,8 @@ pub struct TvBalloonView {
 pub struct TvPlayerView {
     /// Player index.
     pub id: u8,
-    /// Reserved flags.
-    pub flags: u8,
+    /// Hit points left, from `tv_max_health()` down to 0, which is knocked out.
+    pub hp: u8,
     /// Padding, always zero.
     pub reserved: u16,
     /// Position of the feet in millimetres.
@@ -167,6 +167,12 @@ pub extern "C" fn tv_sizeof_player_view() -> u32 {
 #[no_mangle]
 pub extern "C" fn tv_arena_radius_mm() -> u32 {
     (tv_sim::ARENA_RADIUS_M * 1000.0).round() as u32
+}
+
+/// Hit points a player starts with, so the client can draw a bar that is full at the start.
+#[no_mangle]
+pub extern "C" fn tv_max_health() -> u32 {
+    tv_proto::MAX_HEALTH as u32
 }
 
 /// `sizeof(TvDetonateView)`.
@@ -497,7 +503,7 @@ pub unsafe extern "C" fn tv_snapshot_decode_players(
         for (view, p) in views.iter_mut().zip(&snap.players) {
             *view = TvPlayerView {
                 id: p.id,
-                flags: p.flags,
+                hp: p.hp,
                 reserved: 0,
                 pos_mm: p.pos_mm,
                 yaw_mrad: (q_to_yaw(p.yaw_q) * 1000.0).round() as i32,

@@ -40,6 +40,18 @@
 - Other players' balloons are drawn plain at 500 ml, because the snapshot carries neither their fill nor their drawing. Drawings are meant to be sent once, when a player joins, and that is not built.
 - Tick rate is 60 Hz. The snapshot rate is not chosen.
 
+### Combat in the arena (assumed so that a player can be hurt)
+
+None of this was specified. It was written so that the stand-in bot could be hurt, and the numbers are first guesses to change by playing.
+
+- **Hit points.** 100 each. A direct hit by a plain balloon takes 20, so five knock a player out. Volatility adds up to 80 more, which is nothing until the compound database is shared.
+- **Splash.** A burst hurts everyone but the thrower within its radius, by less the farther it is, down to nothing at the radius, measured to the body. The radius is the radius of the burst, 1 m for a plain 500 ml balloon.
+- **The thrower.** Never hurt by their own balloons. Whether they should be is open.
+- **Knock-out.** At 0 hit points a player is down for three seconds: no walking, jumping or throwing, and balloons pass through. They come back at their own spawn point with full hit points. Nothing counts knock-outs, and nothing is shown for them yet, such as a kill cam.
+- **Who threw.** The snapshot does not say whose balloon hurt whom. The client shows a red cross whenever any other player is hurt, which is right while there are two players and no more.
+- **The bot.** Its distances, its timing, its aim error and its lead (see `bot.odin` in `client/docs/client.md`) are guesses. At the range it likes it hits a standing player about two times in three.
+- **The fire stick.** A dead zone of 0.15, a square response, and top rates of 2.6 rad/s sideways and 1.7 rad/s up and down. None has been tried with a thumb.
+
 ### The lab room
 
 - **Decided: first person with a floating joystick and a look drag.** A pointer-tap walk was the alternative.

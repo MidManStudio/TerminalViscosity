@@ -8,7 +8,7 @@ package main
 // Bindings for crates/tv_ffi/include/tv.h. Keep the two in step, and bump
 // TV_ABI_VERSION on both sides together.
 
-TV_ABI_VERSION :: 3
+TV_ABI_VERSION :: 4
 
 // The bit of the buttons byte of an input for the jump button, tv_proto::BUTTON_JUMP.
 TV_BUTTON_JUMP :: u8(1)
@@ -60,10 +60,11 @@ TvBalloonView :: struct {
 }
 
 // `yaw_mrad` is the heading in thousandths of a radian, from 0 up to a full turn. Zero
-// faces -z and a quarter turn faces +x, which is how the lab's player turns too.
+// faces -z and a quarter turn faces +x, which is how the lab's player turns too. `hp` is
+// the hit points left, from tv_max_health() down to 0, which is knocked out.
 TvPlayerView :: struct {
 	id:       u8,
-	flags:    u8,
+	hp:       u8,
 	reserved: u16,
 	pos_mm:   [3]i32,
 	yaw_mrad: i32,
@@ -91,6 +92,7 @@ foreign tv {
 	tv_sizeof_detonate_view :: proc() -> u32 ---
 	tv_sizeof_player_view :: proc() -> u32 ---
 	tv_arena_radius_mm :: proc() -> u32 ---
+	tv_max_health :: proc() -> u32 ---
 
 	tv_world_new :: proc(seed: u64) -> ^TvWorld ---
 	tv_world_free :: proc(w: ^TvWorld) ---

@@ -408,3 +408,78 @@ fn header_matches_rust_side() {
         "tv.h declares fewer functions than lib.rs exports"
     );
 }
+
+fn encode_throw_at(dx: i16, dy: i16, dz: i16, power: u8) -> Vec<u8> {
+    let chamber = TvChamber {
+        compound: 1,
+        volume_ml: 100,
+    };
+    let mut buf = vec![0u8; 64];
+    // SAFETY: `chamber` is one element and `buf` has 64 writable bytes.
+    let n = unsafe { tv_encode_throw(&chamber, 1, 0, dx, dy, dz, power, buf.as_mut_ptr(), 64) };
+    assert!(n > 0, "encode failed: {n}");
+    buf.truncate(n as usize);
+    buf
+}
+
+#[test]
+fn the_client_can_ask_how_many_hit_points_a_player_starts_with() {
+    assert_eq!(tv_max_health(), 100);
+    let header = include_str!("../include/tv.h");
+    assert!(header.contains("uint32_t tv_max_health(void);"));
+}
+
+#[test]
+fn a_joined_player_starts_with_full_hit_points() {
+    let w = tv_world_new(1);
+    // SAFETY: `w` is live until freed below.
+    unsafe { assert_eq!(tv_world_join(w, 3), TV_OK) };
+    assert_eq!(players_of(w)[0].hp as u32, tv_max_health());
+    // SAFETY: `w` was created above and is freed exactly once.
+    unsafe { tv_world_free(w) };
+}
+
+#[test]
+fn a_balloon_that_hits_takes_hit_points_off_the_decoded_player() {
+    let w = tv_world_new(1);
+    // Player 0 starts at z = 14 facing -z, player 4 at z = -14 facing +z. Four seconds of
+    // walking at the middle leaves them 2.4 m apart.
+    let walk_0 = encode_walk(127, 0, 0);
+    let walk_4 = encode_walk(127, 0, 3142);
+    for _ in 0..240 {
+        // SAFETY: `w` is live and both commands are valid slices.
+        unsafe {
+            assert_eq!(
+                tv_world_submit(w, 0, walk_0.as_ptr(), walk_0.len() as u32),
+                TV_OK
+            );
+            assert_eq!(
+                tv_world_submit(w, 4, walk_4.as_ptr(), walk_4.len() as u32),
+                TV_OK
+            );
+            tv_world_step(w);
+        }
+    }
+    let toss = encode_throw_at(0, 0, -1000, 60);
+    // SAFETY: `w` is live and `toss` is a valid slice.
+    unsafe {
+        assert_eq!(
+            tv_world_submit(w, 0, toss.as_ptr(), toss.len() as u32),
+            TV_OK
+        );
+    }
+    for _ in 0..60 {
+        // SAFETY: `w` is live.
+        unsafe { tv_world_step(w) };
+    }
+    let people = players_of(w);
+    let hp_of = |id: u8| people.iter().find(|p| p.id == id).unwrap().hp;
+    assert_eq!(hp_of(4), 80, "a direct hit takes 20 off");
+    assert_eq!(
+        hp_of(0),
+        100,
+        "the thrower is not hurt by their own balloon"
+    );
+    // SAFETY: `w` was created above and is freed exactly once.
+    unsafe { tv_world_free(w) };
+}

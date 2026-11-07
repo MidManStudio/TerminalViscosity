@@ -725,8 +725,12 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - The library path is the `TV_LIB` config value, so other targets can point at a different build with `-define:TV_LIB=...`.
 - The system libraries listed are the ones `rustc --print native-static-libs` reports for Linux. Other operating systems are not set up yet.
 
+ABI version 4 renames the reserved byte of `TvPlayerView` to `hp`, the hit points left, and adds `tv_max_health`. The struct keeps its 20 bytes.
+
 ### `selftest.odin`
 **What it does:** Windowless check. It compares the ABI version and struct sizes with the Rust side, plays one balloon from throw to detonation through the C ABI, decodes the snapshot and event bytes, and steps the soft-body ring. It also drops the 3D balloon, then lifts it by the tip, and checks the volume, the resting position, and the teardrop shape. Last it plays a short match through the local host: the player starts on its spawn point facing the middle, walks at walking speed, keeps the heading it is sent, throws a balloon that carries its slot, compound, and owner and flies at the speed its power gives, and sees it burst once on the sand where it was last seen, with the next balloon getting the next id. Frames that are not whole ticks move the player smoothly, and a client that is another player starts at that player's spawn and owns its balloons. A match with the stand-in bot is played for eleven seconds: the bot is a second player on its own spawn point facing the middle, it walks, jumps, and throws twice, its balloons are marked as its own and the two burst, all inside the arena, and the player who sent nothing has not moved. A jump through the local host goes up about 46 cm and comes down in about 0.6 s, with the walk going on in the air. It also checks the drawing screen on five screen shapes by projecting the balloon through the paint camera with plain matrix arithmetic: the middle of it is inside the balloon area, on the left half, the whole of it fits across the area, and from its tip to its bottom it is on the screen.
+
+Three arena checks were added with hit points. The first checks that the starting hit points match the simulation. The second throws one balloon, aimed by the bot's own solver, at a second player who stands still 10.7 m away, and checks that exactly 20 hit points come off them and none off the thrower, all the way through the Rust world, the C ABI and the decoders. The third plays forty seconds against the bot while the player stands still, and checks that the bot turns to face the player, walks, jumps, throws at least eight balloons, that every balloon it throws bursts (bar one that may still be in the air), and that some of them hurt the player, with some of them thrown faster than the weakest throw, which shows the power the bot chose reaches the world. A match seed starts the bot the same way every time, and another seed does not. A fourth check, `selftest_arena_layout`, puts the fire stick, the jump button, the three slot squares, the lab button and the hit point bar on six screen shapes and checks that all are on the screen and none lies on another.
 
 ### `main.odin`
 **What it does:** Entry point, argument handling, and the frame loop. Each frame it updates the current scene, renders the scene into an off-screen texture, copies that through the heat shader, and then draws the scene's overlay.
@@ -786,8 +790,19 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 
 **Tests:** `arena_test.odin`.
 
+**Hit points.** A `Player_View` now carries `hp`, the hit points left, and `knocked_out` says a player has none. The zero value of the field is knocked out, so anything that builds a player by hand has to set it, and the tests do. `MAX_HEALTH` is 100 and the self-test checks it against the simulation. The blend between ticks shows the hit points of the later tick, with no blending, because a number of hit points halfway between two is not a thing a player has.
+
+**The fire stick.** `fire_push` says where a finger is on a round stick as a push from -1 to 1 on each axis, and a finger outside the circle counts as at its edge, in the direction it is in. `fire_turn` turns a push into how fast the view turns, in radians a second: nothing inside a dead zone of 0.15 of the travel, and past it the rate grows with the square of the push, up to 2.6 rad/s sideways and 1.7 rad/s up and down at the edge. Pushing right turns right and pushing up looks up, as dragging a finger across the screen does. `thrower_cancel` lets go of a charge without throwing it, for a player who is knocked out with a balloon in the hand.
+
+**Decisions:**
+- The dead zone, the square response and the two top rates are first guesses, to tune by feel on a phone. A square response was chosen so that small moves of the thumb aim finely and the edge still turns quickly.
+- The stick's maths lives here, with no raylib, so it is tested without a window. The scene only finds the finger.
+- Hit points are shown, never worked out: the client does not know how much a balloon hurts.
+
 ### `arena_test.odin`
 **What it does:** Looking follows the lab's headings, and the pitch stops short of straight up and down. The direction on the wire keeps its heading and is scaled to 1000. A throw charges over the set time and stops at full, and the power runs from the weakest to the strongest and never falls as the charge grows. Slots follow the hooks one for one, the fill is rounded and kept inside what a balloon holds, and an empty loadout offers one practice balloon while any other loadout gets none. The thrower starts on the first balloon it has, only a slot with a balloon can be chosen, and choosing another drops a throw in progress. Holding charges and letting go throws at the power reached, a full charge is the strongest however long it is held, a tap is a weak throw and not no throw, the cooldown has to be waited out and shows before the button is pressed, nothing is thrown from an empty slot or without a press, and a balloon that goes while it is being charged is not thrown. Players are found by id, the eye is above the feet and goes up with them, and a player is on the floor within 2 cm of it. A host is driven only through its table. Headings turn the short way round, drawing between ticks lies between them with the ends where they should be and the alpha kept inside 0 to 1, things that are new appear where they are, things that are gone do not, and balloons are matched by id and not by place in the list.
+
+Hit points: a player with none is knocked out and one with one is not, the blend shows the later tick's hit points, also for a player the earlier tick did not have, and cancelling a charge throws nothing, costs no cooldown, and lets a new charge start at once. The fire stick: a finger is a push from -1 to 1, far outside the circle counts as the edge in that direction, a radius of nothing gives no push, the dead zone and its edge turn nothing, the top rates are reached at the edge and never passed, the response is a square, a diagonal keeps its direction, and pushing up looks up.
 
 ### `coliseum.odin`
 **What it does:** The shape of the coliseum, as a list of boxes that may be turned about the vertical axis, built by `coliseum_build`. The sand is one slab with two rings drawn on it, 2 cm up. The podium wall stands where the floor of 20 m radius ends, 2.4 m high. Five tiers of seats rise outward from it, each 1.8 m deep and 1 m higher than the one before, in 72 boxes a ring, with a stair every ninth box, a little lower and darker, so the seats read as blocks. An outer wall 12 m high stands behind them with a ledge on top, dark openings and columns along its inside, and a banner over each of four gates, red and blue in turn. The four gates are in the podium wall at the compass points, a door between two pillars under a lintel. It comes to about 800 boxes. `piece_distance` measures from the middle of the arena to the nearest point of a box, `piece_corner` and `radial_yaw` spell out the turn, and `ring_chord` is how wide a box in a ring has to be to meet its neighbours.
@@ -812,6 +827,8 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - Only eight ticks are run for one frame, so a slow frame cannot make the next one slower still.
 - The simulation's volatility is a placeholder zero until the compound database is shared, so every burst is a plain splash and the field is read, passed on, and never seen to be anything else. The self-test cannot check it for that reason.
 
+Each player's hit points are read from the snapshot into the view. The bot looks at the match as of the last tick, with `bot_step(&bot, &curr, id, dt)`, and sends what comes back as a client would: an input every tick and a throw when it throws, a water balloon of the practice size with the aim and power the bot chose. Each match seed gives the bot its own random numbers.
+
 ### `arena_view.odin`
 **What it does:** The coliseum mesh and the balloons. `arena_mesh_init` builds the mesh the way the lab's is built, a colour for each vertex, from boxes that may be turned, into a `Lab_Mesh`, so it is drawn and freed with the lab's own procedures. `Arena_View` holds a balloon body for the hand, one for each slot to draw its balloons in flight, and a plain one for everybody else's. Only the one in the hand is simulated, and swings from the hand as the lab's does. The others are posed once, hanging, and drawn wherever the match says a balloon is. The player's own balloons wear the drawing of the slot they came from, and the picture goes slowly round them as they fly.
 
@@ -828,6 +845,8 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - A button shows whether it can be used before it is pressed, as the other buttons do.
 - Text is formatted into buffers the caller owns, and not into the temporary allocator, so a frame costs no allocation.
 
+**The fire stick.** The throw button is now a round stick in the bottom right corner, of radius 12 percent of the shorter side of the screen but never under 60 px. A finger that lands anywhere in its square box holds it. While a finger is down the throw charges, the view turns by how far the finger is from the middle (see `fire_turn` in `arena.odin`), and letting go throws. The stick is bright and says throw when it would start a throw, dim and says wait during the cooldown or no balloon without one, says release while charging, and says knocked out and is dim for a player who is down. A gold ring round it fills clockwise from the top as the throw charges, and a knob follows the finger. The three slot squares sit to its left level with its bottom, and the jump button above it, a little narrower. The hit point bar sits at the top left under the three lines of text, green, then gold at half, then red at a quarter. A red cross round the crosshair shows for a moment when a balloon hurts somebody.
+
 ### `scene_arena.odin`
 **What it does:** The arena scene. On load it builds the coliseum, starts the local match, takes the three slots from the loadout, and faces the player toward the middle. Each frame it reads the pointers, chooses a slot from a slot square or the keys 1, 2, and 3, turns the look by the drag, and sends the stick and the heading to the match. It runs the throw button and sends a throw where the player looks when the button is let go, steps the match, and shows each burst as a splash four times the size of a lab pop, or as a blast and a flash of the screen if the simulation ever says the burst was violent. The camera is at the eye of the player as the match places it, with the view knocked by a blast. The coliseum is drawn first, then the balloon in the hand and the balloons in flight, then the other players, then the effects. A desktop walks with WASD or the arrows, drags the mouse to look, jumps with space, holds E and lets go to throw, and chooses with 1, 2, and 3. A phone walks with the left thumb and looks with the right, and has a jump button above the throw button, as the lab has, that is dim in the air.
 
@@ -837,6 +856,8 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - E throws and space jumps, as E is the action key and space the jump key in the lab. The first arena had space for the throw, which was the wrong key to give away once there was a jump.
 - The balloons are the loadout, hook for hook. Nothing here changes the loadout, so nothing is saved on leaving.
 - A throw does not use the balloon up, and the practice balloon is a guess, see `arena.odin`.
+
+A finger on the fire stick charges the throw and turns the view, and the drag anywhere else still turns it too. The scene watches each player's hit points from frame to frame: a loss for the local player flashes the screen red, scaled by how much was lost, a loss for anybody else shows the red cross, and a knock-out is said in a line of text. A player who is knocked out cannot throw, a charge in progress is let go of without throwing, and the screen says knocked out and back in a moment until the match brings them back. Who threw is not in the view, so with one other player in the match the cross means the local player's balloon hit.
 
 ### `arena.fs`
 **What it does:** The fragment shader of the coliseum. There are two versions, `shaders/glsl330/` for desktop and `shaders/glsl100/` for OpenGL ES 2 and the browser, and both use the lab's vertex shader. It is the lab's shading, a ground and sky ambient term, a key light, full brightness for anything emissive, a sheen on glossy surfaces, and the light of a blast, in a sunlit setting: the ambient is warmer from below, the key light is stronger and from a lower angle, and the haze is the colour of the sky and starts at 45 m instead of 10.
@@ -891,17 +912,20 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 **What it does:** A character standing still is not swung or lifted. At full speed the legs swing against each other and the arms against the legs, to the full swing and no further, and slower walking swings less, up to walking speed. The cycle goes round at the speed of the stride and the phase stays inside one turn. Stopping slows down and does not snap, a big frame does not throw the smoothing past its target, and the air is eased into and out of. In the air the legs are drawn up, the arms are out and forward, and the walk stops. A throw winds back, goes up and forward, and comes down, at 0.2 s and 0.35 s, with no jump bigger than a few hundredths of a radian in a millisecond. It runs its course and ends, moves the right arm only, and wins over the walk. The body and head are lifted by the walk and the legs are not, a part swings about its pivot and stays on it, the arms are held a little out and further in the air, and placing a character puts its parts at the feet facing the heading.
 
 ### `bot.odin`
-**What it does:** A stand-in for another player, so there is somebody to look at while the match has only one human. `bot_step` takes where the bot stands and how long a step is, and gives what any client gives: an input and, now and then, a throw. It walks at 0.6 of the stick, its heading drifting slowly one way and then the other, stops for 1.5 s in every 7.5 s, taps the jump button for 0.15 s every 5 s, and throws every 4 s. Beyond 12 m from the middle it turns for the middle.
+**What it does:** A stand-in for another player, so there is somebody to fight while the match has only one human. `bot_step` looks at the match like a client would and gives what a client gives: an input and, now and then, a throw with its aim and power. Each step it picks the nearest player still standing, and keeps its idea of how fast they walk from how far they moved. It turns, at no more than 3.2 rad/s, to face the heading a throw has to go in to meet them (`bot_aim`, which leads a walking target and solves the arc for the simulation's gravity and the hand's height and reach), and throws when it faces that heading within 0.12 rad, the target is between 3 and 18 m away, it has been after them for 0.35 s, and 2.2 to 4 s have passed since its last throw. Between throws it keeps a range: it closes in beyond 11 m, backs away inside 6 m, and circles at a good range, changing direction every 1 to 2.5 s with a chance of 0.7. It sidesteps the path of a balloon of somebody else's that is coming its way within 7 m and passing within 1.8 m, steers in from the wall beyond 16.5 m, taps jump now and then, and with nobody left to fight walks back to the middle and waits. Wounded, at 30 hit points or fewer, it wants to be between 10 and 15 m away. A bot that is knocked out does nothing.
 
 **Decisions:**
-- The bot decides from where it is and how long it has been going and nothing else, so it needs nothing from the simulation but the position that any client is given.
-- It is driven by the host and not by the scene, so the scene does not know the other player is not a person, and a network client can replace the bot without the scene changing.
-- It throws water in the direction it faces, a little up, which is all the arena needs from it. It has no aim, no hit points, and no purpose, because the combat rules are not specified.
+- The bot gets only what any client gets, the match as the view shows it, so a network client can take its place and a person could play the same part. It is driven by the host and not by the scene, so the scene does not know the other player is not a person.
+- Its aim error is a random amount of up to 0.012 rad plus 0.005 rad for each metre to the target, drawn from its own random numbers, so two runs with the same seed play alike. `sloppy` scales it, and the tests set it to 0 to test the solver apart from the error.
+- Measured with a flight model of the simulation's own rules (see the tests), a throw from a bot with that error hits the body of a player who stands still every time at 6 m, about two in three at 10 m, and about one in three at 14 m. The splash of a balloon reaches 1 m or more, so more of its balloons hurt than hit.
+- It picks a speed that gives a flat arc, which forgives a small error in the distance, and throws at full power only when that falls short.
+- It aims at 1.1 m above the target's feet, the middle of the chest, and ignores how fast the target moves up and down.
+- Every number at the top of the file is a first guess. None has been tried against a person.
 
 **Tests:** `bot_test.odin`.
 
 ### `bot_test.odin`
-**What it does:** Two bots with the same start do the same. A bot starts standing, walks, and stops every seven and a half seconds. It jumps with a tap every five seconds and throws every four, not before the first and never twice in a step. Its heading drifts a quarter of a period and comes back after a whole one. It wanders without going far from the middle and keeps moving, a bot too far out turns back toward the middle from every side, and one inside its radius is not steered.
+**What it does:** The maths: the flat arc matches the textbook, an arc passes through the point it is asked for at several speeds and heights, launches are whole tenths of a metre a second inside the power range, and `bot_aim` sends a balloon into the body of a player standing at every range from 3.5 to 17.5 m and every heading, leads a walking player (and misses one if it does not lead). The behaviour, each part against a fixed view: it turns at its rate and no faster, and the short way round; it picks the nearest player standing and turns to the next when they are knocked out; with nobody to fight it goes to the middle and waits, and a bot that is knocked out does nothing; it keeps its range with the right push at too far, too close, a good range and half way, and keeps a longer one when wounded; it circles and changes its mind within bounds; it waits to notice a target; it lets go only when it faces its aim; it spaces its throws; it throws only within reach; what it throws is a unit vector with a power a player could throw with; its throws hit a standing player often but not always; it sidesteps a balloon coming at it to the right side and in the right amount and ignores its own, one that has passed, one that is far, one that passes wide and one that is slow; it comes in from the wall; it taps jump; it plays the same for the same seed; it starts afresh on a player who was knocked out and came back; and the stick it gives walks where it wants to go. Flights are worked out by a small model of the simulation's own rules, written in the test file.
 
 ### `character_view.odin`
 **What it does:** Draws the other players of the match as the temporary character. The first time a player is seen, meshes are made for each of its six parts in the colours of its id. Each frame, each player's animation is moved on by how fast it moved since the frame before, whether it is in the air, and whether a balloon of its own has just appeared, and each part is drawn with its own matrix, with the material of the coliseum and so its shader. The local player is not drawn, because the camera is in their head.
@@ -910,6 +934,8 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - The coliseum's shader already moves a mesh by the matrix it is drawn with, so the character needs no shader of its own.
 - Meshes are made when a player is first seen and not for all eight at the start, because a match has few players, and each costs 668 triangles and a few allocations.
 - The glow and sheen of each vertex ride in the texture coordinates, as the coliseum's do.
+
+A player who is knocked out is not drawn. Over the head of every other player who is standing a bar of hit points faces the camera: a dark back and the part left in front of it, from the left, green, then gold at half, then red at a quarter. It is made of two flat rectangles, each of two triangles, drawn in the same pass as the characters.
 
 ## CI and Workflows
 
@@ -955,6 +981,8 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - ABI version 3 added the buttons byte to the input encoder, which changes the call, so the selftest and the local host were changed with the header.
 - ABI version 2 changed the throw encoder, so the selftest and the local host were updated together with the header, and the header test in `ffi_tests.rs` checks every exported function is declared.
 - Odin rejects an absolute path in a foreign import ("Invalid import path"), so the Android build passes `TV_LIB` as a path relative to `client/src`.
+
+- Nothing went wrong with the rename of the reserved byte. The selftest checks the new ABI version and size.
 
 ### `android_entry.odin`
 - The first installed Android build crashed on launch. Odin's ABI lowering for 32-bit ARM returns an 8-byte float struct in registers, but the NDK uses a hidden return pointer, so the per-frame call to `GetMousePosition` made raylib write through a garbage pointer. All other raylib calls matched. Fixed with a C wrapper, and `scripts/check_android_abi.py` now guards against the same mistake. Confirmed on the device: the app runs.
@@ -1081,6 +1109,11 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - The projection check of the drawing screen failed on its first run, on a screen of 800 by 600, and was right: see `paint_layout.odin`. It prints the screen it fails on, and by how much.
 - The first match through the local host passed checks that deliberate changes then showed were weak: a speed ten times too large still passed a test that asked only for the balloon to be going the right way, and only player 0 was ever played, so a wrong owner or spawn heading was invisible. The checks are tighter and a second match is played as player 3.
 
+- The earlier bot checks named a constant that the new bot no longer has, and counted exactly two bursts in eleven seconds, which were true of a bot that threw on a clock. They were replaced by checks that fit a bot that plays: forty seconds, a player who stands still, at least eight throws.
+- The first layout of the arena buttons put the hit point bar over the slot squares at 1280 by 720. It was found by working out the boxes by hand and the check was written after, so it would find the next one.
+- Deliberate changes to the host and to the layout were made one at a time, with the selftest as the judge. Two got through the first selftest: the bot's power ignored, because a bot with weak balloons walks up close and hurts the player anyway, and the bot not seeded for each match. Checks for both were added and the changes now fail them.
+- Nothing here has been seen on a phone.
+
 ### `softbody_bench.odin`
 - None recorded yet.
 
@@ -1192,7 +1225,12 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - A check with deliberate changes, 36 of them, found one more weak spot: a charge let go after the balloon had gone from its slot still threw, and no test noticed. The test above covers it. A change to the power range first did not compile because it left a variable unused, and a change that does not compile is not a result, so it was made again.
 - Nothing here has been tried on a phone: how long 1.2 s of holding feels, whether 0.5 s between throws is too slow, and whether 6 to 18 m/s is the right range are all first guesses.
 
+- The zero value of a player's hit points is knocked out, so a test that built a player with no `hp` would have a bot that ignores him. The bot tests build players through a helper that sets it.
+- The fire stick was first considered as a drag on the whole screen that fires on release. A round stick was built instead, because the owner asked for the kind used to move the camera, and its rates are guesses.
+
 ### `arena_test.odin`
+- None recorded yet.
+
 - None recorded yet.
 
 ### `coliseum.odin`
@@ -1207,6 +1245,8 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - A check of a heading sent to the match failed the first time because the view is drawn between the last two ticks, so it is one tick behind the world. The test steps one more tick, and the delay is written in `arena.odin`.
 - A check with deliberate changes found that seven of the conversions were not seen by the first self-test: the owner, the speed, the heading both ways, the power, and the balloon and place of a burst. The test now starts a second match as another player, fires two balloons, and compares the speed and the place a balloon burst against where it was last seen. The volatility of a burst is still not checked, because the simulation says zero for everything until the compound database is shared.
 
+- The bot's wiring was checked by the selftest, which now plays forty seconds with it against a player who stands still, and by a throw with the bot's own aim through the real world, which has to take exactly 20 hit points off.
+
 ### `arena_view.odin`
 - A pixel check of the drawing of the arena counted the colours that differ between a run and a control. The balloon in the hand differed from nothing by about 13000 pixels, the balloon in flight by about 4800 when near and a hundred when across the sand, and nothing differed before the balloon was thrown. With a saturated drawing on slot 0, the purple pixels were 7700 on the balloon in the hand and a further 2300 on the one in flight, and none without the drawing.
 - The look of the balloons, how large three times life size is on a phone, and the cost of five soft bodies in this scene have not been seen or timed on a phone.
@@ -1215,10 +1255,15 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - The first slot square formatted its number and amount with `ctprintf`, which allocates from the temporary allocator, and the client avoids allocating each frame on Android. They are formatted into buffers on the stack.
 - The layout of the three squares beside the throw button was worked out and not tried with a thumb.
 
+- The slot squares were first made as tall as the fire stick, which is 172 px on a screen 720 px high and 240 px on one 1000 by 1000, and that pushed them off the screen on the square one. They are 0.55 of the box's width now, and the layout check covers six screen shapes.
+- The fire stick, the ring and the bar of hit points were drawn once in a headless run and counted against controls: 2231 gold pixels of the charge ring against none without it, and 190 pixels more of the bar's green with the bar of another player on than off. How they look on a phone has not been seen.
+
 ### `scene_arena.odin`
 - The first headless run of the scene only showed that it starts. A check was written that throws one balloon at a frame it picks, in the update and not in the loading code, with a control that draws the same frame without the balloons, the hand, and the effects: the burst at about 19 m from the player was 18 pixels when drawn as a lab pop, and from about 190 to over 1300 pixels when drawn at four times the size. That is why `pop_scaled` exists.
 - A balloon that bursts is seen. Whether it is seen well enough on a phone, how the coliseum looks, whether the controls feel right, and the frame rate have not been checked on a phone.
 - The view is drawn a tick behind the world, 17 ms. How that feels on a phone is not known.
+
+- The controls have not been tried with a thumb. The dead zone, the square response and the turn rates are guesses.
 
 ### `arena.fs`
 - None recorded yet. Both versions pass `glslangValidator` and the desktop one compiled and ran on a software OpenGL context in a headless test, and neither has been seen on a device.
@@ -1237,8 +1282,16 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - The first tests of the wander and of the radius let two changes through: with the wander taken out, or with the bot steered toward the middle all the time, the bot still stayed on the sand. Tests now check the heading's drift over a quarter and a whole period, and that a bot inside its radius keeps its heading.
 - The test of the wander first unwrapped an angle wrongly and failed on code that was right.
 
+- The first tests of the new bot had three mistakes of their own and none of the bot: a test case that asked for 25 m at 7 m/s, which cannot be reached, a check of the stick that forgot to give the input its heading, and a check of the random seed that forgot that making the bot had already drawn from it. The code was right each time.
+- The bot's own estimate of the target's up and down speed was set to zero and never used. A deliberate change that left it out changed nothing, so the line was taken out.
+- Deliberate changes were made to the bot and the fire stick maths, one at a time, in a copy of the tree, and the tests were run on each. What survived at first was fixed by a test or by taking out redundant code. The runner is not kept in the repo.
+- At 10.7 m from a standing player, with the selftest's seed, it threw twelve balloons in forty seconds and knocked the player out once. How it feels to a player who moves has not been tried.
+
 ### `host_local.odin`
 - The bot's wiring was checked by deliberate changes to the host, one at a time, with the selftest, which plays eleven seconds with it.
 
 ### `character_view.odin`
 - None recorded yet.
+
+- None recorded yet. The bars are drawn in the world and not on the screen, so they need no projection, which the Android build of raylib cannot return as a float struct.
+

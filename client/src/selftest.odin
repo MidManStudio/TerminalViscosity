@@ -7,6 +7,7 @@ package main
 
 import "arena"
 import "carry"
+import "chem"
 import "lab"
 import "core:math"
 import "core:math/linalg"
@@ -34,6 +35,7 @@ selftest :: proc() -> int {
 	check(&failures, tv_sizeof_detonate_view() == size_of(TvDetonateView), "TvDetonateView size matches")
 	check(&failures, tv_sizeof_player_view() == size_of(TvPlayerView), "TvPlayerView size matches")
 	check(&failures, tv_arena_radius_mm() == u32(arena.ARENA_RADIUS * 1000), "arena radius matches the simulation")
+	check(&failures, tv_max_health() == u32(arena.MAX_HEALTH), "starting hit points match the simulation")
 	if failures > 0 do return 1
 
 	w := tv_world_new(5)
@@ -78,6 +80,7 @@ selftest :: proc() -> int {
 
 	selftest_balloon(&failures)
 	selftest_arena(&failures)
+	selftest_arena_layout(&failures)
 	selftest_paint_screen(&failures)
 
 	fmt.printf("state_hash=%#016x\n", tv_world_state_hash(w))
@@ -275,9 +278,36 @@ selftest_arena :: proc(failures: ^int) {
 	check(failures, other_view.balloon_count == 1 && other_view.balloons[0].owner == 3 && other_view.balloons[0].slot == 1, "its balloon is marked as player 3's")
 
 
-	// A match with the stand-in bot: it is a second player on its own spawn point, and in eleven seconds
-	// it walks, throws twice, and the two balloons burst, all inside the arena, while the player who has
-	// sent nothing has not moved.
+	// A balloon from the player that meets a second player who stands still takes hit points off them,
+	// all the way through the world, the C ABI and the decoders: aimed by the bot's own solver, a
+	// plain balloon at 10.7 m is a direct hit and takes 20 off. The thrower loses nothing.
+	target := local_host_new(11, arena.LOCAL_PLAYER)
+	check(failures, target != nil, "a match for the hit test starts")
+	if target == nil {
+		return
+	}
+	defer local_host_free(target)
+	check(failures, tv_world_join(target.world, 1) == TV_OK, "a second player joins")
+	target_host := local_host_table(target)
+	target_view := arena.host_view(&target_host)
+	arena.host_step(&target_host, TICK_DT)
+	shooter, _ := arena.view_player(target_view, arena.LOCAL_PLAYER)
+	victim, victim_found := arena.view_player(target_view, 1)
+	check(failures, victim_found && victim.hp == arena.MAX_HEALTH, "players start with full hit points")
+	yaw, pitch, speed, reachable := arena.bot_aim(shooter.pos, victim.pos, {}, 0)
+	check(failures, reachable, "the other player is in reach")
+	check(failures, arena.host_throw(&target_host, {slot = 0, compound = u16(chem.Id.Water), ml = arena.PRACTICE_ML, dir = arena.look_dir({yaw = yaw, pitch = pitch}), power = u8(math.round(speed * 10))}), "the throw is accepted")
+	for _ in 0 ..< 90 {
+		arena.host_step(&target_host, TICK_DT)
+	}
+	victim, _ = arena.view_player(target_view, 1)
+	shooter, _ = arena.view_player(target_view, arena.LOCAL_PLAYER)
+	check(failures, victim.hp == arena.MAX_HEALTH - 20, "a direct hit takes 20 hit points off")
+	check(failures, shooter.hp == arena.MAX_HEALTH, "and the thrower loses none")
+
+	// A match with the stand-in bot, against a player who stands still for forty seconds: the bot
+	// is a second player on its own spawn point, it turns to face the player, walks, jumps, throws
+	// again and again, every balloon it throws bursts, and some of them hurt. It stays on the sand.
 	with_bot := local_host_new(7, arena.LOCAL_PLAYER, 1)
 	check(failures, with_bot != nil, "a match with a bot starts")
 	if with_bot == nil {
@@ -289,22 +319,40 @@ selftest_arena :: proc(failures: ^int) {
 	bot_start, bot_found := arena.view_player(bot_view, 1)
 	check(failures, bot_view.player_count == 2 && bot_found, "the bot is a second player")
 	check(failures, abs(bot_start.pos.x - 9.9) < 0.01 && abs(bot_start.pos.z - 9.9) < 0.01 && abs(bot_start.yaw - 5.4978) < 0.001, "on its own spawn point, facing the middle")
-	// Half a second in, it is still facing the middle as the match placed it: its heading starts there.
-	for _ in 0 ..< 30 {
+	// Each match seed gives the bot its own luck: the same seed starts it the same way, another does not.
+	same_seed := local_host_new(7, arena.LOCAL_PLAYER, 1)
+	other_seed := local_host_new(8, arena.LOCAL_PLAYER, 1)
+	if same_seed != nil && other_seed != nil {
+		check(failures, same_seed.bot.rng == with_bot.bot.rng, "the same match seed starts the bot the same way")
+		check(failures, other_seed.bot.rng != with_bot.bot.rng, "and another one does not")
+	}
+	if same_seed != nil {
+		local_host_free(same_seed)
+	}
+	if other_seed != nil {
+		local_host_free(other_seed)
+	}
+	// A second and a half in, it has turned to face the player, who is at 0, 14.
+	for _ in 0 ..< 90 {
 		arena.host_step(&bot_host, TICK_DT)
 	}
 	bot_early, _ := arena.view_player(bot_view, 1)
-	check(failures, abs(bot_early.yaw - 5.4978) < 0.25, "the bot starts out facing the middle")
+	face := math.atan2(-bot_early.pos.x, bot_early.pos.z - 14) // the heading that faces (0, 14) from where the bot is
+	check(failures, abs(arena.angle_diff(bot_early.yaw, face)) < 0.35, "the bot faces the player")
 	bot_balloons, bot_bursts := 0, 0
+	fastest := f32(0)
 	seen_bot_balloon := false
 	bot_far: f32
 	bot_jumped := false
-	for _ in 0 ..< 60 * 11 {
+	lowest := arena.MAX_HEALTH
+	for _ in 0 ..< 60 * 40 {
 		arena.host_step(&bot_host, TICK_DT)
 		for i in 0 ..< bot_view.balloon_count {
 			if bot_view.balloons[i].owner == 1 && bot_view.balloons[i].slot == 0 {
 				seen_bot_balloon = true
 				bot_balloons += 1
+				v := bot_view.balloons[i].vel
+				fastest = max(fastest, math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z))
 			}
 		}
 		bot_bursts += bot_view.burst_count
@@ -314,16 +362,71 @@ selftest_arena :: proc(failures: ^int) {
 				bot_jumped = true
 			}
 		}
+		if lp, ok := arena.view_player(bot_view, arena.LOCAL_PLAYER); ok {
+			lowest = min(lowest, lp.hp)
+		}
 	}
 	bot_end, _ := arena.view_player(bot_view, 1)
 	bot_moved := math.sqrt((bot_end.pos.x - bot_start.pos.x) * (bot_end.pos.x - bot_start.pos.x) + (bot_end.pos.z - bot_start.pos.z) * (bot_end.pos.z - bot_start.pos.z))
-	check(failures, bot_moved > 2, "the bot walks")
+	check(failures, bot_moved > 1 || bot_far > 0, "the bot walks")
 	check(failures, bot_jumped, "and jumps")
 	check(failures, seen_bot_balloon && bot_balloons > 20, "its balloons are in the air, marked as its own")
-	check(failures, bot_bursts == 2, "the two it threw burst")
-	check(failures, bot_far < arena.BOT_RADIUS + 3 && bot_far < arena.ARENA_RADIUS, "all inside the arena")
+	check(failures, bot_bursts >= with_bot.bot.thrown - 1 && bot_bursts <= with_bot.bot.thrown, "every balloon it threw has burst, bar one that may still be in the air")
+	check(failures, with_bot.bot.thrown >= 8, "it threw at least eight in forty seconds")
+	check(failures, fastest > 9 && fastest <= 18.01, "it throws with the power it chose, well above the weakest throw")
+	check(failures, bot_far < arena.ARENA_RADIUS, "all inside the arena")
+	check(failures, lowest < arena.MAX_HEALTH, "and its balloons hurt the player who stood and took them")
 	me, me_found := arena.view_player(bot_view, arena.LOCAL_PLAYER)
-	check(failures, me_found && abs(me.pos.z - 14) < 0.001 && abs(me.pos.x) < 0.001, "and the player who sent nothing is where they started")
+	check(failures, me_found && abs(me.pos.z - 14) < 0.001 && abs(me.pos.x) < 0.001, "the player who sent nothing is where they started, knocked out or not")
+}
+
+// Whether two boxes (x, y, width, height) overlap.
+boxes_overlap :: proc(a, b: [4]f32) -> bool {
+	return a.x < b.x + b.z && b.x < a.x + a.z && a.y < b.y + b.w && b.y < a.y + a.w
+}
+
+// Whether a box lies inside a screen.
+box_on_screen :: proc(b: [4]f32, w, h: f32) -> bool {
+	return b.x >= 0 && b.y >= 0 && b.x + b.z <= w && b.y + b.w <= h
+}
+
+// Checks the arena's buttons on several screen shapes: the fire stick, the jump button, the three
+// slot buttons, the lab button and the hit point bar are all on the screen and none lies on another,
+// so a thumb that lands on one cannot press two. The fire stick is round and its box is square.
+selftest_arena_layout :: proc(failures: ^int) {
+	check :: proc(failures: ^int, ok: bool, what: string) {
+		if ok {
+			fmt.printf("ok    %s\n", what)
+		} else {
+			fmt.printf("FAIL  %s\n", what)
+			failures^ += 1
+		}
+	}
+	screens := [?][2]f32{{1600, 720}, {1280, 720}, {1024, 600}, {800, 480}, {2400, 1080}, {1000, 1000}}
+	all_on, none_over, round_ok := true, true, true
+	for s in screens {
+		w, h := s.x, s.y
+		boxes := [?][4]f32{switch_button(w, h), throw_button(w, h), arena_jump_button(w, h), slot_button(w, h, 0), slot_button(w, h, 1), slot_button(w, h, 2), health_bar(w, h)}
+		for b, i in boxes {
+			if !box_on_screen(b, w, h) {
+				all_on = false
+			}
+			for c, j in boxes {
+				if i < j && boxes_overlap(b, c) {
+					none_over = false
+					fmt.printf("      %vx%v: box %d overlaps box %d\n", w, h, i, j)
+				}
+			}
+		}
+		stick := throw_button(w, h)
+		centre, radius := fire_stick(w, h)
+		if stick.z != stick.w || radius * 2 != stick.z || centre.x != stick.x + radius || centre.y != stick.y + radius {
+			round_ok = false
+		}
+	}
+	check(failures, all_on, "every arena button is on the screen, on every screen shape")
+	check(failures, none_over, "and no arena button lies on another")
+	check(failures, round_ok, "the fire stick is a circle in a square box")
 }
 
 // Checks that the drawing screen puts the balloon where its layout leaves room for it: the

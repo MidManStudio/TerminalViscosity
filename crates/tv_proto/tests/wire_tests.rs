@@ -40,7 +40,7 @@ fn player(i: u8) -> PlayerState {
         id: i,
         pos_mm: [i as i32 * 1500, 0, -(i as i32) * 900 - 12_345],
         yaw_q: i as u16 * 8191,
-        flags: i,
+        hp: i,
     }
 }
 

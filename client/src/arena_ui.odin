@@ -31,22 +31,56 @@ draw_arena_button :: proc(w, h: f32) {
 	draw_button(arena_button(w, h), "arena", {10, 18, 28, 190}, {230, 236, 242, 200}, rl.RAYWHITE)
 }
 
-// The throw button sits where the grab button does in the lab.
-throw_button :: proc(w, h: f32) -> [4]f32 {
-	return grab_button(w, h)
+// Radius of the fire stick in pixels. It is a round stick a thumb can rest on and push.
+fire_radius :: proc(w, h: f32) -> f32 {
+	return max(f32(60), min(w, h) * 0.12)
 }
 
-// The slot buttons are a row of squares just left of the throw button, slot 0 farthest.
+// The box of the fire stick, in the bottom right corner, that a finger can land on to press it. A
+// finger that lands anywhere in the box holds the stick, even in a corner the circle leaves out,
+// and the finger may then wander as far as it likes.
+throw_button :: proc(w, h: f32) -> [4]f32 {
+	r := fire_radius(w, h)
+	return {w - r * 2 - 24, h - r * 2 - 24, r * 2, r * 2}
+}
+
+// The middle of the fire stick, and its radius.
+fire_stick :: proc(w, h: f32) -> (center: [2]f32, radius: f32) {
+	b := throw_button(w, h)
+	return {b.x + b.z * 0.5, b.y + b.w * 0.5}, b.z * 0.5
+}
+
+// The jump button sits just above the fire stick, a little narrower than it.
+arena_jump_button :: proc(w, h: f32) -> [4]f32 {
+	g := throw_button(w, h)
+	height := g.z * 0.55
+	return {g.x + g.z * 0.1, g.y - height - 16, g.z * 0.8, height}
+}
+
+// The slot buttons are a row of squares just left of the fire stick, slot 0 farthest, level with
+// the bottom of the stick.
 slot_button :: proc(w, h: f32, i: int) -> [4]f32 {
 	g := throw_button(w, h)
-	side := g.w
-	return {g.x - f32(carry.LOADOUT_SLOTS - i) * (side + SLOT_GAP), g.y, side, g.w}
+	side := g.z * 0.55
+	return {g.x - f32(carry.LOADOUT_SLOTS - i) * (side + SLOT_GAP), g.y + g.w - side, side, side}
 }
 
-// What the throw button says, and whether it would throw now. A button that is bright
-// can be used and one that is dim cannot, and it is so before it is pressed.
-throw_label :: proc(t: ^arena.Thrower, slots: ^[carry.LOADOUT_SLOTS]arena.Slot) -> (label: cstring, ready: bool) {
+draw_arena_jump_button :: proc(w, h: f32, unavailable: bool) {
+	fill := rl.Color{10, 18, 28, 190}
+	edge := rl.Color{230, 236, 242, 220}
+	ink := rl.RAYWHITE
+	if unavailable {
+		fill, edge, ink = {10, 18, 28, 120}, {200, 210, 222, 100}, {200, 210, 222, 150}
+	}
+	draw_button(arena_jump_button(w, h), "jump", fill, edge, ink)
+}
+
+// What the fire stick says, and whether it would start a throw now. A stick that is bright can be
+// used and one that is dim cannot, and it is so before it is touched.
+throw_label :: proc(t: ^arena.Thrower, slots: ^[carry.LOADOUT_SLOTS]arena.Slot, down: bool) -> (label: cstring, ready: bool) {
 	switch {
+	case down:
+		return "knocked out", false
 	case t.charging:
 		return "release", true
 	case !arena.slot_usable(slots, t.selected):
@@ -57,8 +91,10 @@ throw_label :: proc(t: ^arena.Thrower, slots: ^[carry.LOADOUT_SLOTS]arena.Slot) 
 	return "throw", true
 }
 
-draw_throw_button :: proc(w, h: f32, t: ^arena.Thrower, slots: ^[carry.LOADOUT_SLOTS]arena.Slot) {
-	label, ready := throw_label(t, slots)
+// The fire stick: a round base, a ring that fills up as the throw charges, and a knob that follows
+// the finger. `push` is where the finger is, from -1 to 1 on each axis, and `held` whether one is down.
+draw_throw_button :: proc(w, h: f32, t: ^arena.Thrower, slots: ^[carry.LOADOUT_SLOTS]arena.Slot, down: bool, held: bool, push: [2]f32) {
+	label, ready := throw_label(t, slots, down)
 	fill := rl.Color{10, 18, 28, 150}
 	edge := rl.Color{200, 210, 222, 110}
 	ink := rl.Color{200, 210, 222, 160}
@@ -68,15 +104,65 @@ draw_throw_button :: proc(w, h: f32, t: ^arena.Thrower, slots: ^[carry.LOADOUT_S
 	if t.charging {
 		fill = {30, 130, 120, 245}
 	}
-	b := throw_button(w, h)
-	draw_button(b, label, fill, edge, ink)
+	c, r := fire_stick(w, h)
+	cx, cy := i32(c.x), i32(c.y)
+	rl.DrawCircle(cx, cy, r, fill)
+	rl.DrawRing(c, r * 0.9, r, 0, 360, 48, edge)
 	if t.charging {
-		// The power so far, along the bottom of the button: a bar that fills left to right. It
-		// is inside the button because the jump button is just above it.
-		bar := rl.Rectangle{b.x + b.z * 0.08, b.y + b.w - b.w * 0.2, b.z * 0.84, b.w * 0.09}
-		rl.DrawRectangleRec(bar, {10, 18, 28, 220})
-		rl.DrawRectangleRec({bar.x, bar.y, bar.width * t.charge, bar.height}, {255, 214, 120, 255})
-		rl.DrawRectangleLinesEx(bar, 2, {230, 236, 242, 220})
+		// The power so far: a gold ring that fills clockwise from the top.
+		rl.DrawRing(c, r * 0.9, r, -90, -90 + 360 * t.charge, 48, {255, 214, 120, 255})
+	}
+	font := i32(r * 0.26)
+	rl.DrawText(label, cx - rl.MeasureText(label, font) / 2 + 1, cy - font / 2 + 2, font, {0, 0, 0, 220})
+	rl.DrawText(label, cx - rl.MeasureText(label, font) / 2, cy - font / 2, font, ink)
+	if held {
+		// The knob follows the finger, and stays inside the base.
+		travel := r * 0.55
+		rl.DrawCircle(cx + i32(push.x * travel), cy + i32(push.y * travel), r * 0.34, {255, 255, 255, 110})
+		rl.DrawCircleLines(cx + i32(push.x * travel), cy + i32(push.y * travel), r * 0.34, {255, 255, 255, 200})
+	}
+}
+
+// The box of the local player's hit point bar: top left, under the three lines of text.
+health_bar :: proc(w, h: f32) -> [4]f32 {
+	text := max(f32(18), h / 36)
+	return {20, 20 + text * 3 + 24, max(f32(160), w * 0.22), 22}
+}
+
+// The local player's hit points as a bar, red as it runs low.
+draw_health_bar :: proc(w, h: f32, hp: u8) {
+	b := health_bar(w, h)
+	bar := rl.Rectangle{b.x, b.y, b.z, b.w}
+	frac := f32(hp) / f32(arena.MAX_HEALTH)
+	color := rl.Color{80, 220, 120, 255}
+	if frac <= 0.5 {
+		color = {240, 190, 60, 255}
+	}
+	if frac <= 0.25 {
+		color = {235, 70, 60, 255}
+	}
+	rl.DrawRectangleRec(bar, {10, 18, 28, 190})
+	rl.DrawRectangleRec({bar.x, bar.y, bar.width * frac, bar.height}, color)
+	rl.DrawRectangleLinesEx(bar, 2, {230, 236, 242, 220})
+	buf: [16]u8
+	text := text_in(buf[:], "%d", hp)
+	size := i32(bar.height * 0.9)
+	rl.DrawText(text, i32(bar.x + bar.width * 0.5) - rl.MeasureText(text, size) / 2, i32(bar.y) + 1, size, rl.RAYWHITE)
+}
+
+// A small red cross around the crosshair for a moment, to say that a balloon of the player's hurt someone.
+draw_hit_marker :: proc(w, h: f32, amount: f32) {
+	if amount <= 0 {
+		return
+	}
+	cx, cy := w * 0.5, h * 0.5
+	near := max(f32(10), h * 0.02)
+	far := near * 2
+	color := rl.Color{235, 60, 50, u8(clamp(amount, 0, 1) * 255)}
+	for sx in ([2]f32{-1, 1}) {
+		for sy in ([2]f32{-1, 1}) {
+			rl.DrawLineEx({cx + sx * near, cy + sy * near}, {cx + sx * far, cy + sy * far}, 4, color)
+		}
 	}
 }
 
