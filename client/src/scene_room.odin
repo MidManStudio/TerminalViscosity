@@ -59,6 +59,8 @@ Room :: struct {
 	toast_timer: f32,
 	burn_vent:   f32, // time since the last puff from the chimney
 	burn_timer:  f32, // seconds the incinerator has left to burn, with smoke from its chimney
+	first_aid:   carry.First_Aid, // the cabinet on the north wall
+	scale:       carry.Scale, // the scale on the north counter
 }
 
 // Shows a line of text for a few seconds. It is formatted into the room's own
@@ -86,6 +88,8 @@ room_reset :: proc(room: ^Room) {
 	room.valve = -1
 	room.spout = false
 	room.spout_rest = -1
+	room.first_aid = {}
+	room.scale = {}
 }
 
 // A reaction that a pour started: shows what came of it, and takes the damage, less
@@ -283,6 +287,8 @@ room_load :: proc(game: ^Game) -> rawptr {
 	lab.build(&room.layout)
 	lab.add_dispensers(&room.layout, carry.station_colors())
 	lab.add_apparatus(&room.layout)
+	shelf_colors := carry.shelf_colors()
+	lab.add_shelves(&room.layout, shelf_colors[:])
 	lab.player_init(&room.player, &room.layout)
 	shader, ok := load_lab_shader()
 	lab_mesh_init(&room.mesh, &room.layout, shader, ok)
@@ -466,6 +472,8 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	carry.oven_aim(&room.oven, &room.props, carry.view_of(&room.player))
 	carry.filler_aim(&room.filler, &room.props, carry.view_of(&room.player))
 	carry.loadout_aim(&game.loadout, &room.filler, &room.props, carry.view_of(&room.player))
+	carry.first_aid_aim(&room.first_aid, &room.props, carry.view_of(&room.player))
+	carry.scale_aim(&room.scale, &room.props, carry.view_of(&room.player))
 	if grab_pressed {
 		action := carry.balloon_action(&game.loadout, &room.filler, &room.props)
 		switch {
@@ -480,6 +488,12 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 			room_balloon_action(room, &game.loadout, action)
 		case carry.loadout_hands_full(&game.loadout):
 			room_toast(room, "hands full: hang the balloon on a hook, clamp it at the paint station, or burn it")
+		case carry.first_aid_use_ready(&room.first_aid, &room.props, &room.health):
+			carry.first_aid_use(&room.first_aid, &room.health)
+			room_toast(room, "patched up, back to full health")
+		case carry.scale_zero_ready(&room.scale, &room.props):
+			carry.scale_zero(&room.scale, &room.props)
+			room_toast(room, "scale zeroed")
 		case room.props.held != -1:
 			carry.release(&room.props)
 		case:
@@ -535,6 +549,8 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	game.heat_strength = room.fx.heat
 
 	carry.health_update(&room.health, dt)
+	carry.first_aid_update(&room.first_aid, dt)
+	carry.scale_update(&room.scale, &room.props)
 	room.blast_flash *= 1 - min(dt * 4, 1)
 	room.toast_timer = max(room.toast_timer - dt, 0)
 	if carry.health_dead(&room.health) {
@@ -624,6 +640,11 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 		draw_filler_readout(w, h, &room.filler, lines)
 	} else if room.oven.aimed && room.pour_target == -1 {
 		draw_oven_readout(w, h, &room.oven, lines)
+	} else if room.first_aid.aimed && room.pour_target == -1 {
+		draw_first_aid_readout(w, h, &room.first_aid, &room.health, lines)
+	} else if on_plate := carry.scale_vessel(&room.props); room.pour_target == -1 && (room.scale.aimed || (on_plate != -1 && room.props.aimed == on_plate)) {
+		grams, loaded := carry.scale_reading(&room.scale, &room.props)
+		draw_scale_readout(w, h, grams, loaded, room.scale.tare > 0, lines)
 	} else if room.pour_target == -1 {
 		draw_spot_readout(w, h, &game.loadout, lines)
 	}
@@ -638,6 +659,11 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 		draw_action_button(w, h, balloon_action_label(action))
 	case carry.loadout_hands_full(&game.loadout):
 		draw_full_button(w, h)
+	case room.first_aid.aimed && room.props.held == -1:
+		label, ready := first_aid_label(&room.first_aid, &room.health)
+		draw_station_button(w, h, label, ready)
+	case room.scale.aimed && room.props.held == -1:
+		draw_station_button(w, h, "zero", carry.scale_zero_ready(&room.scale, &room.props))
 	case:
 		draw_grab_button(w, h, state)
 	}

@@ -50,7 +50,27 @@ None of this was specified. It was written so that the stand-in bot could be hur
 - **Knock-out.** At 0 hit points a player is down for three seconds: no walking, jumping or throwing, and balloons pass through. They come back at their own spawn point with full hit points. Nothing counts knock-outs, and nothing is shown for them yet, such as a kill cam.
 - **Who threw.** The snapshot does not say whose balloon hurt whom. The client shows a red cross whenever any other player is hurt, which is right while there are two players and no more.
 - **The bot.** Its distances, its timing, its aim error and its lead (see `bot.odin` in `client/docs/client.md`) are guesses. At the range it likes it hits a standing player about two times in three.
-- **The fire stick.** A dead zone of 0.15, a square response, and top rates of 2.6 rad/s sideways and 1.7 rad/s up and down. None has been tried with a thumb.
+- **The fire stick.** It floats where the thumb lands and answers in a straight line, like the walking stick, with a dead zone of 0.05 and top rates of 1.8 rad/s sideways and 1.2 rad/s up and down. The first version, with a fixed middle and a square response, was too sensitive to aim with. This one has not been tried with a thumb.
+
+### Reactions by compound (the owner's idea, not built)
+
+The owner will rework the chemicals and the recipes himself, and proposed that instead of one general reaction matrix each compound gets its own page of reactions, that more than two compounds can be combined to make something else, and that the player buys or unlocks certain mixtures. Questions that the owner will have to settle when he does:
+
+- Where a reaction of three compounds lives. On the page of each of them, written once and listed on each, is the likelier way, so that a page is a complete answer to what can be made with its compound.
+- Which wins when a mix is covered by several: the whole set, if one is defined, and the pairs inside it only if not, seems the plain rule.
+- That the order of pouring does not matter, or does, and whether a mix is a set of compounds or a set with amounts.
+- What an unlock is: a flag per reaction that the player holds, and what a mix the player has not unlocked does when it is made, whether it still happens, or is refused.
+- The server has an empty table, so volatility, and with it the damage a balloon does beyond its base, depend on how that is shared.
+
+Nothing of this is built. `carry.compound_density` is the one place a density would go, for the scale.
+
+### Lab equipment added (see `equipment.odin` and `gear.odin` in `client/docs/client.md`)
+
+- **Vial racks.** Four, with twelve holes each, and 24 empty vials start in them. A vial is a small vessel that holds about 33 ml. It is drawn into a free hole within 3 cm when it is let go of. Whether vials should be able to hold more than one compound, and whether they are for carrying samples or for storing, is open.
+- **First aid cabinet.** Back to full health at once, then it rests for 30 seconds. The numbers are guesses, and whether the cabinet is to give less, or cost something, is open.
+- **Scale.** Reads the glass and the contents in grams, with a tare. Every compound weighs a gram a millilitre until the compound table has a density.
+- **Shelves.** Two shelves of forty bottles in the colours of the compounds in turn, with pale labels without writing. Whether a shelf bottle is ever to be taken, or to say what it holds, is open.
+- **Not built:** the graduated cylinder and the dropper, the fridge, the waste bucket and the whiteboard that were suggested.
 
 ### The lab room
 

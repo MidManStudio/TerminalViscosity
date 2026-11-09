@@ -43,7 +43,7 @@ look_at :: proc(p: ^lab.Player, target: Vec3) {
 // Bands in the glass of each kind: up the outside, over the rim, down the inside.
 glass_bands :: proc(k: Kind) -> int {
 	switch k {
-	case .Beaker:
+	case .Beaker, .Vial:
 		return 5
 	case .Flask:
 		return 7
@@ -56,7 +56,7 @@ glass_bands :: proc(k: Kind) -> int {
 // Bands in the liquid solid of each kind.
 liquid_bands :: proc(k: Kind) -> int {
 	switch k {
-	case .Beaker:
+	case .Beaker, .Vial:
 		return 3
 	case .Flask:
 		return 4
@@ -161,10 +161,14 @@ the_defaults_stand_on_the_island :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
 	props_place_defaults(props, l)
-	testing.expect_value(t, props.count, 23)
+	// The vessels on the island, and the vials in the racks, which are counted apart (see the rack tests).
+	testing.expect_value(t, props.count, 23 + 24)
 	empty := 0
 	for i in 0 ..< props.count {
 		pr := props.items[i]
+		if pr.kind == .Vial {
+			continue
+		}
 		testing.expect_value(t, pr.pos.y, lab.COUNTER_HEIGHT)
 		testing.expectf(t, abs(pr.pos.x) < 5 && abs(pr.pos.z) < 0.7, "a vessel is off the island at %v", pr.pos)
 		testing.expect(t, pr.ml >= 0 && pr.ml <= capacity_ml(pr.kind))
@@ -215,7 +219,11 @@ a_vessel_cannot_hold_more_than_its_capacity :: proc(t: ^testing.T) {
 capacities_come_from_the_shape :: proc(t: ^testing.T) {
 	for k in Kind {
 		c := capacity_ml(k)
-		testing.expectf(t, c > 400 && c < 1000, "%v holds %v ml", k, c)
+		if k == .Vial {
+			testing.expectf(t, c > 25 && c < 40, "a vial holds %v ml", c)
+		} else {
+			testing.expectf(t, c > 400 && c < 1000, "%v holds %v ml", k, c)
+		}
 	}
 	// A beaker is a plain cylinder inside, so it can be worked out by hand.
 	d := kind_dims(.Beaker)

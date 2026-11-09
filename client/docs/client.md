@@ -136,6 +136,8 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 **Tests:** `lab_test.odin`.
 - A counter along the east wall carries the bottle wall, with a way round it at each end. `add_dispensers` adds its rack: a backboard and, for each of ten taps, a bottle in the color of its liquid, an arm, and a nozzle. The colors are passed in, so the bottles match what comes out. `dispenser_nozzle` says where a nozzle tip is, and the carrying code uses it.
 
+`MAX_BOXES` is 640, up from 256, for the equipment and the shelves. The room takes about half.
+
 ### `apparatus.odin`
 **What it does:** Package `lab`, where the workstations are and what is static about them, in metres. The sink basin is 50 by 100 cm on the west counter, with a low rim and a drain grate. The fume hood is a bay 1.6 m wide on the north counter, with a back, two sides, a top, and a glowing strip under the top. The balloon fill station stands on the south counter: a base plate, a pole, an arm, a collar that holds the neck of a balloon, a funnel on top of the collar, and the back of a gauge of ten lights beside it. The reaction oven is a box 1.6 m wide and 52 cm high on the north counter, with a funnel for each of its four ports on top, a dark window, a spout off the right end over a drip tray, and places on the front for its lights. The hot plate and the ice bath are two stations side by side on the north counter, a dark plate with a glowing coil and a pale tub with ice in it. The paint station on the west counter is a frame with a clamp that holds the neck of a balloon, a second clamp, a cradle, under the bottom of the balloon, a palette board of 16 swatches, and a cup of brushes. The loadout rack on the south counter is a board with a hook for each slot and a light over each. The incinerator on the south counter, east of the rack, is a squat furnace 60 cm wide and 42 deep with a hopper on top that a balloon is dropped into, a glowing door and a warning stripe on the front, and a chimney at the back. `add_apparatus` adds the boxes. The places they act on are constants: `SINK_BASIN`, `HOOD`, `FILLER_CLAMP`, `FILLER_MOUTH`, the capture column, the box the crosshair tests, `INCINERATOR` with its mouth and its aim box, and `paint_cradle` and `incinerator_vent` for the middle of the cradle and the top of the chimney. `gauge_light` says where each gauge light is, `filler_center` where the round part of the balloon hangs, and `in_rect` whether a point is inside a footprint.
 
@@ -153,6 +155,8 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 - Nothing here blocks the player. The counters do that already, and the workstations sit on them.
 
 **Tests:** `apparatus_test.odin`.
+
+`add_apparatus` also builds the racks, the cabinet and the scale, by calling `add_equipment`.
 
 ### `player.odin`
 **What it does:** A walker seen from above, with a view direction. `player_look` turns the view and keeps the pitch within about 70 degrees. `player_move` walks for one frame at a stick position, and `blocked` says whether a spot is inside a counter or outside the room.
@@ -249,6 +253,12 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 
 **Tests:** `carry_test.odin`.
 
+**Vials and the equipment.** `Vial` is a fourth kind of vessel, a straight glass tube 1.6 cm in radius and 11 cm high that holds about 33 ml and lets out at most 25 ml a second. `standing_height` says where a prop stands: on the plate of the scale if its middle is over it, in the hole of a vial rack if it is a vial exactly in one, and otherwise on whatever `support_height` says. `vial_snap` draws a vial that has been let go of into the nearest free hole within 3 cm, and it runs every step for every prop that is not held. A vial gets `VIAL_AIM_PAD`, 0.8 cm, round it for the crosshair and not the 5 cm of the other vessels, so that two vials in neighbouring holes, 5 cm apart, do not have overlapping boxes. 24 empty vials start in the racks, in the row nearer the player. `MAX_PROPS` rose from 24 to 64.
+
+**Decisions:**
+- The holes draw a vial in by what is under it and not by a drop of the hand's height, so a vial let go of in the air over a hole falls into it.
+- A vial in the row behind another is reached after the front one is taken out, as in a real rack, so the vials start in the near row.
+
 ### `vessels.odin`
 **What it does:** What a vessel is and what it holds. It has the outline of the space inside each kind of vessel and the maths that follows from that outline: how much a vessel holds, how high a given amount stands, and the height of the surface in the world. The liquids themselves are in `chem`.
 
@@ -259,6 +269,8 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 
 **Tests:** `carry_test.odin`.
 - A tipped vessel is cut by a level plane, because a liquid surface is level in the world, and the amount below the plane is found by adding up 32 slices across the inside. The capacity of a tipped vessel is what lies below the plane through its lowest rim point. The slices make the level right to within a few millilitres, which is enough to draw.
+
+A vial has the inside of a beaker.
 
 ### `mixing.odin`
 **What it does:** What happens when a drop of one liquid falls into a vessel. `apply_droplet` adds the drop. When two different liquids meet, they react once for the whole pour: a `Session` remembers the vessel and what is being poured into it, until the drops stop for 0.6 s, and the contents become the product, with the drops that follow in the same pour joining the product as it is. A calm reaction leaves the product, a spatter loses 20% of it and stings, and a blast breaks the vessel and takes the liquid with it. The first drop of a meeting gives a `Mix_Result` saying what happened and how much damage the player takes, from the distance between the eye and the vessel. The reaction is as violent as the matrix says plus what the heat of the meeting adds, see `hazard.odin`, and the contents take the temperature of the blend.
@@ -289,6 +301,8 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - When the floor is more than a metre below the lip, the box floor is in the air, and a drop that reaches it falls out.
 
 **Tests:** `carry_test.odin`.
+
+A vial lets out at most 25 ml a second, a narrow neck being slow.
 
 ### `station.odin`
 **What it does:** The bottle wall: a tap for each of the ten stock liquids, in the order of their ids. `dispenser_under` finds the tap the held vessel is near enough to be filled from: upright, with room in it, within half a metre of the nozzle sideways, and its top not more than 35 cm over the tip or 90 cm under it. When two taps are near, the nearer one is it. `station_flow_to` lets 110 ml a second out of the nozzle as drops, times the speed, aimed into the mouth of the vessel with `tap_mouth`, and `station_flow` is the same straight down at normal speed. `station_colors` gives the colors of the bottles, from the liquids in them.
@@ -505,6 +519,8 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - The glass and the liquid come from the same outlines, so they always fit. The liquid is drawn 0.6 mm inside the glass so the two never fight over a pixel.
 - A shape has a fixed capacity of 512 vertices and 1536 indices. A test fails if one is cut off.
 
+A vial is drawn as a beaker is, a plain tube, in a slightly bluer glass.
+
 ### `hands.odin`
 **What it does:** The first-person hands as boxes: for each hand a sleeve, a palm, two finger segments that curl, and a thumb. `hands_update` moves a curl value and a lift value toward the pose for the current state, and `hands_place` turns the parts into world frames for drawing. At rest the hands sit low in the bottom corners with only the fingertips in view. With something in reach the right hand lifts a little. While holding, the right hand closes around the held vessel and the left hand rises a little.
 
@@ -519,6 +535,8 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 
 ### `carry_test.odin`
 **What it does:** Every shape, the glass, the liquid, the cap, and the box, faces outward, has unit normals, has the expected number of vertices, and stays inside its vessel's size. The view is a right-handed set and rises with a jump. The default props stand on the island without overlapping, hold no more than their capacity, include one of each stock liquid, and thirteen empty vessels. A disc is cut by a line at the right area. The geometry of a tipped vessel agrees with the upright one, holds the same liquid at the level it finds, and holds less the further it tips, nothing at full tilt. The lip is the lowest point of the rim. A tipped prop keeps a right-handed frame. The crosshair picks a second vessel while one is held, close enough and with room. A slightly tipped vessel lets nothing out. A stream goes into the vessel under the crosshair. A calm pour reacts once for the whole pour. Pouring the oxidizer into the oil blasts, hurts, and breaks the vessel. A drop starts a reaction only the first time, and only after a pause does the next start another. A drop into a full vessel is lost and a spatter loses some liquid. A vessel is found under a nozzle only in the right place, a tap fills it with its own liquid, a locked tap gives nothing, and the bottles are the colors of their liquids. A drop lands and is wiped away, one outside the box or in a full stream is refused, and a pour from high over the floor falls out. Removing a vessel keeps the other indices right. Health drops, comes back, and ends at zero. A vessel cannot be filled past its capacity and holds nothing without a compound. Capacities are between 400 and 1000 ml, and a beaker's matches a hand calculation. The level never drops as the amount grows and matches the volume. See-through props are ordered far to near. The crosshair picks a prop it points at, and not one it points over or one out of reach. A counter hides what is behind it. Grabbing takes the aimed prop once. A sweep of positions and view directions near and far from the counters shows that a held prop never enters a counter or leaves the room. A vessel in open space sits at the hold point. Released props fall to a counter or the floor. The hands close and open again, every hand part is right-handed and stays near the eye, an unturned part follows the view, and a turned prop keeps a right-handed frame.
+
+The defaults are the 23 vessels of the island and 24 vials in the racks, and the capacities test knows a vial holds about 33 ml. The tests of the racks and of the scale and the cabinet are in `gear_test.odin`.
 
 ### `stations_test.odin`
 **What it does:** A balloon takes drops of one liquid, keeping all of it. A pour of another liquid into it is one meeting, with the product of the pair, and the balloon survives a calm one. Ember Oil with Spark Blue is a blast: the balloon and its liquid are gone, it hurts, drops with no balloon are lost, and a fresh balloon is clamped after two seconds. Filling with water bursts it on the first drop over the limit, once, and no more than a drop past. Strain runs from 0 at a fill of 1 to 1 at the limit. A spatter loses a fifth. A reaction says where it was. The crosshair finds the funnel when looking at it, and not when looking away, too far, or with no balloon. A nearer vessel wins the aim. The pour button is ready for the station only with a vessel held, the station aimed at and close, and no vessel to pour into. A full pour from a held beaker into the funnel puts most of it in the balloon and makes nothing from nothing. Drops pass through the funnel with no balloon, and only drops inside its column are taken. The drain takes what falls in the basin near the counter top, and nothing else. The hood shields only what is inside it, and a blast in the hood hurts a fifth as much as the same blast outside. The gauge lights one after another, from the bottom, and goes from green through amber to red. Speed goes round 1, 2, 4, 8, and an unset speed is 1. A pour into the funnel at eight times normal speed empties the beaker more than three times sooner than at normal speed and delivers as much. A tap fills a vessel that is not under it, and a tap at four times normal speed gives more than two and a half times as much in the same time, and neither makes liquid from nothing. Each test was checked by changing the code on purpose and seeing it fail.
@@ -601,6 +619,8 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - The view is knocked by turning the point it looks at a little to the side and up, so the world shakes and the hands do not.
 - With the matrix menu open nothing in the lab moves, and the finger that closes it is ignored until it lifts, so closing the menu does not start the player walking.
 
+The room holds a `First_Aid` and a `Scale`, and `room_reset` clears both. They are aimed at every frame after the vessels are. The grab button heals at the cabinet and zeroes the scale, in the order of the cases after the one for hands full, so a vessel in the hands, or a balloon in them, comes first. The shelves are added with colours from `carry.shelf_colors()`. A line under the crosshair says whether the cabinet is ready, or how long it has to rest, and what is on the scale.
+
 ### `scene_bench.odin`
 **What it does:** The sim-test scene. It times the liquid simulation on the device itself at five particle counts, six substeps a frame so the screen keeps moving, and shows for each count the grid nodes used and the cost. When it finishes it fits a straight line through the smallest and largest count to get the cost of one particle and the fixed cost of the grid, and shows what that allows for a 125 ml splash at 1, 2, and 3 cm cells. A tap runs it again, and the button in the top right corner goes back to the lab room.
 
@@ -638,6 +658,8 @@ Heat is in the rules too: cryo mixes are cold (below zero) and the oxidizer and 
 - The oven line says where the spout is when there is product in the tank.
 - Billboards, which the blasts and steam are, are turned to face the camera and not the player, so they are right when the view is shaken and while drawing.
 - The speed button is lit when the speed is not normal, and says which. The grab button becomes the run button when the crosshair is on the oven with nothing held and a run could start.
+
+`draw_station_button` is the grab button for equipment: bright when it would do something and dim when not, so the player knows before pressing. At the cabinet it says heal, wait or healthy, and at the scale zero. `draw_first_aid_readout` and `draw_scale_readout` draw the lines under the crosshair, the scale's in grams with one decimal and marked when it has been zeroed.
 
 ### `lab.vs`
 **What it does:** Vertex shader for the room, the vessels, and the hands. The room mesh is in world space and is drawn with an identity model matrix, so its positions and normals pass straight through. Vessels and hands are drawn with a model matrix that moves them, and the shader applies it so the lighting and fog work on world positions. The vertex color and the glow and gloss values are passed on. There are two versions, `shaders/glsl330/` and `shaders/glsl100/`.
@@ -792,17 +814,17 @@ Three arena checks were added with hit points. The first checks that the startin
 
 **Hit points.** A `Player_View` now carries `hp`, the hit points left, and `knocked_out` says a player has none. The zero value of the field is knocked out, so anything that builds a player by hand has to set it, and the tests do. `MAX_HEALTH` is 100 and the self-test checks it against the simulation. The blend between ticks shows the hit points of the later tick, with no blending, because a number of hit points halfway between two is not a thing a player has.
 
-**The fire stick.** `fire_push` says where a finger is on a round stick as a push from -1 to 1 on each axis, and a finger outside the circle counts as at its edge, in the direction it is in. `fire_turn` turns a push into how fast the view turns, in radians a second: nothing inside a dead zone of 0.15 of the travel, and past it the rate grows with the square of the push, up to 2.6 rad/s sideways and 1.7 rad/s up and down at the edge. Pushing right turns right and pushing up looks up, as dragging a finger across the screen does. `thrower_cancel` lets go of a charge without throwing it, for a player who is knocked out with a balloon in the hand.
+**The fire stick.** `fire_push` says where a finger is on a round stick as a push from -1 to 1 on each axis, and a finger outside the circle counts as at its edge, in the direction it is in. The middle of the stick is where the finger first landed and its radius is that of the walking stick, so the push starts at nothing, as the walking stick's does. `fire_turn` turns a push into how fast the view turns, in radians a second, in a straight line like the walking stick: nothing inside a dead zone of 0.05 of the travel, and past it the rate grows evenly up to 1.8 rad/s sideways and 1.2 rad/s up and down at the edge. Pushing right turns right and pushing up looks up, as dragging a finger across the screen does. `thrower_cancel` lets go of a charge without throwing it, for a player who is knocked out with a balloon in the hand.
 
 **Decisions:**
-- The dead zone, the square response and the two top rates are first guesses, to tune by feel on a phone. A square response was chosen so that small moves of the thumb aim finely and the edge still turns quickly.
+- The dead zone and the two top rates are first guesses, to tune by feel on a phone. The response is a straight line because the owner asked for the stick to behave like the walking stick, after a version with a square response and a fixed middle was too sensitive to aim with.
 - The stick's maths lives here, with no raylib, so it is tested without a window. The scene only finds the finger.
 - Hit points are shown, never worked out: the client does not know how much a balloon hurts.
 
 ### `arena_test.odin`
 **What it does:** Looking follows the lab's headings, and the pitch stops short of straight up and down. The direction on the wire keeps its heading and is scaled to 1000. A throw charges over the set time and stops at full, and the power runs from the weakest to the strongest and never falls as the charge grows. Slots follow the hooks one for one, the fill is rounded and kept inside what a balloon holds, and an empty loadout offers one practice balloon while any other loadout gets none. The thrower starts on the first balloon it has, only a slot with a balloon can be chosen, and choosing another drops a throw in progress. Holding charges and letting go throws at the power reached, a full charge is the strongest however long it is held, a tap is a weak throw and not no throw, the cooldown has to be waited out and shows before the button is pressed, nothing is thrown from an empty slot or without a press, and a balloon that goes while it is being charged is not thrown. Players are found by id, the eye is above the feet and goes up with them, and a player is on the floor within 2 cm of it. A host is driven only through its table. Headings turn the short way round, drawing between ticks lies between them with the ends where they should be and the alpha kept inside 0 to 1, things that are new appear where they are, things that are gone do not, and balloons are matched by id and not by place in the list.
 
-Hit points: a player with none is knocked out and one with one is not, the blend shows the later tick's hit points, also for a player the earlier tick did not have, and cancelling a charge throws nothing, costs no cooldown, and lets a new charge start at once. The fire stick: a finger is a push from -1 to 1, far outside the circle counts as the edge in that direction, a radius of nothing gives no push, the dead zone and its edge turn nothing, the top rates are reached at the edge and never passed, the response is a square, a diagonal keeps its direction, and pushing up looks up.
+Hit points: a player with none is knocked out and one with one is not, the blend shows the later tick's hit points, also for a player the earlier tick did not have, and cancelling a charge throws nothing, costs no cooldown, and lets a new charge start at once. The fire stick: a finger is a push from -1 to 1, far outside the circle counts as the edge in that direction, a radius of nothing gives no push, the dead zone turns nothing, the top rates of 1.8 and 1.2 rad/s are reached at the edge and never passed, the response is a straight line so that half way through the live part turns at half the rate, a diagonal keeps its direction, and pushing up looks up.
 
 ### `coliseum.odin`
 **What it does:** The shape of the coliseum, as a list of boxes that may be turned about the vertical axis, built by `coliseum_build`. The sand is one slab with two rings drawn on it, 2 cm up. The podium wall stands where the floor of 20 m radius ends, 2.4 m high. Five tiers of seats rise outward from it, each 1.8 m deep and 1 m higher than the one before, in 72 boxes a ring, with a stair every ninth box, a little lower and darker, so the seats read as blocks. An outer wall 12 m high stands behind them with a ledge on top, dark openings and columns along its inside, and a banner over each of four gates, red and blue in turn. The four gates are in the podium wall at the compass points, a door between two pillars under a lintel. It comes to about 800 boxes. `piece_distance` measures from the middle of the arena to the nearest point of a box, `piece_corner` and `radial_yaw` spell out the turn, and `ring_chord` is how wide a box in a ring has to be to meet its neighbours.
@@ -845,7 +867,7 @@ Each player's hit points are read from the snapshot into the view. The bot looks
 - A button shows whether it can be used before it is pressed, as the other buttons do.
 - Text is formatted into buffers the caller owns, and not into the temporary allocator, so a frame costs no allocation.
 
-**The fire stick.** The throw button is now a round stick in the bottom right corner, of radius 12 percent of the shorter side of the screen but never under 60 px. A finger that lands anywhere in its square box holds it. While a finger is down the throw charges, the view turns by how far the finger is from the middle (see `fire_turn` in `arena.odin`), and letting go throws. The stick is bright and says throw when it would start a throw, dim and says wait during the cooldown or no balloon without one, says release while charging, and says knocked out and is dim for a player who is down. A gold ring round it fills clockwise from the top as the throw charges, and a knob follows the finger. The three slot squares sit to its left level with its bottom, and the jump button above it, a little narrower. The hit point bar sits at the top left under the three lines of text, green, then gold at half, then red at a quarter. A red cross round the crosshair shows for a moment when a balloon hurts somebody.
+**The fire stick.** The throw button is now a round stick in the bottom right corner, of radius 12 percent of the shorter side of the screen but never under 60 px. A finger that lands anywhere in its square box holds it. While a finger is down the throw charges, a floating stick is drawn where the finger landed, as the walking stick is, with a knob that follows the finger, the view turns by how far the finger is from where it landed (see `fire_turn` in `arena.odin`), and letting go throws. The stick is bright and says throw when it would start a throw, dim and says wait during the cooldown or no balloon without one, says release while charging, and says knocked out and is dim for a player who is down. A gold ring round it fills clockwise from the top as the throw charges, and a knob follows the finger. The three slot squares sit to its left level with its bottom, and the jump button above it, a little narrower. The hit point bar sits at the top left under the three lines of text, green, then gold at half, then red at a quarter. A red cross round the crosshair shows for a moment when a balloon hurts somebody.
 
 ### `scene_arena.odin`
 **What it does:** The arena scene. On load it builds the coliseum, starts the local match, takes the three slots from the loadout, and faces the player toward the middle. Each frame it reads the pointers, chooses a slot from a slot square or the keys 1, 2, and 3, turns the look by the drag, and sends the stick and the heading to the match. It runs the throw button and sends a throw where the player looks when the button is let go, steps the match, and shows each burst as a splash four times the size of a lab pop, or as a blast and a flash of the screen if the simulation ever says the burst was violent. The camera is at the eye of the player as the match places it, with the view knocked by a blast. The coliseum is drawn first, then the balloon in the hand and the balloons in flight, then the other players, then the effects. A desktop walks with WASD or the arrows, drags the mouse to look, jumps with space, holds E and lets go to throw, and chooses with 1, 2, and 3. A phone walks with the left thumb and looks with the right, and has a jump button above the throw button, as the lab has, that is dim in the air.
@@ -857,7 +879,7 @@ Each player's hit points are read from the snapshot into the view. The bot looks
 - The balloons are the loadout, hook for hook. Nothing here changes the loadout, so nothing is saved on leaving.
 - A throw does not use the balloon up, and the practice balloon is a guess, see `arena.odin`.
 
-A finger on the fire stick charges the throw and turns the view, and the drag anywhere else still turns it too. The scene watches each player's hit points from frame to frame: a loss for the local player flashes the screen red, scaled by how much was lost, a loss for anybody else shows the red cross, and a knock-out is said in a line of text. A player who is knocked out cannot throw, a charge in progress is let go of without throwing, and the screen says knocked out and back in a moment until the match brings them back. Who threw is not in the view, so with one other player in the match the cross means the local player's balloon hit.
+A finger on the fire stick charges the throw and turns the view by how far the finger is from where it landed, which the scene keeps as `fire_origin`, and the drag anywhere else still turns the view too. The scene watches each player's hit points from frame to frame: a loss for the local player flashes the screen red, scaled by how much was lost, a loss for anybody else shows the red cross, and a knock-out is said in a line of text. A player who is knocked out cannot throw, a charge in progress is let go of without throwing, and the screen says knocked out and back in a moment until the match brings them back. Who threw is not in the view, so with one other player in the match the cross means the local player's balloon hit.
 
 ### `arena.fs`
 **What it does:** The fragment shader of the coliseum. There are two versions, `shaders/glsl330/` for desktop and `shaders/glsl100/` for OpenGL ES 2 and the browser, and both use the lab's vertex shader. It is the lab's shading, a ground and sky ambient term, a key light, full brightness for anything emissive, a sheen on glossy surfaces, and the light of a blast, in a sunlit setting: the ambient is warmer from below, the key light is stronger and from a lower angle, and the haze is the colour of the sky and starts at 45 m instead of 10.
@@ -943,6 +965,34 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - `.github/workflows/bench.yml` runs the Odin benchmark and merges it into the result file.
 - `scripts/build_client.sh` is described in `docs/CI.md`.
 
+### `equipment.odin`
+**What it does:** The smaller equipment of the lab, in package `lab`: where it is, and the boxes of what is static. Four racks of vials, two on the north counter at its west end and two on the south counter, each with two rows of six holes 5 cm apart; a first aid cabinet on the north wall; a scale on the north counter between the ice bath and the oven; and two shelves of twenty bottles each on the south wall over the south counter. `vial_slot` says where the foot of the vial in a hole stands, the first six holes being the row nearer the player. `add_equipment` builds the racks, the cabinet and the scale, and `add_apparatus` calls it, and `add_shelves` builds the shelves from a list of bottle colours given by the caller, as `add_dispensers` is. None of them adds a collider: a counter blocks the player and these stand on counters or hang on a wall.
+
+**Decisions:**
+- A vial stands with its foot on the lower plate of its rack, 3 cm over the counter, and a deck 6 cm over it holds it upright. The holes are dark squares on the deck, and the vial passes through the deck as a box, which is not a hole. A vial in a rack therefore shows the deck cutting across it, which is as far as the look has been taken.
+- The scale's plate is 40 by 35 cm and its top is 7 cm over the counter, and a vessel on it stands there (see `standing_height` in `carry.odin`).
+- The bottles of the shelves are glass in the colours of the compounds, a dark cap, and a pale label on the side toward the room. The labels carry no writing, and nothing says what is in a shelf bottle: they are for the look of the room, and the colour of each is the colour of a compound in turn.
+- The numbers are first guesses, to be moved by looking at the room. `MAX_BOXES` was 256 and is 640: the room with all of this takes about half of it, and one mesh holds 2730 boxes.
+
+**Tests:** `equipment_test.odin`.
+
+### `equipment_test.odin`
+**What it does:** The racks, the cabinet, the scale and the shelves add the boxes they should and no collider. The whole room, shelves and all, fits the list with room to spare and one mesh. Every rack stands wholly on a counter and clear of the other racks, the sink, hood, oven, hot plate, ice bath, incinerator, filler and scale. The scale stands on the north counter clear of the rest, with an aim box that takes in its plate. The cabinet is flat against the north wall over the counter, away from the hood, with a red cross on the side toward the room. The shelves are against the south wall over the counter, clear of the filler and the loadout rack, with bottles a hand apart inside the boards, and each bottle is a coloured body, a narrower cap on top and a pale narrower label on the side toward the room, on its board. The racks face the player who stands at their counter, and the first six holes are the row nearer them. The documented numbers are pinned.
+
+### `gear.odin`
+**What it does:** What the first aid cabinet and the scale do, in package `carry`. The cabinet puts a hurt player back at full health at once and then has to rest for 30 seconds. It is ready when the player is more than half a hit point short and it is not resting, and the grab button uses it when it is aimed at, the hands are empty and it is ready. The scale weighs a vessel standing on its plate, whose middle is over the plate and which is resting on it, as the glass and what is in it, with a glass weight for each kind, and shows it less a tare. The grab button zeroes it when it is aimed at, the hands are empty and the reading is not already zero. Taking the vessel off clears the tare. A vessel under the crosshair is aimed at before the cabinet or the scale. `shelf_colors` gives the shelf bottles the colours of the compound table in turn.
+
+**Decisions:**
+- Every compound weighs a gram a millilitre until the compound table has a density, and `compound_density` is the one place to change when it does. That table is being reworked, so nothing was added to it.
+- The glass weights, 60, 85, 110 and 8 g, the 30 second rest and the half hit point are first guesses.
+- The cabinet gives back all the health. The slow healing of the lab is unchanged and goes on, so the cabinet is for being in a hurry.
+- The reading is in grams with one decimal, which the interface shows. The scale is not a way of knowing which compound is in a vessel.
+
+**Tests:** `gear_test.odin`.
+
+### `gear_test.odin`
+**What it does:** The racks: every hole is over a counter, evenly spaced, and a vial is narrower than the spacing; the vials start empty, in the near row of each rack, each exactly in a hole and standing on the lower plate, and stay there when the system runs. A vial let go near a free hole is drawn into it and falls in; it is not drawn into a hole that is taken, one more than 3 cm away, or by something that is not a vial, and a vial that is held is not; two vials over one hole do not share it, and the nearer of two free holes is the one; a vial taken out of a rack by aiming at it and put back goes into the same hole, and the crosshair is on the vial it looks to be on along a full row. The scale: a vessel on the plate stands on it, 7 cm up, and is weighed with its glass for each kind; one beside the plate, held or in the air is not; zeroing takes what is on it off the display until it is taken off, and only when aimed at with empty hands and the reading not already zero; the scale and the cabinet are aimed at within reach and a vessel under the crosshair comes first. The cabinet gives back all the health, then rests for 30 seconds, and the grab button uses it only when aimed at, with empty hands, ready. A vessel weighs its glass and its contents, and every compound weighs a gram a millilitre. The shelf bottles are coloured by the compounds in turn.
+
 ## Fixes and Problems
 
 ### `softbody.odin`
@@ -994,6 +1044,8 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 ### `layout.odin`
 - None recorded yet. The box limit was raised from 96 to 160 for the workstations.
 
+- None recorded yet for the vial and the equipment.
+
 ### `player.odin`
 - A jump changes only the height of the view, and has not been tried on a phone yet.
 
@@ -1012,8 +1064,14 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 ### `carry.odin`
 - Props do not collide with each other, so two vessels let go at the same spot overlap. A vessel only partly over a counter edge stays up on the counter instead of tipping off.
 
+- The first aim test of the racks failed because the crosshair, with 5 cm of pad round every vial, was on three vials at once in a row of holes 5 cm apart and took the first of them. Vials have a pad of 0.8 cm now.
+- The vials first started in the first eight holes of the first rack, which put two in the row behind others, out of reach of the crosshair. They start in the near row, and the first holes are the near row.
+- A vial is drawn into a hole by `vial_snap` and not at the moment it is let go, so for a frame it is where it was let go.
+
 ### `vessels.odin`
 - The stock liquid table is a stand-in with fictional names. The compound database will replace it, and the level is only right for an upright vessel until pouring is added.
+
+- None recorded yet for the vial and the equipment.
 
 ### `mixing.odin`
 - The first version mixed with a button press and wanted the held vessel exactly over the target, which was hard to do and never showed it was ready. It was replaced by the pour, aimed with the crosshair. A blast removes the vessel with no shards or spill.
@@ -1027,6 +1085,8 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - Nothing has run on a phone yet. The drops use the liquid simulation at 3 cm cells, which the benchmark said fits.
 - The first speed setting would have meant more drops, and the liquid simulation is the most expensive thing in the lab, so the drops carry more liquid instead. A drop at speed 8 is 27 ml, a big drop to look at, and how that looks has not been seen.
 
+- None recorded yet for the vial and the equipment.
+
 ### `station.odin`
 - The taps did not work for the first player to try them. They needed the held vessel within about 12 cm of the point under the nozzle, which at a normal standing place is a band of about 19 cm for the player to stand in, and the button did not light until it was pressed. A probe that stood a player at the counter and moved sideways found the band. The window is now half a metre and the stream is aimed into the vessel.
 - Every tap is unlocked, and nothing takes a cost for the liquid.
@@ -1039,6 +1099,8 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 
 ### `shapes.odin`
 - The vessels were opaque pastel solids at first. They are now see-through glass with liquid, as asked after the first test on the phone.
+
+- None recorded yet for the vial and the equipment.
 
 ### `mpm.odin`
 - On a desktop, the version with the active block and the unrolled loops is 2.3 times faster per particle than the first, and the grid cost is gone. Only a box of liquid so far: no walls thinner than a cell, no cohesion, and no coupling to the vessels. None of it has run on a phone yet, and the cost there is what the sim test is for.
@@ -1055,6 +1117,8 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 ### `carry_test.odin`
 - None recorded yet.
 
+- Two checks of the old tests were widened for the vials: the count of vessels, and the range a capacity can be in.
+
 ### `scene_bench.odin`
 - First phone run, built with `-o:minimal` on a Galaxy A13: 10.1 us for each particle and 3.0 ms for the grid, each step, so a 125 ml splash cost 736 ms a frame at 1 cm cells, 46 ms at 2 cm, and 9 ms at 3 cm. That led to the grid being limited to the block in use. The estimate rows assume the grid cost falls with the cube of the cell size. A run built with `TV_OPT=size` has not been seen yet.
 
@@ -1066,6 +1130,8 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 
 ### `interact_ui.odin`
 - The grab button was hard to see over the light counter tops. It now has a dark backing and the counter tops are dark teal.
+
+- None recorded yet for the equipment buttons.
 
 ### `lab_mesh.odin`
 - None recorded yet.
@@ -1080,6 +1146,8 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - A first check that forced blasts, oven runs, and balloons into the scene put the forcing in the loading code and not the update, because the two have the same lines, so it never ran those paths. It was redone in the update, with a control run that had no drawing and no blasts: that had no red pixels on the screen where the run with the drawing had tens of thousands.
 - The carrying, hands, crosshair, and grab button were written and compile for desktop and Android, but have not been seen running on a phone yet.
 - The effects, the fill station, the hood, and the sink compile for desktop and for Android with `-o:minimal` and `-o:size`, and the ABI check passes, but none of it has been seen running on a phone.
+
+- The cabinet and the scale have not been used with a thumb on a phone, and the readout lines have not been seen there. The frame rate with 47 vessels in the room, where there were 23, has not been measured.
 
 ### `lab.vs`
 - The shader now reads the model matrix. The room is drawn with an identity matrix, so its look does not change. The normal is moved with `vec4(normal, 0.0)` and not `mat3(matModel)`, because GLSL ES 1.00 may not accept a matrix built from a matrix.
@@ -1136,6 +1204,8 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - The cradle under the balloon of the paint station cut into the balloon, which the owner saw as the clamp clipping through it. It had been placed 1 cm under a balloon taken to be 15 cm long, which is how far the soft body reaches the moment it is made. Once it has sagged it reaches 17.6 to 19.2 cm. A test now settles the real soft body at four fills and checks the clearance, and it caught the first fix as well: 0.19 was less than the 0.192 m of the slackest balloon, so `PAINT_DROP` is 0.20.
 - The incinerator has been checked by counting pixels in a headless run of the lab scene, standing in front of it: 8910 orange pixels looking at it and 374 looking away. Its look and where it stands have not been seen on a phone.
 - None recorded yet. Nothing has been seen on a phone. The distance from the player's usual place to the funnel and to the sink was worked out from the hold point and not tried by hand.
+
+- None recorded yet for the vial and the equipment.
 
 ### `apparatus_test.odin`
 - The first test of the incinerator counted its boxes as 14, and it has 12. The test was wrong. The test of the cradle settles the soft body for ten seconds at each of four fills, which takes about a second, and has to repeat the mesh detail and substeps of the station, which the main package owns, so a change there has to be made here by hand too.
@@ -1228,6 +1298,8 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - The zero value of a player's hit points is knocked out, so a test that built a player with no `hp` would have a bot that ignores him. The bot tests build players through a helper that sets it.
 - The fire stick was first considered as a drag on the whole screen that fires on release. A round stick was built instead, because the owner asked for the kind used to move the camera, and its rates are guesses.
 
+- The first fire stick was too sensitive to aim with, and turned only when dragged all the way out. Its middle was the middle of the button, so a thumb that landed off-centre began with a push already, and its response was a square after a dead zone of 0.15, so small pushes did almost nothing while the edge turned at 150 degrees a second. It now floats with the thumb, answers in a straight line, and tops out at 1.8 and 1.2 rad/s. How it feels has not been tried.
+
 ### `arena_test.odin`
 - None recorded yet.
 
@@ -1263,7 +1335,9 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - A balloon that bursts is seen. Whether it is seen well enough on a phone, how the coliseum looks, whether the controls feel right, and the frame rate have not been checked on a phone.
 - The view is drawn a tick behind the world, 17 ms. How that feels on a phone is not known.
 
-- The controls have not been tried with a thumb. The dead zone, the square response and the turn rates are guesses.
+- The controls have not been tried with a thumb. The dead zone and the turn rates are guesses.
+
+- The fire stick takes its middle from where the finger lands, which is taken from the frame on which the button was pressed. Dragging the finger before that frame is not possible.
 
 ### `arena.fs`
 - None recorded yet. Both versions pass `glslangValidator` and the desktop one compiled and ran on a software OpenGL context in a headless test, and neither has been seen on a device.
@@ -1294,4 +1368,20 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - None recorded yet.
 
 - None recorded yet. The bars are drawn in the world and not on the screen, so they need no projection, which the Android build of raylib cannot return as a float struct.
+
+### `equipment.odin`
+- The shelf boards were first put 2 cm off the wall. A test that the boards are flat against it found that, and `SHELF_Z` was moved.
+- The check with deliberate changes moved a rack to the wrong side of the counter, turned the rows round, moved the scale's plate onto the oven and put the cabinet on the hood. Two got through at first, because the tests used the racks' own facing in their own check and measured the plate with a rectangle that the change had turned inside out, so the facing and the size of the plate are now pinned by numbers.
+- Nothing about the look has been seen on a phone. In a headless run, each piece changed the picture against a copy of the room without it: 4035 pixels for the cabinet, 4616 for the racks, 54507 for the shelves, 7350 for the scale, and 1384 red pixels for the cross against none.
+
+### `equipment_test.odin`
+- None recorded yet.
+
+### `gear.odin`
+- A check of whether the vessel was on the scale before the reading was asked for turned out to be redundant: an empty plate reads zero and zero cannot be zeroed. It was taken out.
+- Deliberate changes were made to the cabinet and the scale one at a time, in a copy of the tree: 52 in all with those of the racks. The survivors at first were an aim test that never put a vessel under the crosshair at the cabinet, and the pieces named under `equipment.odin`. Each was fixed by a test or by taking out the code.
+- The scale's density is a stand-in, and so is the weight of the glass. Nothing has been tried by a player.
+
+### `gear_test.odin`
+- Two mistakes of the tests, not of the code: a vial that was meant to be too far from a hole was only a hole's width from the next one, and a vial that was let go of at the end of a test was drawn into the hole beside it, as it should be.
 

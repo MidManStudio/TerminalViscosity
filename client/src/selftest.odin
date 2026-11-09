@@ -81,6 +81,7 @@ selftest :: proc() -> int {
 	selftest_balloon(&failures)
 	selftest_arena(&failures)
 	selftest_arena_layout(&failures)
+	selftest_lab_equipment(&failures)
 	selftest_paint_screen(&failures)
 
 	fmt.printf("state_hash=%#016x\n", tv_world_state_hash(w))
@@ -378,6 +379,62 @@ selftest_arena :: proc(failures: ^int) {
 	check(failures, lowest < arena.MAX_HEALTH, "and its balloons hurt the player who stood and took them")
 	me, me_found := arena.view_player(bot_view, arena.LOCAL_PLAYER)
 	check(failures, me_found && abs(me.pos.z - 14) < 0.001 && abs(me.pos.x) < 0.001, "the player who sent nothing is where they started, knocked out or not")
+}
+
+// Checks the lab as the room builds it, with all its equipment: the boxes fit the list and the
+// props fit theirs, every vial starts in a hole of a rack, a vessel set on the scale is weighed,
+// and the cabinet heals.
+selftest_lab_equipment :: proc(failures: ^int) {
+	check :: proc(failures: ^int, ok: bool, what: string) {
+		if ok {
+			fmt.printf("ok    %s\n", what)
+		} else {
+			fmt.printf("FAIL  %s\n", what)
+			failures^ += 1
+		}
+	}
+	l := new(lab.Layout)
+	defer free(l)
+	lab.build(l)
+	lab.add_dispensers(l, carry.station_colors())
+	lab.add_apparatus(l)
+	shelf := carry.shelf_colors()
+	lab.add_shelves(l, shelf[:])
+	check(failures, l.box_count < lab.MAX_BOXES - 50, "the lab with all its equipment fits the box list with room to spare")
+	props := new(carry.Props)
+	defer free(props)
+	carry.props_init(props)
+	carry.props_place_defaults(props, l)
+	vials, in_holes := 0, 0
+	for i in 0 ..< props.count {
+		pr := props.items[i]
+		if pr.kind == .Vial {
+			vials += 1
+			if _, found := carry.vial_slot_at(pr.pos.x, pr.pos.z); found {
+				in_holes += 1
+			}
+		}
+	}
+	check(failures, props.count == 47 && props.count < carry.MAX_PROPS, "the starting vessels fit the list")
+	check(failures, vials == 24 && in_holes == vials, "every vial starts in a hole of a rack")
+	// A beaker of water on the scale: 60 g of glass and 100 ml.
+	scale: carry.Scale
+	carry.props_add(props, l, .Beaker, 0, -7.6, u16(chem.Id.Water), 100)
+	grams, loaded := carry.scale_reading(&scale, props)
+	check(failures, loaded && abs(grams - 160) < 0.01, "a beaker with 100 ml of water on the scale reads 160 g")
+	scale.aimed = true
+	check(failures, carry.scale_zero(&scale, props), "and it can be zeroed")
+	grams, _ = carry.scale_reading(&scale, props)
+	check(failures, abs(grams) < 0.01, "after which it reads nothing")
+	// The cabinet.
+	health: carry.Health
+	carry.health_init(&health)
+	carry.health_hurt(&health, 70)
+	aid := carry.First_Aid {
+		aimed = true,
+	}
+	props.held = -1
+	check(failures, carry.first_aid_use(&aid, &health) && health.hp == carry.HEALTH_MAX, "the first aid cabinet puts a hurt player back at full health")
 }
 
 // Whether two boxes (x, y, width, height) overlap.

@@ -316,13 +316,14 @@ thrower_update :: proc(t: ^Thrower, slots: ^[carry.LOADOUT_SLOTS]Slot, held: boo
 	return
 }
 
-FIRE_DEAD_ZONE :: f32(0.15) // the part of the stick's travel, from the middle, that does not turn the view
-FIRE_YAW_RATE :: f32(2.6) // radians a second the view turns sideways with the stick pushed all the way
-FIRE_PITCH_RATE :: f32(1.7) // and up or down
+FIRE_DEAD_ZONE :: f32(0.05) // the part of the stick's travel, from where the finger landed, that does not turn the view
+FIRE_YAW_RATE :: f32(1.8) // radians a second the view turns sideways with the stick pushed all the way
+FIRE_PITCH_RATE :: f32(1.2) // and up or down
 
-// Where a finger is on a round stick centred at `center` with the given `radius`, as a push from
-// -1 to 1 on each axis (screen y points down). A finger outside the circle counts as at its edge,
-// in the direction it is in, so dragging far past the stick turns the view no faster than the edge.
+// Where a finger is on a round stick whose middle is where the finger first landed, as a push
+// from -1 to 1 on each axis (screen y points down). The stick is as wide as the walking stick, in
+// pixels, and a finger past its edge counts as at the edge, in the direction it is in, so dragging
+// far past the stick turns the view no faster than the edge.
 fire_push :: proc(center: [2]f32, radius: f32, finger: [2]f32) -> [2]f32 {
 	if radius <= 0 {
 		return {}
@@ -335,17 +336,18 @@ fire_push :: proc(center: [2]f32, radius: f32, finger: [2]f32) -> [2]f32 {
 	return d
 }
 
-// How fast the view turns, in radians a second, for a push of the fire stick: (sideways, up).
-// A push inside the dead zone turns nothing, and past it the rate grows with the square of the
-// push, so small moves aim finely and the edge turns fast. Pushing right turns right and pushing
-// up looks up, as dragging a finger across the screen does.
+// How fast the view turns, in radians a second, for a push of the fire stick: (sideways, up). It
+// answers the push the way the walking stick does: in a straight line, so a push half way turns
+// the view half as fast as one all the way, after a dead zone just wide enough that a resting
+// thumb does not creep. Pushing right turns right and pushing up looks up, as dragging a finger
+// across the screen does.
 fire_turn :: proc(push: [2]f32) -> (yaw_rate, pitch_rate: f32) {
 	length := math.sqrt(push.x * push.x + push.y * push.y)
 	if length <= FIRE_DEAD_ZONE {
 		return 0, 0
 	}
 	s := min((length - FIRE_DEAD_ZONE) / (1 - FIRE_DEAD_ZONE), 1)
-	k := s * s / length
+	k := s / length
 	return push.x * k * FIRE_YAW_RATE, -push.y * k * FIRE_PITCH_RATE
 }
 

@@ -402,3 +402,60 @@ draw_carrying :: proc(w, h: f32, item: carry.Item) {
 	buf[len(text)] = 0
 	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), i32(h * 0.86), i32(max(f32(16), h * 0.032)), {255, 214, 120, 255})
 }
+
+// The grab button for a piece of equipment: bright when it would do something, dim when not, so the
+// player knows before pressing.
+draw_station_button :: proc(w, h: f32, label: cstring, ready: bool) {
+	if ready {
+		draw_button(grab_button(w, h), label, {14, 74, 74, 230}, {60, 230, 215, 255}, rl.RAYWHITE)
+	} else {
+		draw_button(grab_button(w, h), label, {10, 18, 28, 120}, {200, 210, 222, 100}, {200, 210, 222, 150})
+	}
+}
+
+// What the grab button says at the first aid cabinet, and whether it would do anything.
+first_aid_label :: proc(fa: ^carry.First_Aid, h: ^carry.Health) -> (label: cstring, ready: bool) {
+	switch {
+	case carry.first_aid_ready(fa, h):
+		return "heal", true
+	case fa.cooldown > 0:
+		return "wait", false
+	}
+	return "healthy", false
+}
+
+// The line about the first aid cabinet, under the crosshair.
+draw_first_aid_readout :: proc(w, h: f32, fa: ^carry.First_Aid, health: ^carry.Health, line: int) {
+	buf: [64]u8
+	text: string
+	switch {
+	case carry.first_aid_ready(fa, health):
+		text = fmt.bprintf(buf[:63], "first aid: ready")
+	case fa.cooldown > 0:
+		text = fmt.bprintf(buf[:63], "first aid: ready again in %d s", int(fa.cooldown + 0.999))
+	case:
+		text = fmt.bprintf(buf[:63], "first aid: nothing to heal")
+	}
+	buf[len(text)] = 0
+	font := i32(max(f32(16), h * 0.032))
+	y := i32(h * 0.5) + i32(max(f32(30), h * 0.075)) + 24 + i32(line) * (font + font / 3)
+	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), y, font, {60, 230, 215, 255})
+}
+
+// The line of the scale under the crosshair: what is on the plate, in grams, less what it was zeroed at.
+draw_scale_readout :: proc(w, h: f32, grams: f32, loaded: bool, zeroed: bool, line: int) {
+	buf: [64]u8
+	text: string
+	switch {
+	case !loaded:
+		text = fmt.bprintf(buf[:63], "scale: nothing on it")
+	case zeroed:
+		text = fmt.bprintf(buf[:63], "scale: %.1f g (zeroed)", grams)
+	case:
+		text = fmt.bprintf(buf[:63], "scale: %.1f g", grams)
+	}
+	buf[len(text)] = 0
+	font := i32(max(f32(16), h * 0.032))
+	y := i32(h * 0.5) + i32(max(f32(30), h * 0.075)) + 24 + i32(line) * (font + font / 3)
+	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), y, font, {60, 230, 215, 255})
+}

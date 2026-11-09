@@ -151,6 +151,7 @@ add_apparatus :: proc(l: ^Layout) {
 	add_paint_station(l)
 	add_loadout_rack(l)
 	add_incinerator(l)
+	add_equipment(l)
 }
 
 add_sink :: proc(l: ^Layout) {

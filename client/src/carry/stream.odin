@@ -192,6 +192,8 @@ flow_max :: proc(k: Kind) -> f32 {
 		return 90
 	case .Bottle:
 		return 70
+	case .Vial:
+		return 25
 	}
 	return 100
 }

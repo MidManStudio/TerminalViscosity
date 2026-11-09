@@ -42,6 +42,7 @@ Arena :: struct {
 	hurt_flash:  f32, // red over the screen for a moment when the local player is hit
 	hit_marker:  f32, // a red cross round the crosshair for a moment when somebody else is hit
 	fire_push:   [2]f32, // where the finger is on the fire stick, from -1 to 1
+	fire_origin: [2]f32, // where the finger first landed on it, the middle of the stick while the finger is down
 	last_hp:     [arena.MAX_PLAYERS]u8, // each player's hit points a frame ago
 	hp_known:    [arena.MAX_PLAYERS]bool,
 	toast:       [96]u8,
@@ -156,10 +157,12 @@ arena_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	// The stick is held for as long as the finger is down, wherever the finger wanders.
 	a.fire_push = {}
 	if a.controls.held == 1 {
-		center, radius := fire_stick(w, h)
 		for i in 0 ..< pointers.count {
 			if pointers.items[i].id == a.controls.button_id {
-				a.fire_push = arena.fire_push(center, radius, pointers.items[i].pos)
+				if a.controls.pressed == 1 {
+					a.fire_origin = pointers.items[i].pos
+				}
+				a.fire_push = arena.fire_push(a.fire_origin, stick_radius(w, h), pointers.items[i].pos)
 			}
 		}
 		yaw_rate, pitch_rate := arena.fire_turn(a.fire_push)
@@ -346,7 +349,7 @@ arena_draw_ui :: proc(game: ^Game, state: rawptr) {
 		draw_slot_button(w, h, i, a.slots[i], i == a.thrower.selected)
 	}
 	down := arena_down(a)
-	draw_throw_button(w, h, &a.thrower, &a.slots, down, a.controls.held == 1, a.fire_push)
+	draw_throw_button(w, h, &a.thrower, &a.slots, down, a.controls.held == 1, a.fire_origin, a.fire_push)
 	grounded := true
 	local_hp := arena.MAX_HEALTH
 	if a.host != nil {

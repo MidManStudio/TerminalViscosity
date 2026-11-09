@@ -91,9 +91,10 @@ throw_label :: proc(t: ^arena.Thrower, slots: ^[carry.LOADOUT_SLOTS]arena.Slot, 
 	return "throw", true
 }
 
-// The fire stick: a round base, a ring that fills up as the throw charges, and a knob that follows
-// the finger. `push` is where the finger is, from -1 to 1 on each axis, and `held` whether one is down.
-draw_throw_button :: proc(w, h: f32, t: ^arena.Thrower, slots: ^[carry.LOADOUT_SLOTS]arena.Slot, down: bool, held: bool, push: [2]f32) {
+// The fire stick: a round base, a ring that fills up as the throw charges, and, while a finger is
+// down, a floating stick like the walking one, centred where the finger landed (`origin`), with a
+// knob where the finger is. `push` is where the finger is on it, from -1 to 1 on each axis.
+draw_throw_button :: proc(w, h: f32, t: ^arena.Thrower, slots: ^[carry.LOADOUT_SLOTS]arena.Slot, down: bool, held: bool, origin: [2]f32, push: [2]f32) {
 	label, ready := throw_label(t, slots, down)
 	fill := rl.Color{10, 18, 28, 150}
 	edge := rl.Color{200, 210, 222, 110}
@@ -116,10 +117,12 @@ draw_throw_button :: proc(w, h: f32, t: ^arena.Thrower, slots: ^[carry.LOADOUT_S
 	rl.DrawText(label, cx - rl.MeasureText(label, font) / 2 + 1, cy - font / 2 + 2, font, {0, 0, 0, 220})
 	rl.DrawText(label, cx - rl.MeasureText(label, font) / 2, cy - font / 2, font, ink)
 	if held {
-		// The knob follows the finger, and stays inside the base.
-		travel := r * 0.55
-		rl.DrawCircle(cx + i32(push.x * travel), cy + i32(push.y * travel), r * 0.34, {255, 255, 255, 110})
-		rl.DrawCircleLines(cx + i32(push.x * travel), cy + i32(push.y * travel), r * 0.34, {255, 255, 255, 200})
+		// The floating stick, drawn as the walking one is: where the finger landed, and a knob that follows it.
+		reach := stick_radius(w, h)
+		ox, oy := i32(origin.x), i32(origin.y)
+		rl.DrawCircle(ox, oy, reach, {255, 255, 255, 28})
+		rl.DrawCircleLines(ox, oy, reach, {255, 255, 255, 120})
+		rl.DrawCircle(ox + i32(push.x * reach), oy + i32(push.y * reach), reach * 0.42, {255, 255, 255, 120})
 	}
 }
 

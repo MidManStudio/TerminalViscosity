@@ -24,7 +24,7 @@ interior_profile :: proc(k: Kind, out: ^[MAX_PROFILE][2]f32) -> int {
 	d := kind_dims(k)
 	r, h, t := d.radius, d.height, VESSEL_WALL
 	switch k {
-	case .Beaker:
+	case .Beaker, .Vial:
 		out[0], out[1], out[2] = {0, t}, {r - t, t}, {r - t, h}
 		return 3
 	case .Flask:

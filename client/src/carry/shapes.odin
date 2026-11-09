@@ -114,6 +114,8 @@ glass_tint :: proc(k: Kind) -> [4]u8 {
 		return {186, 226, 205, 255}
 	case .Bottle:
 		return {205, 188, 150, 255}
+	case .Vial:
+		return {196, 224, 238, 255}
 	}
 	return {200, 220, 230, 255}
 }
@@ -124,7 +126,7 @@ outer_profile :: proc(k: Kind, out: ^[MAX_PROFILE][2]f32) -> int {
 	d := kind_dims(k)
 	r, h := d.radius, d.height
 	switch k {
-	case .Beaker:
+	case .Beaker, .Vial:
 		out[0], out[1], out[2] = {0, 0}, {r, 0}, {r, h}
 		return 3
 	case .Flask:

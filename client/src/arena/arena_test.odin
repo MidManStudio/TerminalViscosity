@@ -504,18 +504,18 @@ a_finger_on_the_fire_stick_is_a_push_from_minus_one_to_one :: proc(t: ^testing.T
 
 @(test)
 the_fire_stick_has_the_documented_dead_zone_and_top_rates :: proc(t: ^testing.T) {
-	yaw, pitch := fire_turn({0.14, 0})
+	yaw, pitch := fire_turn({0.04, 0})
 	testing.expect_value(t, yaw, f32(0))
-	yaw, _ = fire_turn({0.16, 0})
-	testing.expect(t, yaw > 0 && yaw < 0.01, "just past the dead zone of 0.15 it begins to turn, very slowly")
+	yaw, _ = fire_turn({0.06, 0})
+	testing.expect(t, yaw > 0 && yaw < 0.05, "just past the dead zone of 0.05 it begins to turn, very slowly")
 	yaw, pitch = fire_turn({1, 0})
-	testing.expect(t, near(yaw, 2.6) && pitch == 0, "2.6 rad/s sideways at the edge")
+	testing.expect(t, near(yaw, 1.8) && pitch == 0, "1.8 rad/s sideways at the edge")
 	_, pitch = fire_turn({0, 1})
-	testing.expect(t, near(pitch, -1.7), "1.7 rad/s up and down at the edge")
+	testing.expect(t, near(pitch, -1.2), "1.2 rad/s up and down at the edge")
 }
 
 @(test)
-the_fire_stick_turns_the_view_past_a_dead_zone_and_faster_toward_the_edge :: proc(t: ^testing.T) {
+the_fire_stick_turns_the_view_in_a_straight_line_past_a_small_dead_zone :: proc(t: ^testing.T) {
 	yaw, pitch := fire_turn({FIRE_DEAD_ZONE * 0.9, 0})
 	testing.expect(t, yaw == 0 && pitch == 0, "inside the dead zone nothing turns")
 	yaw, pitch = fire_turn({0, FIRE_DEAD_ZONE})
@@ -528,10 +528,13 @@ the_fire_stick_turns_the_view_past_a_dead_zone_and_faster_toward_the_edge :: pro
 	testing.expect(t, near(pitch, FIRE_PITCH_RATE), "pushing up looks up (screen y points down)")
 	_, pitch = fire_turn({0, 1})
 	testing.expect(t, near(pitch, -FIRE_PITCH_RATE), "pushing down looks down")
-	// Half way through the live part, a quarter of the rate: the response is a square.
+	// Half way through the live part, half the rate: the response is a straight line, as the
+	// walking stick's is, and a push of half the stick is no more than a little over half the rate.
 	half := FIRE_DEAD_ZONE + (1 - FIRE_DEAD_ZONE) * 0.5
 	yaw, _ = fire_turn({half, 0})
-	testing.expect(t, near(yaw, FIRE_YAW_RATE * 0.25), "fine aim near the middle")
+	testing.expect(t, near(yaw, FIRE_YAW_RATE * 0.5), "half way is half the rate")
+	yaw, _ = fire_turn({0.5, 0})
+	testing.expect(t, yaw > FIRE_YAW_RATE * 0.45 && yaw < FIRE_YAW_RATE * 0.5, "half the stick turns about half as fast as all of it")
 	// On the diagonal the two rates keep the direction of the push.
 	yaw, pitch = fire_turn({0.70711, 0.70711})
 	testing.expect(t, near(yaw, 0.70711 * FIRE_YAW_RATE, 0.001) && near(pitch, -0.70711 * FIRE_PITCH_RATE, 0.001), "a diagonal push")

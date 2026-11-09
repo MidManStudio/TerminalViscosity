@@ -16,7 +16,8 @@ import "core:math"
 
 Vec3 :: [3]f32
 
-MAX_PROPS :: 24
+MAX_PROPS :: 64
+VIAL_AIM_PAD :: f32(0.008)
 REACH :: f32(2.0) // how far from the eye a prop can be grabbed
 POUR_REACH :: f32(1.5) // how close a vessel must be to pour into it
 AIM_PAD :: f32(0.05) // extra width around a prop for the crosshair test, so small things are easy to hit
@@ -29,9 +30,10 @@ Kind :: enum u8 {
 	Beaker,
 	Flask,
 	Bottle,
+	Vial, // a small glass tube, the size that stands in the racks
 }
 
-KIND_COUNT :: 3
+KIND_COUNT :: 4
 
 // Footprint radius and height of a prop, in metres.
 Dims :: struct {
@@ -46,6 +48,8 @@ kind_dims :: proc(k: Kind) -> Dims {
 		return {0.07, 0.19}
 	case .Bottle:
 		return {0.045, 0.25}
+	case .Vial:
+		return {0.016, 0.11}
 	}
 	return {0.05, 0.1}
 }
@@ -150,6 +154,69 @@ support_height :: proc(l: ^lab.Layout, x, z, radius: f32) -> f32 {
 	return 0
 }
 
+// Where the foot of a prop stands: on the plate of the scale if its middle is over it, and in the hole of a
+// vial rack if it is a vial exactly at one, and otherwise on whatever `support_height` says.
+standing_height :: proc(l: ^lab.Layout, pr: ^Prop) -> f32 {
+	floor := support_height(l, pr.pos.x, pr.pos.z, kind_dims(pr.kind).radius)
+	if lab.in_rect(lab.SCALE_PLATE, pr.pos.x, pr.pos.z) {
+		floor = max(floor, lab.COUNTER_HEIGHT + lab.SCALE_PLATE_TOP)
+	}
+	if pr.kind == .Vial {
+		if slot, found := vial_slot_at(pr.pos.x, pr.pos.z); found {
+			floor = max(floor, slot.y)
+		}
+	}
+	return floor
+}
+
+// The hole of a rack that a vial standing at (x, z) is exactly in, if any.
+vial_slot_at :: proc(x, z: f32) -> (slot: Vec3, found: bool) {
+	for rack in 0 ..< lab.VIAL_RACK_COUNT {
+		for i in 0 ..< lab.VIAL_SLOTS_PER_RACK {
+			s := lab.vial_slot(rack, i)
+			if abs(s.x - x) < 0.002 && abs(s.z - z) < 0.002 {
+				return s, true
+			}
+		}
+	}
+	return {}, false
+}
+
+// Draws a vial that has been let go of near a hole of a rack into the hole: the nearest hole within
+// `VIAL_SLOT_SNAP` that no other vial stands in. A vial that is held, or is far from every hole,
+// or whose holes are all taken, stays where it is.
+vial_snap :: proc(props: ^Props, i: int) {
+	pr := &props.items[i]
+	if pr.kind != .Vial || i == props.held {
+		return
+	}
+	best := lab.VIAL_SLOT_SNAP
+	target: Vec3
+	found := false
+	for rack in 0 ..< lab.VIAL_RACK_COUNT {
+		for n in 0 ..< lab.VIAL_SLOTS_PER_RACK {
+			s := lab.vial_slot(rack, n)
+			d := sqrt_f32((s.x - pr.pos.x) * (s.x - pr.pos.x) + (s.z - pr.pos.z) * (s.z - pr.pos.z))
+			if d >= best {
+				continue
+			}
+			taken := false
+			for j in 0 ..< props.count {
+				o := props.items[j]
+				if j != i && o.kind == .Vial && abs(o.pos.x - s.x) < 0.002 && abs(o.pos.z - s.z) < 0.002 {
+					taken = true
+				}
+			}
+			if !taken {
+				best, target, found = d, s, true
+			}
+		}
+	}
+	if found {
+		pr.pos.x, pr.pos.z = target.x, target.z
+	}
+}
+
 // Adds a vessel standing on whatever is under (x, z), holding `ml` of a
 // compound, which is cut down to what the vessel can hold. False if the list
 // is full.
@@ -160,6 +227,7 @@ props_add :: proc(props: ^Props, l: ^lab.Layout, kind: Kind, x, z: f32, compound
 	d := kind_dims(kind)
 	amount := compound == 0 ? f32(0) : clamp(ml, 0, capacity_ml(kind))
 	props.items[props.count] = {kind = kind, pos = {x, support_height(l, x, z, d.radius), z}, compound = compound, ml = amount}
+	props.items[props.count].pos.y = standing_height(l, &props.items[props.count])
 	props.count += 1
 	return true
 }
@@ -222,6 +290,22 @@ props_place_defaults :: proc(props: ^Props, l: ^lab.Layout) {
 	props_add(props, l, .Beaker, 1.8, -0.05)
 	props_add(props, l, .Flask, -2.4, -0.05)
 	props_add(props, l, .Beaker, 2.4, -0.05)
+	props_place_vials(props, l)
+}
+
+// How many vials start in each rack, empty: the row nearer the player, so every one can be reached, and
+// the row behind is free to put some back in.
+VIALS_AT_START :: [lab.VIAL_RACK_COUNT]int{6, 6, 6, 6}
+
+// Stands empty vials in the first holes of each rack, the row nearer the player.
+props_place_vials :: proc(props: ^Props, l: ^lab.Layout) {
+	counts := VIALS_AT_START
+	for rack in 0 ..< lab.VIAL_RACK_COUNT {
+		for i in 0 ..< counts[rack] {
+			s := lab.vial_slot(rack, i)
+			props_add(props, l, .Vial, s.x, s.z)
+		}
+	}
 }
 
 // The props from the farthest to the nearest, for drawing see-through things
@@ -286,6 +370,13 @@ hidden_by_counter :: proc(l: ^lab.Layout, eye, dir: Vec3, t: f32) -> bool {
 	return false
 }
 
+// How far round a vessel the crosshair still counts as on it, in metres. A vial gets less, so that
+// the boxes of two vials in neighbouring holes of a rack, which are 5 cm apart, do not overlap and
+// the crosshair is on the one that it looks to be on.
+aim_pad :: proc(k: Kind) -> f32 {
+	return k == .Vial ? VIAL_AIM_PAD : AIM_PAD
+}
+
 // The nearest prop under the crosshair within reach and not hidden behind a
 // counter, or -1. The prop being held is never a candidate.
 aim :: proc(props: ^Props, l: ^lab.Layout, v: View) -> (index: int, distance: f32) {
@@ -298,9 +389,10 @@ aim :: proc(props: ^Props, l: ^lab.Layout, v: View) -> (index: int, distance: f3
 		}
 		pr := props.items[i]
 		d := kind_dims(pr.kind)
-		reach := d.radius + AIM_PAD
+		pad := aim_pad(pr.kind)
+		reach := d.radius + pad
 		lo := Vec3{pr.pos.x - reach, pr.pos.y, pr.pos.z - reach}
-		hi := Vec3{pr.pos.x + reach, pr.pos.y + d.height + AIM_PAD, pr.pos.z + reach}
+		hi := Vec3{pr.pos.x + reach, pr.pos.y + d.height + pad, pr.pos.z + reach}
 		t, hit := ray_box(v.eye, dir, lo, hi)
 		if hit && t < best_t && !hidden_by_counter(l, v.eye, dir, t) {
 			best = i
@@ -352,9 +444,10 @@ hold :: proc(pr: ^Prop, l: ^lab.Layout, v: View, yaw: f32) {
 	pr.vy = 0
 }
 
-// Lets a prop that is not held fall until it stands on a counter or the floor.
+// Lets a prop that is not held fall until it stands on a counter, the floor, the plate of the
+// scale or in a hole of a vial rack.
 settle :: proc(pr: ^Prop, l: ^lab.Layout, dt: f32) {
-	floor := support_height(l, pr.pos.x, pr.pos.z, kind_dims(pr.kind).radius)
+	floor := standing_height(l, pr)
 	if pr.pos.y <= floor + 1e-4 && pr.vy == 0 {
 		pr.pos.y = floor
 		return
@@ -386,6 +479,7 @@ update :: proc(props: ^Props, l: ^lab.Layout, p: ^lab.Player, dt: f32) {
 		if i == props.held {
 			hold(pr, l, v, p.yaw)
 		} else {
+			vial_snap(props, i)
 			settle(pr, l, dt)
 		}
 	}
