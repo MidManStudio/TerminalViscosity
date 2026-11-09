@@ -64,6 +64,8 @@ The owner will rework the chemicals and the recipes himself, and proposed that i
 
 Nothing of this is built. `carry.compound_density` is the one place a density would go, for the scale.
 
+The owner's plan for it is locked in `docs/DESIGN.md`, and a format for the pages that answers the questions above is proposed in `docs/REACTIONS.md`, waiting for the owner's yes.
+
 ### Lab equipment added (see `equipment.odin` and `gear.odin` in `client/docs/client.md`)
 
 - **Vial racks.** Four, with twelve holes each, and 24 empty vials start in them. A vial is a small vessel that holds about 33 ml. It is drawn into a free hole within 3 cm when it is let go of. Whether vials should be able to hold more than one compound, and whether they are for carrying samples or for storing, is open.
