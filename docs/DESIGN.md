@@ -86,6 +86,22 @@ What is built today is in `docs/ARCHITECTURE.md` and `client/docs/client.md`. Th
 - How the books look and how a page is found in them.
 - How the server learns the pages, since damage and volatility are worked out there.
 
+## Reaction levels
+
+**Locked.** A chemical is at most two reactions away from the base chemicals. Combining base chemicals into something new is reaction level 1. Combining that product with another chemical into something else is reaction level 2. There is no level 3. Most chemicals only ever reach level 1, and which ones reach level 2 depends on the chemical.
+
+**Proposed.** Every compound page says its level: 0 for a base chemical, which is bought or fetched, 1 for what a reaction of base chemicals makes, and 2 for what a reaction makes that has a level 1 product among its inputs. A level 2 chemical starts no reactions. A reaction of any number of chemicals, from 2 up to n, is one level. A base chemical that comes out of a reaction, such as the water of an esterification, is a by-product and does not count. Electrolysis counts as one level. `scripts/check_chem.py` enforces all of it.
+
+**Open.** Whether electrolysis should count as a level, and whether a catalyst should.
+
+## How liquids look
+
+**Locked.** Liquids are coloured differently from one another, so that a player can tell them apart in the glass. A compound gets a base colour and a seed for a procedural liquid shader, which gives it a small effect of its own.
+
+**Proposed.** A page carries the base colour, the seed, how clear the liquid is, an effect (none, shimmer, swirl, bubbles or oily) and the strength of the effect. A mix is drawn in the blend of its ingredients' colours by volume, with a pattern whose seed is made from theirs. The checker refuses two compounds that share a seed, or whose colours are less than 40 steps apart in RGB.
+
+**Open.** The shader itself, which is not written, what each effect looks like, and how the seed of a mix is made.
+
 ## What is not decided at all
 
 - How the shop, the broker and the blueprints look and work.

@@ -1,23 +1,23 @@
 # Compound pages: the format, and the rules of mixing
 
-**Status: proposed.** This is the format worked out for the design in `docs/DESIGN.md`, waiting for the owner's yes. Nothing reads it yet. The files below were checked by hand against the grammar and against the owner's chemistry database in DixScript-Rust, and each builder call was checked for the number of arguments and each enum value for existing. They have **not** been run through the DixScript compiler, which is not run in the sandbox. Run `mdix` over them before relying on them.
+**Status: proposed, and checked by the real compiler.** This is the format worked out for the design in `docs/DESIGN.md`. Nothing in the game reads it yet. Every page below compiles with the DixScript compiler (the `midmanstudio-mdix` Python package) and passes `scripts/check_chem.py`, which also catches the mistakes listed under "What the checker checks". The numbers in the pages are drafts from a first pass at the chemistry, and the owner reworks the chemistry, so the numbers and the reactions are his to change. What is proposed is the shape.
 
-The numbers in the water page are drafts taken from a first pass at the chemistry. The owner reworks the chemistry, so the numbers and the reactions are his to change. What is proposed here is the shape.
+Two things in the first draft of the chemistry were wrong and are not in the pages. Acetic acid with sulfuric acid does not make acetic anhydride, which is made another way, so that pair is only a hot corrosive mix. And ethanol flashes at about 13 degrees Celsius, not at 365, which is its autoignition temperature.
 
 ## What a page is
 
-Each compound has its own page, one `.mdix` file, in the owner's words "a dedicated reactions page". A page says who the compound is, what purity bands it comes in, what temperature does to it by itself, which reactions it starts, and what electrolysis gives from it. Products are compounds too, and each needs a page of its own before it can be made in the game, even if the page only says who it is.
+Each compound has its own page, one `.mdix` file, the owner's "dedicated reactions page". A page says who the compound is and how it looks, what purity bands it comes in, what temperature does to it by itself, which reactions it starts, and what electrolysis gives from it. Products are compounds too. Each needs a page before it can be made in the game, even if the page only says who it is and how it looks.
 
 ```
 data/chem/
-  core/enums.mdix       the vocabulary: phases, stations, outcomes
+  core/enums.mdix       the vocabulary: phases, stations, outcomes, liquid effects
   core/builders.mdix    the functions that build the records of a page
   index.mdix            the pages by id and tier (not yet written): a build for a phone cannot list a folder
   water.mdix            one page for each compound, named by its id
   acetic_acid.mdix
   ethanol.mdix
   sulfuric_acid.mdix
-  ethyl_acetate.mdix    and a page for each product
+  ethyl_acetate.mdix    and a page for each product, 13 so far
 ```
 
 ## The vocabulary
@@ -25,16 +25,18 @@ data/chem/
 - **Phase**: SOLID, LIQUID, GAS.
 - **Station**: where a reaction needs the vessel to be. ANY is anywhere, then HOT_BATH, COLD_BATH, OVEN, FREEZER, FURNACE, ELECTROLYSIS, DISTILLATION, CENTRIFUGE.
 - **Outcome**: what can happen in the world: NONE, FREEZE, BOIL, VAPOR, SPLASH, FUMES, FIRE, BURST.
-- **Gear** is written as text in a list, `"goggles"`, `"gas_mask"`, `"ballistic_shield"`, `"fire_extinguisher"`, so a list of it needs no enum. The loader checks the words against a list of its own.
+- **LiquidEffect**: the small effect of the liquid shader: NONE, SHIMMER, SWIRL, BUBBLES, OILY.
+- **Gear** is written as text in a list, `"goggles"`, `"gas_mask"`, `"ballistic_shield"`, `"fire_extinguisher"`, so a list of it needs no enum.
 
-Temperatures are in degrees Celsius, volumes in parts that are relative to each other, and the meters (`unsafe`, `reactivity`, `purity`) run from 0 to 1.
+An enum comes out of the compiler as its number. Temperatures are in degrees Celsius, volumes in parts that are relative to each other, and the meters (`unsafe`, `reactivity`, `purity`, `clarity`, `strength`) run from 0 to 1. QuickFunc parameters start with an underscore, as the owner asks.
 
 ## The records
 
 | Builder | Arguments | What it says |
 |---|---|---|
-| `identity` | id, name, real_name, formula, phase, tier, price | The id is the key everything else uses. The name is what the game calls it, which may not be the real one. Tier 0 is there from the start, and the price is per litre in the shop, 0 for what is not sold. |
-| `properties` | melts_c, boils_c, flash_c, color, unsafe | Melting, boiling and flash points, -1 for none, a colour as text, and how unsafe it is by itself. |
+| `identity` | id, name, real_name, formula, phase, level, tier, price | The id is the key everything else uses. The name is what the game calls it, which may not be the real one. The level is how many reactions it is from the base chemicals: 0, 1 or 2. The tier is when it unlocks. The price is per litre: what the shop charges for a base chemical, or what the broker pays for a product, 0 for neither. |
+| `properties` | melts_c, boils_c, flash_c, unsafe | Melting, boiling and flash points, -1 for no flash point, and how unsafe it is by itself. |
+| `look` | color, seed, clarity, effect, strength | How the liquid is drawn: a base colour as text, a seed for the procedural shader, how clear it is, a small effect and how strong. |
 | `form` | id, label, purity_min, purity_max, price_factor | One band of the purity ladder of the compound: its name, the purity it covers, and what it multiplies a price by. |
 | `behavior` | from_c, to_c, outcome, rate | What temperature does to it alone, between two temperatures. |
 | `part` | compound, parts, purity_min, purity_max | An ingredient of a reaction: which compound, how many parts of the mix, and the band of purity it has to have. |
@@ -46,6 +48,10 @@ Temperatures are in degrees Celsius, volumes in parts that are relative to each 
 | `electrolysis` | form, catalyst, power, outcome | What the electrolysis station does to one band of purity of this compound, with which catalyst (empty for none), how strongly it yields, and a side effect. |
 
 A group of a page is named by the compound and what it is, `water.reactions.vinegar`, and the lists of a reaction hang off it as `.inputs`, `.outputs`, `.failure_outputs` and `.gear`, as the owner's chemistry database does it for isotopes. A reaction that has no `.outputs` is a solution: its ingredients stay in the vessel and the book gives the mix a name in its `note`.
+
+## Levels
+
+The most a chemical can be from the base chemicals is two reactions. Level 0 is a base chemical. A reaction whose inputs are all level 0 makes level 1, and one that has a level 1 chemical among its inputs makes level 2. A level 2 chemical is the end of the line and starts no reaction. A base chemical coming out of a reaction, like the water of an esterification, is a by-product and does not count. Electrolysis is one level too, so it can be run on a level 0 or level 1 compound and its products are one level up.
 
 ## How the game reads a vessel against the pages
 
@@ -61,8 +67,13 @@ This is proposed too.
 8. A band of purity is how one reaction can be written twice for one set of inputs, as the clean and the sink-water dilution of the acid are in the example.
 9. A reaction is written once, on the page of the compound that is first among its inputs. The book shows it on the page of every compound in it, and of its catalyst.
 10. A reaction that is not unlocked does not run. What the player sees then is open.
+11. A mix is drawn in the blend of its ingredients' colours by volume, with a pattern whose seed is made from the seeds of the ingredients.
 
 The unsafe meter, and the outcomes it can trigger, are for the world to work out: a SPLASH hurts what is near, a BURST breaks the vessel, FUMES need a gas mask, FIRE needs an extinguisher. What each does is not part of this format.
+
+## What the checker checks
+
+`python3 scripts/check_chem.py data/chem` compiles every page and reports, for each: a page that does not compile or is named for another compound; a level outside 0 to 2; a melting point at or above the boiling point; a bad colour, seed, clarity or strength; purity bands that leave a gap, overlap or do not run from 0 to 1; behaviors that overlap; a reaction with fewer than two inputs, written on a page that is not its first input's, naming a compound with no page, with a catalyst that is also an input, with `first` outside the inputs or without a wrong-order outcome, with a meter outside 0 to 1, with a failure below the window or failure outputs and no failure, or gear that is not in the list; two reactions that can both match; a product of the wrong level, or a level 3; electrolysis of a band that does not exist, of a level 2 compound, or making the wrong level; two compounds with the same seed or colours less than 40 steps apart; and a product that nothing makes.
 
 ## The files
 
@@ -105,6 +116,14 @@ The unsafe meter, and the outcomes it can trigger, are for the world to work out
     FIRE = 6,
     BURST = 7
   }
+
+  LiquidEffect {
+    NONE = 0,
+    SHIMMER = 1,
+    SWIRL = 2,
+    BUBBLES = 3,
+    OILY = 4
+  }
 )
 ```
 
@@ -123,104 +142,114 @@ The unsafe meter, and the outcomes it can trigger, are for the world to work out
 )
 
 @QUICKFUNCS(
-  ~identity<object>(id<string>, name<string>, real_name<string>, formula<string>, phase<enum>, tier<int>, price<float>) {
+  ~identity<object>(_id<string>, _name<string>, _real_name<string>, _formula<string>, _phase<enum>, _level<int>, _tier<int>, _price<float>) {
     return {
-      id = id,
-      name = name,
-      real_name = real_name,
-      formula = formula,
-      phase = phase,
-      tier = tier,
-      price_per_litre = price
+      id = _id,
+      name = _name,
+      real_name = _real_name,
+      formula = _formula,
+      phase = _phase,
+      level = _level,
+      tier = _tier,
+      price_per_litre = _price
     }
   }
 
-  ~properties<object>(melts_c<float>, boils_c<float>, flash_c<float>, color<string>, unsafe<float>) {
+  ~properties<object>(_melts_c<float>, _boils_c<float>, _flash_c<float>, _unsafe<float>) {
     return {
-      melts_c = melts_c,
-      boils_c = boils_c,
-      flash_c = flash_c,
-      color = color,
-      unsafe = unsafe
+      melts_c = _melts_c,
+      boils_c = _boils_c,
+      flash_c = _flash_c,
+      unsafe = _unsafe
     }
   }
 
-  ~form<object>(id<string>, label<string>, purity_min<float>, purity_max<float>, price_factor<float>) {
+  ~look<object>(_color<string>, _seed<int>, _clarity<float>, _effect<enum>, _strength<float>) {
     return {
-      id = id,
-      label = label,
-      purity_min = purity_min,
-      purity_max = purity_max,
-      price_factor = price_factor
+      color = _color,
+      seed = _seed,
+      clarity = _clarity,
+      effect = _effect,
+      strength = _strength
     }
   }
 
-  ~behavior<object>(from_c<float>, to_c<float>, outcome<enum>, rate<float>) {
+  ~form<object>(_id<string>, _label<string>, _purity_min<float>, _purity_max<float>, _price_factor<float>) {
     return {
-      from_c = from_c,
-      to_c = to_c,
-      outcome = outcome,
-      rate = rate
+      id = _id,
+      label = _label,
+      purity_min = _purity_min,
+      purity_max = _purity_max,
+      price_factor = _price_factor
     }
   }
 
-  ~part<object>(compound<string>, parts<float>, purity_min<float>, purity_max<float>) {
+  ~behavior<object>(_from_c<float>, _to_c<float>, _outcome<enum>, _rate<float>) {
     return {
-      compound = compound,
-      parts = parts,
-      purity_min = purity_min,
-      purity_max = purity_max
+      from_c = _from_c,
+      to_c = _to_c,
+      outcome = _outcome,
+      rate = _rate
     }
   }
 
-  ~product<object>(compound<string>, parts<float>, purity<float>) {
+  ~part<object>(_compound<string>, _parts<float>, _purity_min<float>, _purity_max<float>) {
     return {
-      compound = compound,
-      parts = parts,
-      purity = purity
+      compound = _compound,
+      parts = _parts,
+      purity_min = _purity_min,
+      purity_max = _purity_max
     }
   }
 
-  ~rule<object>(station<enum>, min_c<float>, max_c<float>, catalyst<string>, first<string>, wrong_order<enum>, ratio_tol<float>) {
+  ~product<object>(_compound<string>, _parts<float>, _purity<float>) {
     return {
-      station = station,
-      min_c = min_c,
-      max_c = max_c,
-      catalyst = catalyst,
-      first = first,
-      wrong_order = wrong_order,
-      ratio_tol = ratio_tol
+      compound = _compound,
+      parts = _parts,
+      purity = _purity
     }
   }
 
-  ~effect<object>(heat_c<float>, unsafe<float>, reactivity<float>) {
+  ~rule<object>(_station<enum>, _min_c<float>, _max_c<float>, _catalyst<string>, _first<string>, _wrong_order<enum>, _ratio_tol<float>) {
     return {
-      heat_c = heat_c,
-      unsafe = unsafe,
-      reactivity = reactivity
+      station = _station,
+      min_c = _min_c,
+      max_c = _max_c,
+      catalyst = _catalyst,
+      first = _first,
+      wrong_order = _wrong_order,
+      ratio_tol = _ratio_tol
     }
   }
 
-  ~failure<object>(over_c<float>, outcome<enum>) {
+  ~effect<object>(_heat_c<float>, _unsafe<float>, _reactivity<float>) {
     return {
-      over_c = over_c,
-      outcome = outcome
+      heat_c = _heat_c,
+      unsafe = _unsafe,
+      reactivity = _reactivity
     }
   }
 
-  ~gate<object>(tier<int>, cost<int>) {
+  ~failure<object>(_over_c<float>, _outcome<enum>) {
     return {
-      tier = tier,
-      cost = cost
+      over_c = _over_c,
+      outcome = _outcome
     }
   }
 
-  ~electrolysis<object>(form<string>, catalyst<string>, power<float>, outcome<enum>) {
+  ~gate<object>(_tier<int>, _cost<int>) {
     return {
-      form = form,
-      catalyst = catalyst,
-      power = power,
-      outcome = outcome
+      tier = _tier,
+      cost = _cost
+    }
+  }
+
+  ~electrolysis<object>(_form<string>, _catalyst<string>, _power<float>, _outcome<enum>) {
+    return {
+      form = _form,
+      catalyst = _catalyst,
+      power = _power,
+      outcome = _outcome
     }
   }
 )
@@ -242,10 +271,11 @@ The unsafe meter, and the outcomes it can trigger, are for the world to work out
 )
 
 @DATA(
-  // ---- who it is ----
+  // ---- who it is: level 0 is a base chemical, bought or fetched, not made ----
   water.identity:
-    core = builders.identity("water", "Water", "water", "H2O", enums.Phase.LIQUID, 0, 0.0),
-    properties = builders.properties(0.0, 100.0, -1.0, "#6fb4e8", 0.0)
+    core = builders.identity("water", "Water", "water", "H2O", enums.Phase.LIQUID, 0, 0, 0.0),
+    properties = builders.properties(0.0, 100.0, -1.0, 0.0),
+    look = builders.look("#6fb4e8", 101, 0.9, enums.LiquidEffect.SHIMMER, 0.2)
 
   // ---- the ladder of purity: the bands that reactions can ask for ----
   water.forms::
@@ -267,6 +297,15 @@ The unsafe meter, and the outcomes it can trigger, are for the world to work out
   water.reactions.vinegar.inputs::
     builders.part("water", 1.0, 0.0, 1.0),
     builders.part("acetic_acid", 1.0, 0.0, 1.0)
+
+  water.reactions.hydrated_spirit:
+    rule = builders.rule(enums.Station.ANY, 0.0, 78.0, "", "", enums.Outcome.NONE, 0.5),
+    effect = builders.effect(2.0, 0.05, 0.2),
+    gate = builders.gate(1, 0),
+    note = "Water and ethanol mix freely and warm a little. The spirit is weaker and flashes less readily, so it is safer to heat."
+  water.reactions.hydrated_spirit.inputs::
+    builders.part("water", 1.0, 0.0, 1.0),
+    builders.part("ethanol", 1.0, 0.0, 1.0)
 
   water.reactions.dilute_acid_clean:
     rule = builders.rule(enums.Station.ANY, 0.0, 100.0, "", "water", enums.Outcome.SPLASH, 0.5),
@@ -293,6 +332,18 @@ The unsafe meter, and the outcomes it can trigger, are for the world to work out
   water.reactions.dilute_acid_sink.outputs::
     builders.product("dilute_sulfuric_acid", 10.0, 0.5)
   water.reactions.dilute_acid_sink.gear:: "goggles", "gas_mask"
+
+  water.reactions.pickling_mix:
+    rule = builders.rule(enums.Station.ANY, 0.0, 100.0, "", "water", enums.Outcome.SPLASH, 0.5),
+    effect = builders.effect(35.0, 0.5, 0.7),
+    failure = builders.failure(100.0, enums.Outcome.SPLASH),
+    gate = builders.gate(2, 1500),
+    note = "Water, acetic acid and sulfuric acid: a corrosive pickling solution that spits if it boils. The ingredients stay in the vessel."
+  water.reactions.pickling_mix.inputs::
+    builders.part("water", 6.0, 0.0, 1.0),
+    builders.part("acetic_acid", 3.0, 0.0, 1.0),
+    builders.part("sulfuric_acid", 1.0, 0.0, 1.0)
+  water.reactions.pickling_mix.gear:: "goggles", "gas_mask"
 
   water.reactions.spirit_and_acids:
     rule = builders.rule(enums.Station.ANY, 25.0, 150.0, "", "", enums.Outcome.NONE, 0.5),
@@ -338,9 +389,10 @@ The unsafe meter, and the outcomes it can trigger, are for the world to work out
 
 ## What it leaves open
 
-- The pages of the other three first compounds and of the products. The format is ready for them. They wait for the owner's chemistry.
+- The pages of the products beyond the first four's, and what the owner's chemistry adds.
 - What a mix does when its reaction is not unlocked: does not happen, or happens and makes an unknown substance.
 - How the server learns the pages. Damage and volatility are worked out there, so it needs what the client has, in a form Rust can read.
 - Whether the vessel's one temperature is enough, or whether a mix needs a temperature for each ingredient.
-- Whether a catalyst can be used up, and whether it can be made worse by sink water, as the notes of the first pass say activated charcoal is.
-- The scale of every number. The meters in the example are placeholders.
+- Whether a catalyst can be used up, and whether it counts as a level.
+- Whether electrolysis should count as a level.
+- The scale of every number. The meters in the pages are placeholders.

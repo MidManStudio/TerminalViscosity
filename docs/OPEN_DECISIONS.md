@@ -64,7 +64,7 @@ The owner will rework the chemicals and the recipes himself, and proposed that i
 
 Nothing of this is built. `carry.compound_density` is the one place a density would go, for the scale.
 
-The owner's plan for it is locked in `docs/DESIGN.md`, and a format for the pages that answers the questions above is proposed in `docs/REACTIONS.md`, waiting for the owner's yes.
+The owner's plan for it is locked in `docs/DESIGN.md`, and a format for the pages that answers the questions above is proposed in `docs/REACTIONS.md`. The owner has seen it and asked for two things that are in it: a reaction level of at most two, and a base colour and shader seed for each liquid. What is still open: whether electrolysis counts as a level, whether a catalyst does, the shader itself, and the product pages beyond the first thirteen.
 
 ### Lab equipment added (see `equipment.odin` and `gear.odin` in `client/docs/client.md`)
 

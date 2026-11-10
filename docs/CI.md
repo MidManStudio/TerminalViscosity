@@ -40,6 +40,15 @@ Not covered yet: the browser (WebAssembly) build, any server networking, and che
 ### `build_client.sh`
 **What it does:** Builds the Rust static library, builds the Odin client into `build/`, copies the shaders next to it, and optionally runs `--selftest`.
 
+### `check_chem.py`
+**What it does:** Checks the compound pages in `data/chem` against the rules of `docs/REACTIONS.md`. Each page is compiled by the real DixScript compiler, from the `midmanstudio-mdix` package for Python, read back, and checked one page at a time and then all together: who the compound is and how it looks, its purity bands, its reactions, its electrolysis, the levels (at most two), and that no two liquids share a seed or look alike. The list of what it checks is in `docs/REACTIONS.md`. It prints a line for every problem and exits 1 if there is any. With no `data/chem` folder it says so and exits 0, so it can be run before there are pages.
+
+**Decisions:**
+- It uses the real compiler and not a parser of its own, so a page that compiles for the game compiles for the checker. The compiler writes its log below Python's reach, so the script silences the two file descriptors while it loads.
+- A page that fails to compile is reported and left out of the rest of the checks, so one bad page does not hide the others' problems.
+- The enum numbers are read from `core/enums.mdix`, so the vocabulary has one home.
+- It is not in CI yet: CI has no pages to check and does not install the package. Run it by hand with `pip install midmanstudio-mdix` and `python3 scripts/check_chem.py data/chem`.
+
 ### `check_android_abi.py`
 **What it does:** Reads the undefined symbols of the Odin object files, matches them against the prototypes in `raylib.h` and `rlgl.h`, and fails if any raylib function that Odin calls returns a struct made only of floats (`Vector2`, `Vector3`, `Vector4`, `Quaternion`, `Rectangle`, `Matrix`, and similar).
 
@@ -86,4 +95,10 @@ Not covered yet: the browser (WebAssembly) build, any server networking, and che
 ### `check_android_abi.py`
 - Written after the first installed build crashed on launch. See `client/docs/client.md`, section `android_entry.odin`.
 - Extended to `rlgl.h` when the client started calling rlgl functions for the 3D lab. It now checks 50 functions on the real client objects.
+
+### `check_chem.py`
+- It was run on the first 17 pages and found real mistakes in them: four pairs of liquids with colours too close together, and a melting point for carbon dioxide that was above its boiling point, because it sublimes.
+- Its checks were tested by 28 deliberate breakages of the pages, each in a copy, one at a time: a wrong level, a level 3, equal and close colours, equal seeds, a gap in the bands, a missing page, a bad `first`, a reaction on the wrong page, two reactions that can both match, a failure below the window, electrolysis of a band that does not exist, gear that is not in the list, a meter above 1, a catalyst that is an input, overlapping behaviors, a reused id, a product that nothing makes, a page that does not compile, and more. Each was reported, and for the right reason. A first run counted any non-zero exit as a catch, which would have counted a crash, so the test now needs a reported problem and no traceback.
+- One breakage to test a reused id broke the page it was made in and was not testing what it said. It was replaced by one that compiles.
+- It has not been run in CI.
 
