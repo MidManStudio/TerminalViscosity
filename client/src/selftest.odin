@@ -80,6 +80,7 @@ selftest :: proc() -> int {
 
 	selftest_balloon(&failures)
 	selftest_arena(&failures)
+	selftest_arena_bots(&failures)
 	selftest_arena_layout(&failures)
 	selftest_lab_equipment(&failures)
 	selftest_paint_screen(&failures)
@@ -324,8 +325,8 @@ selftest_arena :: proc(failures: ^int) {
 	same_seed := local_host_new(7, arena.LOCAL_PLAYER, 1)
 	other_seed := local_host_new(8, arena.LOCAL_PLAYER, 1)
 	if same_seed != nil && other_seed != nil {
-		check(failures, same_seed.bot.rng == with_bot.bot.rng, "the same match seed starts the bot the same way")
-		check(failures, other_seed.bot.rng != with_bot.bot.rng, "and another one does not")
+		check(failures, same_seed.bots[0].bot.rng == with_bot.bots[0].bot.rng, "the same match seed starts the bot the same way")
+		check(failures, other_seed.bots[0].bot.rng != with_bot.bots[0].bot.rng, "and another one does not")
 	}
 	if same_seed != nil {
 		local_host_free(same_seed)
@@ -372,13 +373,77 @@ selftest_arena :: proc(failures: ^int) {
 	check(failures, bot_moved > 1 || bot_far > 0, "the bot walks")
 	check(failures, bot_jumped, "and jumps")
 	check(failures, seen_bot_balloon && bot_balloons > 20, "its balloons are in the air, marked as its own")
-	check(failures, bot_bursts >= with_bot.bot.thrown - 1 && bot_bursts <= with_bot.bot.thrown, "every balloon it threw has burst, bar one that may still be in the air")
-	check(failures, with_bot.bot.thrown >= 8, "it threw at least eight in forty seconds")
+	check(failures, bot_bursts >= with_bot.bots[0].bot.thrown - 1 && bot_bursts <= with_bot.bots[0].bot.thrown, "every balloon it threw has burst, bar one that may still be in the air")
+	check(failures, with_bot.bots[0].bot.thrown >= 8, "it threw at least eight in forty seconds")
 	check(failures, fastest > 9 && fastest <= 18.01, "it throws with the power it chose, well above the weakest throw")
 	check(failures, bot_far < arena.ARENA_RADIUS, "all inside the arena")
 	check(failures, lowest < arena.MAX_HEALTH, "and its balloons hurt the player who stood and took them")
 	me, me_found := arena.view_player(bot_view, arena.LOCAL_PLAYER)
 	check(failures, me_found && abs(me.pos.z - 14) < 0.001 && abs(me.pos.x) < 0.001, "the player who sent nothing is where they started, knocked out or not")
+}
+
+// A match with three bots, as the arena scene starts one: four players on four spawn points well
+// apart, every bot plays on its own for thirty seconds and throws, their balloons are marked as
+// theirs, balloons burst, somebody is hurt, and everybody stays inside the arena.
+selftest_arena_bots :: proc(failures: ^int) {
+	check :: proc(failures: ^int, ok: bool, what: string) {
+		if ok {
+			fmt.printf("ok    %s\n", what)
+		} else {
+			fmt.printf("FAIL  %s\n", what)
+			failures^ += 1
+		}
+	}
+
+	check(failures, ARENA_BOTS == 3, "the arena scene starts three bots")
+	h := local_host_new(21, arena.LOCAL_PLAYER, ARENA_BOTS)
+	check(failures, h != nil, "a match with three bots starts")
+	if h == nil {
+		return
+	}
+	defer local_host_free(h)
+	check(failures, h.bot_count == 3, "the host keeps three bots")
+	table := local_host_table(h)
+	view := arena.host_view(&table)
+	check(failures, view.player_count == 4, "four players with the local one")
+	apart := f32(1e9)
+	for i in 0 ..< view.player_count {
+		for j in i + 1 ..< view.player_count {
+			d := view.players[i].pos - view.players[j].pos
+			apart = min(apart, math.sqrt(d.x * d.x + d.z * d.z))
+		}
+	}
+	check(failures, apart > 8, "on four spawn points well apart")
+	ids_differ := h.bots[0].id != h.bots[1].id && h.bots[1].id != h.bots[2].id && h.bots[0].id != h.bots[2].id
+	check(failures, ids_differ && h.bots[0].bot.rng != h.bots[1].bot.rng && h.bots[1].bot.rng != h.bots[2].bot.rng, "each bot has its own id and its own luck")
+
+	owners: [arena.MAX_PLAYERS]bool
+	bursts := 0
+	far := f32(0)
+	lowest := arena.MAX_HEALTH
+	for _ in 0 ..< 60 * 30 {
+		arena.host_step(&table, TICK_DT)
+		for i in 0 ..< view.balloon_count {
+			owners[int(view.balloons[i].owner) % arena.MAX_PLAYERS] = true
+		}
+		bursts += view.burst_count
+		for i in 0 ..< view.player_count {
+			p := view.players[i]
+			far = max(far, math.sqrt(p.pos.x * p.pos.x + p.pos.z * p.pos.z))
+			lowest = min(lowest, p.hp)
+		}
+	}
+	all_threw, all_marked := true, true
+	for i in 0 ..< h.bot_count {
+		all_threw &&= h.bots[i].bot.thrown >= 3
+		all_marked &&= owners[int(h.bots[i].id) % arena.MAX_PLAYERS]
+	}
+	check(failures, all_threw, "every bot threw at least three balloons in thirty seconds")
+	check(failures, all_marked, "and its balloons were in the air, marked as its own")
+	check(failures, !owners[arena.LOCAL_PLAYER], "while the player who threw nothing has none")
+	check(failures, bursts >= 6, "balloons burst")
+	check(failures, lowest < arena.MAX_HEALTH, "and somebody was hurt")
+	check(failures, far < arena.ARENA_RADIUS, "everybody stayed inside the arena")
 }
 
 // Checks the lab as the room builds it, with all its equipment: the boxes fit the list and the

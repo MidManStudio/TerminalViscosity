@@ -17,6 +17,13 @@ import rlgl "vendor:raylib/rlgl"
 ARENA_FOV :: f32(70)
 ARENA_SKY :: rl.Color{153, 194, 235, 255} // the colour the arena shader fades to, as 8-bit values
 ARENA_SEED :: u64(1)
+ARENA_BOTS :: 3 // stand-in players in the match; with the local player that makes four
+
+// The numbers of the buttons in the list `arena_update` gives the controls.
+SWITCH_BUTTON :: 0
+THROW_BUTTON :: 1
+SLOT_BUTTON :: 2 // slot 0; the next slots follow it
+JUMP_BUTTON :: SLOT_BUTTON + carry.LOADOUT_SLOTS
 ARENA_SPLASH_SCALE :: f32(4) // bursts are drawn this many times the lab's size, or they are specks across the sand
 
 // The coliseum, walked in first person, with balloons to throw. It is a thin client: the
@@ -41,8 +48,6 @@ Arena :: struct {
 	blast_flash: f32,
 	hurt_flash:  f32, // red over the screen for a moment when the local player is hit
 	hit_marker:  f32, // a red cross round the crosshair for a moment when somebody else is hit
-	fire_push:   [2]f32, // where the finger is on the fire stick, from -1 to 1
-	fire_origin: [2]f32, // where the finger first landed on it, the middle of the stick while the finger is down
 	last_hp:     [arena.MAX_PLAYERS]u8, // each player's hit points a frame ago
 	hp_known:    [arena.MAX_PLAYERS]bool,
 	toast:       [96]u8,
@@ -63,7 +68,7 @@ arena_load :: proc(game: ^Game) -> rawptr {
 	shader, ok := load_arena_shader()
 	arena_mesh_init(&a.mesh, a.coliseum, shader, ok)
 
-	a.host = local_host_new(ARENA_SEED, arena.LOCAL_PLAYER, 1) // with a bot to look at
+	a.host = local_host_new(ARENA_SEED, arena.LOCAL_PLAYER, ARENA_BOTS) // with bots to look at
 	if a.host != nil {
 		a.table = local_host_table(a.host)
 		// The player starts facing the middle of the arena, wherever the match put them.
@@ -136,44 +141,31 @@ arena_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 
 	pointers: Pointers
 	platform_pointers(&pointers)
-	buttons := [6][4]f32{switch_button(w, h), throw_button(w, h), slot_button(w, h, 0), slot_button(w, h, 1), slot_button(w, h, 2), arena_jump_button(w, h)}
-	controls_update(&a.controls, &pointers, w, h, buttons[:])
-	if a.controls.pressed == 0 {
+	buttons := [JUMP_BUTTON + 1][4]f32{switch_button(w, h), throw_button(w, h), slot_button(w, h, 0), slot_button(w, h, 1), slot_button(w, h, 2), arena_jump_button(w, h)}
+	controls_update(&a.controls, &pointers, w, h, buttons[:], 1 << THROW_BUTTON)
+	if button_pressed(&a.controls, SWITCH_BUTTON) {
 		game_switch(game, .Lab_Room)
 		return
 	}
 	if a.host == nil {
 		return
 	}
-	if a.controls.pressed >= 2 && a.controls.pressed <= 4 {
-		arena_select(a, a.controls.pressed - 2)
+	for i in 0 ..< carry.LOADOUT_SLOTS {
+		if button_pressed(&a.controls, SLOT_BUTTON + i) {
+			arena_select(a, i)
+		}
 	}
 
-	// Looking: dragging up looks up, and dragging right turns right.
+	// Looking: dragging up looks up, and dragging right turns right. The finger on the throw pad
+	// turns the view too, by how far it moves, so one thumb charges, aims and throws.
 	delta := a.controls.look_delta
 	arena.look_turn(&a.look, delta.x * LOOK_SPEED, -delta.y * LOOK_SPEED)
-
-	// The fire stick: a finger on it also steers the view, by how far it is pushed from the middle.
-	// The stick is held for as long as the finger is down, wherever the finger wanders.
-	a.fire_push = {}
-	if a.controls.held == 1 {
-		for i in 0 ..< pointers.count {
-			if pointers.items[i].id == a.controls.button_id {
-				if a.controls.pressed == 1 {
-					a.fire_origin = pointers.items[i].pos
-				}
-				a.fire_push = arena.fire_push(a.fire_origin, stick_radius(w, h), pointers.items[i].pos)
-			}
-		}
-		yaw_rate, pitch_rate := arena.fire_turn(a.fire_push)
-		arena.look_turn(&a.look, yaw_rate * dt, pitch_rate * dt)
-	}
 
 	// Walking: the joystick, or the keyboard on a desktop. Pushing the stick up is forward,
 	// because screen y points down.
 	push := [2]f32{a.controls.stick.x, -a.controls.stick.y}
-	throw_down := a.controls.held == 1
-	jump_down := a.controls.held == 5
+	throw_down := button_held(&a.controls, THROW_BUTTON)
+	jump_down := button_held(&a.controls, JUMP_BUTTON)
 	when ODIN_PLATFORM_SUBTARGET != .Android {
 		if rl.IsKeyDown(.E) {
 			throw_down = true
@@ -330,9 +322,9 @@ arena_draw_ui :: proc(game: ^Game, state: rawptr) {
 	size := max(i32(18), game.screen_h / 36)
 	draw_switch_button(w, h, "lab")
 	when ODIN_PLATFORM_SUBTARGET == .Android {
-		rl.DrawText("left thumb walks, hold the round stick to charge, push it to aim, let go to throw", 20, 20, size, {40, 52, 66, 255})
+		rl.DrawText("left thumb walks, right thumb drags to look, hold the round pad to charge and drag it to aim, let go to throw", 20, 20, size, {40, 52, 66, 255})
 	} else {
-		rl.DrawText("WASD or arrows walk, drag the mouse to look, space jumps, hold E (or the round stick) and let go to throw, 1 2 3 choose", 20, 20, size, {40, 52, 66, 255})
+		rl.DrawText("WASD or arrows walk, drag the mouse to look, space jumps, hold E (or the round pad) and let go to throw, 1 2 3 choose", 20, 20, size, {40, 52, 66, 255})
 	}
 	rl.DrawFPS(20, 20 + size + 8)
 	if a.host != nil {
@@ -349,7 +341,7 @@ arena_draw_ui :: proc(game: ^Game, state: rawptr) {
 		draw_slot_button(w, h, i, a.slots[i], i == a.thrower.selected)
 	}
 	down := arena_down(a)
-	draw_throw_button(w, h, &a.thrower, &a.slots, down, a.controls.held == 1, a.fire_origin, a.fire_push)
+	draw_throw_button(w, h, &a.thrower, &a.slots, down)
 	grounded := true
 	local_hp := arena.MAX_HEALTH
 	if a.host != nil {

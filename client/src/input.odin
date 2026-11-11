@@ -5,7 +5,7 @@
 
 package main
 
-import "core:math"
+import "touch"
 import rl "vendor:raylib"
 
 MAX_POINTERS :: 5
@@ -22,140 +22,79 @@ Pointers :: struct {
 	count: int,
 }
 
-// Movement and look controls. On a phone the first finger down on the left of
-// the screen becomes a floating joystick, wherever it lands, and a finger
-// down anywhere else turns the view. A finger that lands on one of the
-// on-screen buttons presses it instead. With a mouse there is no joystick, and
-// the keyboard moves instead.
+// Movement and look controls, from the touch package. On a phone the first finger down on
+// the left half of the screen becomes a floating walking stick, wherever it lands, and the
+// first finger down on the right half that is not on a button turns the view by how far it
+// moves. A finger that lands on one of the on-screen buttons holds it, and a button listed in
+// `aim_mask` (the throw pad) also turns the view as its finger moves. Every finger keeps the
+// job it landed with until it lifts, and any number of buttons can be held at once. With a mouse
+// there is no walking stick: a drag anywhere turns the view and the keyboard walks.
 Controls :: struct {
-	stick_id:     int,
-	stick_origin: [2]f32,
-	stick:        [2]f32, // from -1 to 1, y is down
-	look_id:      int,
-	look_last:    [2]f32,
-	look_delta:   [2]f32, // pixels moved this frame
-	button_id:    int, // a finger that landed on the button, kept out of the controls until it lifts
-	pressed:      int, // index of the button pressed this frame, or -1
-	held:         int, // index of the button a finger is still down on, or -1
-	// Which ids were down last frame, to tell a new finger from a held one.
-	known:        [MAX_POINTERS]int,
-	known_count:  int,
+	touch:        touch.State,
+	stick:        [2]f32, // from -1 to 1, y is down, after the dead zone
+	stick_active: bool,
+	stick_anchor: [2]f32, // the middle of the ring, for drawing
+	stick_knob:   [2]f32, // where the knob is, for drawing
+	look_delta:   [2]f32, // pixels the view turns this frame: the look finger and any aiming button
+	pressed:      u32, // bit i: a finger landed on button i this frame
+	held:         u32, // bit i: a finger is down on button i
 }
 
-STICK_SIDE :: f32(0.4) // the left part of the screen where a finger starts the joystick
-
-// Starts the controls. Any finger already down, such as the one that just
-// tapped a button in the previous scene, is noted as known, so it is ignored
-// until it lifts and cannot press anything in this scene.
+// Starts the controls. Any finger already down, such as the one that just tapped a button in
+// the previous scene, is a spare finger until it lifts, so it cannot press anything in this scene.
 controls_init :: proc(c: ^Controls, pointers: ^Pointers) {
 	c^ = {}
-	c.stick_id = -1
-	c.look_id = -1
-	c.button_id = -1
-	c.pressed = -1
-	c.held = -1
-	c.known_count = pointers.count
-	for i in 0 ..< pointers.count {
-		c.known[i] = pointers.items[i].id
-	}
+	fingers: [MAX_POINTERS]touch.Finger
+	touch.init(&c.touch, fingers_of(pointers, &fingers))
 }
 
-// Pixels the joystick can be pushed.
-stick_radius :: proc(w, h: f32) -> f32 {
-	return min(w, h) * 0.14
+fingers_of :: proc(pointers: ^Pointers, fingers: ^[MAX_POINTERS]touch.Finger) -> []touch.Finger {
+	for i in 0 ..< pointers.count {
+		fingers[i] = {pointers.items[i].id, pointers.items[i].pos}
+	}
+	return fingers[:pointers.count]
 }
 
-// Reads the pointers and updates the joystick and look. `buttons` are boxes
-// (x, y, width, height) that a finger can press without moving or looking.
-controls_update :: proc(c: ^Controls, pointers: ^Pointers, w, h: f32, buttons: [][4]f32) {
-	c.pressed = -1
-	c.look_delta = {}
-
-	// Roles of fingers that lifted are released.
-	still_down :: proc(pointers: ^Pointers, id: int) -> bool {
-		for i in 0 ..< pointers.count {
-			if pointers.items[i].id == id {
-				return true
-			}
-		}
-		return false
-	}
-	if c.stick_id != -1 && !still_down(pointers, c.stick_id) {
-		c.stick_id = -1
-		c.stick = {}
-	}
-	if c.look_id != -1 && !still_down(pointers, c.look_id) {
-		c.look_id = -1
-	}
-	if c.button_id != -1 && !still_down(pointers, c.button_id) {
-		c.button_id = -1
-		c.held = -1
-	}
-
-	touch_layout := true
-	when ODIN_PLATFORM_SUBTARGET != .Android {
-		touch_layout = false
-	}
-
-	for i in 0 ..< pointers.count {
-		p := pointers.items[i]
-		is_new := true
-		for k in 0 ..< c.known_count {
-			if c.known[k] == p.id {
-				is_new = false
-			}
-		}
-		if is_new && c.stick_id != p.id && c.look_id != p.id && c.button_id != p.id {
-			hit := -1
-			for b, bi in buttons {
-				if p.pos.x >= b.x && p.pos.x <= b.x + b.z && p.pos.y >= b.y && p.pos.y <= b.y + b.w {
-					hit = bi
-				}
-			}
-			if hit != -1 {
-				c.button_id = p.id
-				c.pressed = hit
-				c.held = hit
-			} else if touch_layout && c.stick_id == -1 && p.pos.x < w * STICK_SIDE {
-				c.stick_id = p.id
-				c.stick_origin = p.pos
-			} else if c.look_id == -1 {
-				c.look_id = p.id
-				c.look_last = p.pos
-			}
-		}
-		if p.id == c.stick_id {
-			radius := stick_radius(w, h)
-			d := p.pos - c.stick_origin
-			length := math.sqrt(d.x * d.x + d.y * d.y)
-			if length > radius {
-				d *= radius / length
-			}
-			c.stick = d / radius
-		} else if p.id == c.look_id {
-			c.look_delta = p.pos - c.look_last
-			c.look_last = p.pos
-		}
-	}
-
-	c.known_count = pointers.count
-	for i in 0 ..< pointers.count {
-		c.known[i] = pointers.items[i].id
-	}
+// Whether a finger landed on button `i` this frame, and whether one is down on it.
+button_pressed :: proc(c: ^Controls, i: int) -> bool {
+	return c.pressed & (u32(1) << u32(i)) != 0
 }
 
-// The ring where a thumb starts the joystick, and the stick itself while held.
+button_held :: proc(c: ^Controls, i: int) -> bool {
+	return c.held & (u32(1) << u32(i)) != 0
+}
+
+// Reads the pointers and updates the walking stick, the look and the buttons. `buttons` are boxes
+// (x, y, width, height) that a finger can hold without walking or looking; the fingers on the
+// ones in `aim_mask` (bit i for button i) turn the view too.
+controls_update :: proc(c: ^Controls, pointers: ^Pointers, w, h: f32, buttons: [][4]f32, aim_mask: u32 = 0) {
+	fingers: [MAX_POINTERS]touch.Finger
+	out := touch.update(
+		&c.touch,
+		fingers_of(pointers, &fingers),
+		{w = w, h = h, buttons = buttons, aim_mask = aim_mask, stick_enabled = ODIN_PLATFORM_SUBTARGET == .Android},
+	)
+	c.stick = out.stick
+	c.stick_active = out.stick_active
+	c.stick_anchor = out.anchor
+	c.stick_knob = out.knob
+	c.look_delta = out.look
+	c.pressed = out.pressed
+	c.held = out.held
+}
+
+// The ring where a thumb starts the walking stick, and the stick itself while held.
 controls_draw :: proc(c: ^Controls, w, h: f32) {
 	when ODIN_PLATFORM_SUBTARGET == .Android {
-		radius := stick_radius(w, h)
-		if c.stick_id == -1 {
+		radius := touch.stick_radius(h)
+		if !c.stick_active {
 			rl.DrawCircleLines(i32(w * 0.16), i32(h * 0.72), radius, {255, 255, 255, 50})
 			return
 		}
-		ox, oy := i32(c.stick_origin.x), i32(c.stick_origin.y)
+		ox, oy := i32(c.stick_anchor.x), i32(c.stick_anchor.y)
 		rl.DrawCircle(ox, oy, radius, {255, 255, 255, 28})
 		rl.DrawCircleLines(ox, oy, radius, {255, 255, 255, 90})
-		rl.DrawCircle(ox + i32(c.stick.x * radius), oy + i32(c.stick.y * radius), radius * 0.42, {255, 255, 255, 120})
+		rl.DrawCircle(i32(c.stick_knob.x), i32(c.stick_knob.y), radius * 0.42, {255, 255, 255, 120})
 	}
 }
 

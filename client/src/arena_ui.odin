@@ -31,34 +31,34 @@ draw_arena_button :: proc(w, h: f32) {
 	draw_button(arena_button(w, h), "arena", {10, 18, 28, 190}, {230, 236, 242, 200}, rl.RAYWHITE)
 }
 
-// Radius of the fire stick in pixels. It is a round stick a thumb can rest on and push.
+// Radius of the throw pad in pixels. It is a round pad a thumb can rest on, hold, and drag.
 fire_radius :: proc(w, h: f32) -> f32 {
 	return max(f32(60), min(w, h) * 0.12)
 }
 
-// The box of the fire stick, in the bottom right corner, that a finger can land on to press it. A
-// finger that lands anywhere in the box holds the stick, even in a corner the circle leaves out,
-// and the finger may then wander as far as it likes.
+// The box of the throw pad, in the bottom right corner, that a finger can land on to press it. A
+// finger that lands anywhere in the box holds the pad, even in a corner the circle leaves out,
+// and the finger may then wander as far as it likes: it keeps charging, and it turns the view.
 throw_button :: proc(w, h: f32) -> [4]f32 {
 	r := fire_radius(w, h)
 	return {w - r * 2 - 24, h - r * 2 - 24, r * 2, r * 2}
 }
 
-// The middle of the fire stick, and its radius.
+// The middle of the throw pad, and its radius.
 fire_stick :: proc(w, h: f32) -> (center: [2]f32, radius: f32) {
 	b := throw_button(w, h)
 	return {b.x + b.z * 0.5, b.y + b.w * 0.5}, b.z * 0.5
 }
 
-// The jump button sits just above the fire stick, a little narrower than it.
+// The jump button sits just above the throw pad, a little narrower than it.
 arena_jump_button :: proc(w, h: f32) -> [4]f32 {
 	g := throw_button(w, h)
 	height := g.z * 0.55
 	return {g.x + g.z * 0.1, g.y - height - 16, g.z * 0.8, height}
 }
 
-// The slot buttons are a row of squares just left of the fire stick, slot 0 farthest, level with
-// the bottom of the stick.
+// The slot buttons are a row of squares just left of the throw pad, slot 0 farthest, level with
+// the bottom of the pad.
 slot_button :: proc(w, h: f32, i: int) -> [4]f32 {
 	g := throw_button(w, h)
 	side := g.z * 0.55
@@ -75,7 +75,7 @@ draw_arena_jump_button :: proc(w, h: f32, unavailable: bool) {
 	draw_button(arena_jump_button(w, h), "jump", fill, edge, ink)
 }
 
-// What the fire stick says, and whether it would start a throw now. A stick that is bright can be
+// What the throw pad says, and whether it would start a throw now. A pad that is bright can be
 // used and one that is dim cannot, and it is so before it is touched.
 throw_label :: proc(t: ^arena.Thrower, slots: ^[carry.LOADOUT_SLOTS]arena.Slot, down: bool) -> (label: cstring, ready: bool) {
 	switch {
@@ -91,10 +91,8 @@ throw_label :: proc(t: ^arena.Thrower, slots: ^[carry.LOADOUT_SLOTS]arena.Slot, 
 	return "throw", true
 }
 
-// The fire stick: a round base, a ring that fills up as the throw charges, and, while a finger is
-// down, a floating stick like the walking one, centred where the finger landed (`origin`), with a
-// knob where the finger is. `push` is where the finger is on it, from -1 to 1 on each axis.
-draw_throw_button :: proc(w, h: f32, t: ^arena.Thrower, slots: ^[carry.LOADOUT_SLOTS]arena.Slot, down: bool, held: bool, origin: [2]f32, push: [2]f32) {
+// The throw pad: a round base with its label, and a ring that fills up as the throw charges.
+draw_throw_button :: proc(w, h: f32, t: ^arena.Thrower, slots: ^[carry.LOADOUT_SLOTS]arena.Slot, down: bool) {
 	label, ready := throw_label(t, slots, down)
 	fill := rl.Color{10, 18, 28, 150}
 	edge := rl.Color{200, 210, 222, 110}
@@ -116,14 +114,6 @@ draw_throw_button :: proc(w, h: f32, t: ^arena.Thrower, slots: ^[carry.LOADOUT_S
 	font := i32(r * 0.26)
 	rl.DrawText(label, cx - rl.MeasureText(label, font) / 2 + 1, cy - font / 2 + 2, font, {0, 0, 0, 220})
 	rl.DrawText(label, cx - rl.MeasureText(label, font) / 2, cy - font / 2, font, ink)
-	if held {
-		// The floating stick, drawn as the walking one is: where the finger landed, and a knob that follows it.
-		reach := stick_radius(w, h)
-		ox, oy := i32(origin.x), i32(origin.y)
-		rl.DrawCircle(ox, oy, reach, {255, 255, 255, 28})
-		rl.DrawCircleLines(ox, oy, reach, {255, 255, 255, 120})
-		rl.DrawCircle(ox + i32(push.x * reach), oy + i32(push.y * reach), reach * 0.42, {255, 255, 255, 120})
-	}
 }
 
 // The box of the local player's hit point bar: top left, under the three lines of text.
