@@ -10,7 +10,8 @@ Two GitHub Actions workflows and four scripts. The workflow files are not part o
   - `rust` builds and tests the workspace on Rust 1.75 and on stable. On stable it also checks formatting, runs clippy with warnings denied, and builds the docs with warnings denied.
   - `determinism` builds `tv_server`, runs the self-test twice with seed 1 in separate processes and requires identical output, then requires that seed 2 gives different output.
   - `docs` runs `scripts/check_headers.py`.
-  - `odin` installs a pinned Odin release (`ODIN_TAG` at the top of the file), type-checks the client, runs the soft-body, balloon, lab, carry, chemistry, effects, arena, touch, character, and liquid simulation tests, runs the store tests twice (against a stand-in DixScript library built from `client/src/store/testdata/fake_mdix_ffi.c`, then against DixScript's real Linux library, checked by commit and checksum), validates every shader file, the glass and liquid shader included, with glslang, builds the client and runs its self-test, then renders headless screenshots of the lab room, of the balloon held by its tip, and of the coliseum under a virtual display and keeps them as the `lab-screenshot` artifact.
+  - `chemistry-pages` installs the DixScript compiler for Python, runs `scripts/check_chem.py` on `data/chem`, and runs `scripts/gen_chem.py --check`, which fails if `client/src/chemistry/pages_data.odin` is not what the pages make.
+  - `odin` installs a pinned Odin release (`ODIN_TAG` at the top of the file), type-checks the client, runs the soft-body, balloon, lab, carry, chemistry, effects, arena, touch, chemistry page engine, character, and liquid simulation tests, runs the store tests twice (against a stand-in DixScript library built from `client/src/store/testdata/fake_mdix_ffi.c`, then against DixScript's real Linux library, checked by commit and checksum), validates every shader file, the glass and liquid shader included, with glslang, builds the client and runs its self-test, then renders headless screenshots of the lab room, of the balloon held by its tip, and of the coliseum under a virtual display and keeps them as the `lab-screenshot` artifact.
 - `.github/workflows/bench.yml` runs on demand and on pushes to `main` that touch code or benchmark files. It runs the Criterion benchmarks and the Odin benchmark, merges them with `scripts/bench_summary.py`, compares against `benches/baseline.json` with `scripts/bench_compare.py`, and uploads `bench-results`. Comparison only reports by default. The `fail_pct` input turns a regression above that percentage into a failure.
 
 - `.github/workflows/android.yml` runs on demand only. It sets up Java 17, the Android SDK with build-tools 34.0.0, NDK r26d, Rust with the `armv7-linux-androideabi` target, and Odin, runs `scripts/build_android.sh`, and uploads a signed debug APK named `terminal-viscosity-armv7-debug.apk`. The setup mirrors the working midnote Android workflow.
@@ -47,7 +48,18 @@ Not covered yet: the browser (WebAssembly) build, any server networking, and che
 - It uses the real compiler and not a parser of its own, so a page that compiles for the game compiles for the checker. The compiler writes its log below Python's reach, so the script silences the two file descriptors while it loads.
 - A page that fails to compile is reported and left out of the rest of the checks, so one bad page does not hide the others' problems.
 - The enum numbers are read from `core/enums.mdix`, so the vocabulary has one home.
-- It is not in CI yet: CI has no pages to check and does not install the package. Run it by hand with `pip install midmanstudio-mdix` and `python3 scripts/check_chem.py data/chem`.
+- The `chemistry-pages` job of CI runs it. By hand: `pip install midmanstudio-mdix` and `python3 scripts/check_chem.py data/chem`.
+- `index.mdix` is not a page. It lists the ids of the pages in order, and each compound's number is its place in the list, counted from 1, so a new compound goes at the end and the numbers that saves and the network carry never move. The checker reports a page that is not in the list, an id in the list with no page, and an id listed twice.
+
+### `gen_chem.py`
+**What it does:** Writes `client/src/chemistry/pages_data.odin` from the compound pages in `data/chem`. It runs `check_chem.py` first and stops if the pages do not pass, compiles the pages with the real DixScript compiler, numbers the compounds by the order of `index.mdix`, and writes the compounds, purity bands, behaviours, reaction inputs and outputs, reactions and electrolyses as constant tables, sorted so that the same pages always make the same file. With `--check` it writes nothing and exits 1 if the file on disk is not what the pages make. With no `data/chem` folder it says so and exits 0.
+
+**Decisions:**
+- The game does not read the pages while it runs. The client's binding of the DixScript library reads whole numbers and text only, takes no list or decimal, and cannot follow the imports the pages use, so reading them there would first need a larger binding that nothing can try outside a phone. A generated file is checked into the repo, compiled with the game, the same on every platform, and the server can later get a copy made from the same pages by the same script.
+- The pages stay the single source. `--check` in CI is what stops a page from being edited without the tables being made again.
+- Reactions are written in the order of their page, and inside a page by id, so that the tie rule of the engine (the one listed first) does not depend on the order the compiler happens to return them in.
+- At most 64 reactions are allowed, one bit each in the `u64` that remembers which have run.
+- The script needs Python and the `midmanstudio-mdix` package. It has not been tried in Termux.
 
 ### `check_android_abi.py`
 **What it does:** Reads the undefined symbols of the Odin object files, matches them against the prototypes in `raylib.h` and `rlgl.h`, and fails if any raylib function that Odin calls returns a struct made only of floats (`Vector2`, `Vector3`, `Vector4`, `Quaternion`, `Rectangle`, `Matrix`, and similar).
@@ -100,5 +112,10 @@ Not covered yet: the browser (WebAssembly) build, any server networking, and che
 - It was run on the first 17 pages and found real mistakes in them: four pairs of liquids with colours too close together, and a melting point for carbon dioxide that was above its boiling point, because it sublimes.
 - Its checks were tested by 28 deliberate breakages of the pages, each in a copy, one at a time: a wrong level, a level 3, equal and close colours, equal seeds, a gap in the bands, a missing page, a bad `first`, a reaction on the wrong page, two reactions that can both match, a failure below the window, electrolysis of a band that does not exist, gear that is not in the list, a meter above 1, a catalyst that is an input, overlapping behaviors, a reused id, a product that nothing makes, a page that does not compile, and more. Each was reported, and for the right reason. A first run counted any non-zero exit as a catch, which would have counted a crash, so the test now needs a reported problem and no traceback.
 - One breakage to test a reused id broke the page it was made in and was not testing what it said. It was replaced by one that compiles.
-- It has not been run in CI.
+- The index check was tried on three breakages in a copy: an id listed twice, a missing `index.mdix` and a page left out of it. Each was reported. It has not been run in CI yet: the job is new.
+
+### `gen_chem.py`
+- It was run on the 17 pages, made the file, and `--check` agreed with it. The tables it makes are read by 27 tests of the `chemistry` package that pin the numbers of the pages, so the script and the tests check each other: a wrong sort or a lost field shows as a failing test.
+- Not run in CI yet: the job is new, and the pages are not in the repo until the owner adds them.
+- Not tried in Termux, where the Python package may not install.
 

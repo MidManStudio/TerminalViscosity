@@ -1,6 +1,6 @@
 # Compound pages: the format, and the rules of mixing
 
-**Status: proposed, and checked by the real compiler.** This is the format worked out for the design in `docs/DESIGN.md`. Nothing in the game reads it yet. Every page below compiles with the DixScript compiler (the `midmanstudio-mdix` Python package) and passes `scripts/check_chem.py`, which also catches the mistakes listed under "What the checker checks". The numbers in the pages are drafts from a first pass at the chemistry, and the owner reworks the chemistry, so the numbers and the reactions are his to change. What is proposed is the shape.
+**Status: proposed, and checked by the real compiler.** This is the format worked out for the design in `docs/DESIGN.md`. The `chemistry` package (`client/src/chemistry`) reads it, as tables that `scripts/gen_chem.py` writes from the pages, and implements the rules below with tests, but the lab does not use it yet: it still runs on the placeholder chemicals of the `chem` package. Every page below compiles with the DixScript compiler (the `midmanstudio-mdix` Python package) and passes `scripts/check_chem.py`, which also catches the mistakes listed under "What the checker checks". The numbers in the pages are drafts from a first pass at the chemistry, and the owner reworks the chemistry, so the numbers and the reactions are his to change. What is proposed is the shape.
 
 Two things in the first draft of the chemistry were wrong and are not in the pages. Acetic acid with sulfuric acid does not make acetic anhydride, which is made another way, so that pair is only a hot corrosive mix. And ethanol flashes at about 13 degrees Celsius, not at 365, which is its autoignition temperature.
 
@@ -12,12 +12,12 @@ Each compound has its own page, one `.mdix` file, the owner's "dedicated reactio
 data/chem/
   core/enums.mdix       the vocabulary: phases, stations, outcomes, liquid effects
   core/builders.mdix    the functions that build the records of a page
-  index.mdix            the pages by id and tier (not yet written): a build for a phone cannot list a folder
+  index.mdix            the ids of the pages in order: a compound's number is its place in the list, from 1
   water.mdix            one page for each compound, named by its id
   acetic_acid.mdix
   ethanol.mdix
   sulfuric_acid.mdix
-  ethyl_acetate.mdix    and a page for each product, 13 so far
+  ethyl_acetate.mdix    and a page for each product, 13 so far (17 pages in all)
 ```
 
 ## The vocabulary
@@ -70,6 +70,20 @@ This is proposed too.
 11. A mix is drawn in the blend of its ingredients' colours by volume, with a pattern whose seed is made from the seeds of the ingredients.
 
 The unsafe meter, and the outcomes it can trigger, are for the world to work out: a SPLASH hurts what is near, a BURST breaks the vessel, FUMES need a gas mask, FIRE needs an extinguisher. What each does is not part of this format.
+
+### What the engine does with them
+
+`chemistry.odin` reads the rules above as follows. Where the rules say nothing, this is what it does, and each of these is open to the owner to change.
+
+- A band of purity runs from its minimum up to but not including its maximum, and the top band includes 1. A window of temperature runs from `min_c` up to but not including `max_c`. A reaction fails at `over_c` and above, which leaves no gap when `over_c` is also `max_c`. A failure never acts outside the shares, bands, catalyst and station that make a reaction match, and the unsafe meter causes a failure only inside the window.
+- The shares are worked out among the inputs only, so an ingredient that is not an input, such as a catalyst, does not change them.
+- A reaction with outputs uses up the whole of each of its inputs, so a vessel a little off the ratio but inside the tolerance still reacts completely. The total volume of the inputs is split among the outputs by their parts, and an output with a purity of -1 gets the mean purity of the inputs by volume.
+- A reaction with no outputs leaves everything where it is, adds its heat and unsafe once, and does not run again until something is poured in. A failure with failure outputs turns the inputs into those, and a failure without leaves the vessel as it is. The failure's own heat and unsafe are only added when it turns anything into something.
+- If several reactions act, the one with the most inputs wins, then one that needs its own station over one that works anywhere, then the one listed first. Pages are numbered by `index.mdix` and a page's reactions are listed by id.
+- A reaction that acted is not looked at again for the same ingredients: pouring in something new clears that, and so does nothing else.
+- A compound that a reaction made does not count for `first`: nobody poured it, so it cannot have gone in at the wrong time. Without this, the water that the ethyl acetate reaction makes would splash against the acid that is only there as its catalyst.
+- A mixture holds eight different compounds. A ninth is refused, and nothing is poured.
+- Reactions are run one after another until none acts or eight have, so a product can start a second reaction. Levels cap this at two for the pages as they are.
 
 ## What the checker checks
 
@@ -389,9 +403,9 @@ The unsafe meter, and the outcomes it can trigger, are for the world to work out
 
 ## What it leaves open
 
-- The pages of the products beyond the first four's, and what the owner's chemistry adds.
+- What the owner's chemistry adds. The pages of ethylene, sulfur dioxide and hydrogen were missing when the pages were given to Claude, who wrote them to the pattern of the others (seeds 808, 909 and 1010, the real melting and boiling points, a draft unsafe meter, a draft colour). They are drafts to be replaced.
 - What a mix does when its reaction is not unlocked: does not happen, or happens and makes an unknown substance.
-- How the server learns the pages. Damage and volatility are worked out there, so it needs what the client has, in a form Rust can read.
+- How the server learns the pages. The client has them as generated Odin tables. Damage and volatility are worked out in Rust, so the server needs a copy made from the same pages by the same script, which is not written.
 - Whether the vessel's one temperature is enough, or whether a mix needs a temperature for each ingredient.
 - Whether a catalyst can be used up, and whether it counts as a level.
 - Whether electrolysis should count as a level.

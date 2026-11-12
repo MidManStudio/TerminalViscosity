@@ -6,8 +6,8 @@
 """Checks the compound pages in data/chem against the rules of docs/REACTIONS.md.
 
 Each page is compiled by the real DixScript compiler (pip install midmanstudio-mdix), read back,
-and checked: who it is, its purity bands, its reactions, its electrolysis, and the pages
-together. Usage: python3 scripts/check_chem.py [folder]. Exits 1 if anything is wrong.
+and checked: who it is, its purity bands, its reactions, its electrolysis, the pages together,
+and index.mdix, which gives each compound its number. Usage: python3 scripts/check_chem.py [folder]. Exits 1 if anything is wrong.
 """
 import os
 import re
@@ -61,7 +61,7 @@ def load_pages(folder, errors):
 
     pages = {}
     for name in sorted(os.listdir(folder)):
-        if not name.endswith(".mdix"):
+        if not name.endswith(".mdix") or name == "index.mdix":
             continue
         stem = name[:-5]
         with Quiet():
@@ -73,6 +73,33 @@ def load_pages(folder, errors):
         else:
             pages[stem] = page
     return pages
+
+
+def load_index(folder, errors):
+    """The ids in index.mdix, in order: a compound's number is its place in this list, from 1."""
+    from midmanstudio.mdix import MdixDatabase
+
+    path = os.path.join(folder, "index.mdix")
+    if not os.path.isfile(path):
+        errors.append("index.mdix is missing: it gives each compound its number")
+        return []
+    with Quiet():
+        result = MdixDatabase.try_load(path)
+        ok = result.is_success and result.value.entry_count > 0 and result.value.exists("index.pages")
+        listed = read(result.value, "index.pages") if ok else None
+    if not isinstance(listed, list):
+        errors.append("index.mdix does not compile, or has no list named index.pages")
+        return []
+    return listed
+
+
+def check_index(listed, pages, errors):
+    if len(set(listed)) != len(listed):
+        errors.append("index.mdix lists a compound twice")
+    for stem in sorted(set(pages) - set(listed)):
+        errors.append(f"{stem}: has a page and is not in index.mdix, so it has no number")
+    for stem in sorted(set(listed) - set(pages)):
+        errors.append(f"{stem}: is in index.mdix and has no page")
 
 
 def in_range(value, lo, hi):
@@ -275,6 +302,7 @@ def main():
         check_reactions(stem, page, ready, enums, errors, seen_ids)
         check_electrolysis(stem, page, ready, enums, errors)
     check_together(ready, errors)
+    check_index(load_index(folder, errors), pages, errors)
     for line in errors:
         print("FAIL", line)
     print(f"{len(pages)} pages, {len(errors)} problems")
