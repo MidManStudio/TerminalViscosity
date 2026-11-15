@@ -93,7 +93,7 @@ fill_height :: proc(k: Kind, ml: f32) -> f32 {
 
 // The height of the liquid surface in the world, tilt included.
 liquid_level :: proc(pr: ^Prop) -> f32 {
-	return pr.pos.y + fill_level_tilted(pr.kind, pr.ml, pr.tilt)
+	return pr.pos.y + fill_level_tilted(pr.kind, ml_of(&pr.mix), pr.tilt)
 }
 
 // Liquid in a vessel that is tilted over: where its surface is, how much it can

@@ -5,24 +5,25 @@
 
 package carry
 
+import "../chemistry"
 import "../lab"
 
 LOADOUT_SLOTS :: lab.LOADOUT_SLOTS // how many balloons a loadout holds. It is not decided, so it is set in one place, the lab.
 
 // A tied balloon: what is in it, and the drawing on it. It is the data a balloon
-// needs to be sent to the server and shown to the other players. A balloon in the
-// lab has one liquid, so it is one chamber of a recipe.
+// needs to be sent to the server and shown to the other players. A balloon carries the
+// whole mixture of the vessel it was filled from, with its temperature in degrees.
 Item :: struct {
-	used:     bool,
-	compound: u16,
-	ml:       f32,
-	heat:     f32,
-	art:      u16, // the id of its drawing in the art store, 0 while it has none
+	used: bool,
+	mix:  chemistry.Mixture,
+	art:  u16, // the id of its drawing in the art store, 0 while it has none
 }
 
-// What the server needs of a balloon in the loadout. `volume_ml` and `compound`
-// are the one chamber of the recipe, and `art` says which drawing goes with it.
+// What the server needs of a balloon in the loadout: the whole mixture and the drawing.
+// `compound` and `volume_ml` are the compound there is most of and the total, which is
+// all the wire carries until it carries a mixture.
 Preset :: struct {
+	mix:       chemistry.Mixture,
 	compound:  u16,
 	volume_ml: u16,
 	art:       u16,
@@ -115,7 +116,7 @@ balloon_action :: proc(lo: ^Loadout, f: ^Filler, props: ^Props) -> Balloon_Actio
 	switch lo.spot {
 	case .None:
 	case .Fill:
-		if !lo.hand.used && f.present && f.ml > 0 {
+		if !lo.hand.used && f.present && ml_of(&f.mix) > 0 {
 			return .Tie_Take
 		}
 	case .Paint:
@@ -147,22 +148,21 @@ balloon_action :: proc(lo: ^Loadout, f: ^Filler, props: ^Props) -> Balloon_Actio
 // balloon: a stretched balloon is let down to full, and the excess is lost. The
 // station clamps a fresh balloon after a short wait.
 filler_tie :: proc(f: ^Filler) -> (item: Item, let_out: f32) {
-	if !f.present || f.ml <= 0 {
+	have := ml_of(&f.mix)
+	if !f.present || have <= 0 {
 		return {}, 0
 	}
 	item = {
-		used     = true,
-		compound = f.compound,
-		ml       = min(f.ml, BALLOON_REST_ML),
-		heat     = f.heat,
+		used = true,
+		mix  = f.mix,
 	}
-	let_out = f.ml - item.ml
+	if have > BALLOON_REST_ML {
+		chemistry.mix_scale(&item.mix, BALLOON_REST_ML / have)
+	}
+	let_out = have - ml_of(&item.mix)
 	f.present = false
-	f.compound, f.ml, f.heat = 0, 0, 0
+	f.mix = {}
 	f.respawn = FILLER_RESPAWN
-	f.session = {
-		target = -1,
-	}
 	return
 }
 
@@ -212,13 +212,14 @@ loadout_count :: proc(lo: ^Loadout) -> int {
 // What the server needs of each balloon in the loadout, hook by hook, as the
 // recipe and the drawing of each. Empty hooks are left out, and `count` says how many.
 loadout_presets :: proc(lo: ^Loadout) -> (out: [LOADOUT_SLOTS]Preset, count: int) {
-	for s in lo.slots {
+	for &s in lo.slots {
 		if !s.used {
 			continue
 		}
 		out[count] = {
-			compound  = s.compound,
-			volume_ml = u16(clamp(s.ml + 0.5, 0, f32(BALLOON_REST_ML))),
+			mix       = s.mix,
+			compound  = main_of(&s.mix),
+			volume_ml = u16(clamp(ml_of(&s.mix) + 0.5, 0, f32(BALLOON_REST_ML))),
 			art       = s.art,
 		}
 		count += 1

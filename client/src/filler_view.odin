@@ -11,6 +11,7 @@ import rlgl "vendor:raylib/rlgl"
 import bl "balloon"
 import "carry"
 import "chem"
+import "chemistry"
 import "lab"
 
 STATION_FREQUENCY :: 4 // mesh detail of the balloon at the station, lower than in the balloon lab
@@ -170,10 +171,19 @@ filler_view_update :: proc(fv: ^Filler_View, f: ^carry.Filler, dt: f32) {
 	body_step(&fv.body, carry.fill_ratio(f), carry.strain(f), dt, {})
 }
 
-// The color a balloon is drawn in: that of what it holds, or a pale one when empty.
-balloon_tint :: proc(compound: u16, ml: f32) -> Vec3 {
+// The color a balloon is drawn in when all that is known is the compound and how much, as for a balloon in
+// flight in the arena: that of the compound, or a pale one when empty.
+compound_tint :: proc(compound: u16, ml: f32) -> Vec3 {
 	if ml > 0 {
 		return chem.compound_color(compound)
+	}
+	return EMPTY_TINT
+}
+
+// The color a balloon is drawn in: that of what it holds, or a pale one when empty.
+balloon_tint :: proc(m: ^chemistry.Mixture) -> Vec3 {
+	if carry.ml_of(m) > 0 {
+		return chemistry.mix_color(m)
 	}
 	return EMPTY_TINT
 }
@@ -183,7 +193,7 @@ filler_view_draw :: proc(fv: ^Filler_View, f: ^carry.Filler, eye: Vec3) {
 	if !f.present {
 		return
 	}
-	body_draw(&fv.body, lab.FILLER_CLAMP, eye, balloon_tint(f.compound, f.ml))
+	body_draw(&fv.body, lab.FILLER_CLAMP, eye, balloon_tint(&f.mix))
 }
 
 // The balloons the player has apart from the one at the fill station: the one in the
@@ -236,7 +246,8 @@ loadout_view_update :: proc(lv: ^Loadout_View, lo: ^carry.Loadout, store: ^carry
 			on^ = false
 			return
 		}
-		ratio := item.ml / carry.BALLOON_REST_ML
+		have := item.mix
+		ratio := carry.ml_of(&have) / carry.BALLOON_REST_ML
 		if !on^ {
 			on^ = true
 			body_reset(b, ratio)
@@ -265,15 +276,15 @@ loadout_view_update :: proc(lv: ^Loadout_View, lo: ^carry.Loadout, store: ^carry
 loadout_view_draw :: proc(lv: ^Loadout_View, lo: ^carry.Loadout, eye: Vec3, show_hand: bool) {
 	if show_hand && lo.hand.used && lv.hand_on {
 		lv.hand.view.art_turn = lv.hand_turn
-		body_draw(&lv.hand, lv.hand_origin, eye, balloon_tint(lo.hand.compound, lo.hand.ml))
+		body_draw(&lv.hand, lv.hand_origin, eye, balloon_tint(&lo.hand.mix))
 	}
 	if lo.paint.used && lv.paint_on {
-		body_draw(&lv.paint, lab.PAINT_CLAMP, eye, balloon_tint(lo.paint.compound, lo.paint.ml))
+		body_draw(&lv.paint, lab.PAINT_CLAMP, eye, balloon_tint(&lo.paint.mix))
 	}
 	for i in 0 ..< carry.LOADOUT_SLOTS {
 		if lo.slots[i].used && lv.slots_on[i] {
 			lv.slots[i].view.art_turn = carry.facing_turn(lab.SLOT_VIEWED_FROM.x, lab.SLOT_VIEWED_FROM.z)
-			body_draw(&lv.slots[i], lab.slot_clamp(i), eye, balloon_tint(lo.slots[i].compound, lo.slots[i].ml))
+			body_draw(&lv.slots[i], lab.slot_clamp(i), eye, balloon_tint(&lo.slots[i].mix))
 		}
 	}
 }
@@ -339,7 +350,7 @@ stations_draw :: proc(f: ^carry.Filler, lo: ^carry.Loadout) {
 	for i in 0 ..< carry.LOADOUT_SLOTS {
 		color := gauge_rgb(.Off)
 		if lo.slots[i].used {
-			c := chem.compound_color(lo.slots[i].compound)
+			c := chemistry.mix_color(&lo.slots[i].mix)
 			color = {u8(c.r * 255), u8(c.g * 255), u8(c.b * 255), 255}
 		}
 		draw_flat_box(lab.slot_light(i), {0.12, 0.04, 0.012}, color)

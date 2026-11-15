@@ -5,7 +5,7 @@
 
 package carry
 
-import "../chem"
+import "../chemistry"
 import "../lab"
 import "core:testing"
 
@@ -17,10 +17,15 @@ cold_spot :: proc() -> (x, z: f32) {
 	return (lab.ICE_BATH.min_x + lab.ICE_BATH.max_x) * 0.5, (lab.ICE_BATH.min_z + lab.ICE_BATH.max_z) * 0.5
 }
 
-seconds :: proc(props: ^Props, n: f32) {
+// Runs the heat of every vessel for `n` seconds with the player at the middle of the room, and
+// returns how many events there were in all.
+seconds :: proc(props: ^Props, n: f32) -> int {
+	events: [MAX_EVENTS]Mix_Result
+	count := 0
 	for _ in 0 ..< int(n * 60) {
-		props_heat_update(props, 1.0 / 60)
+		count += props_heat_update(props, 1.0 / 60, {0, 1.6, 0}, &events)
 	}
+	return count
 }
 
 @(test)
@@ -33,13 +38,15 @@ a_vessel_on_the_hot_plate_warms_and_one_in_the_ice_bath_cools :: proc(t: ^testin
 	props_add(props, l, .Flask, cx, cz, id(.Water), 300)
 	props_add(props, l, .Flask, 0, 0.4, id(.Water), 300)
 	seconds(props, 1)
-	testing.expect(t, props.items[0].heat > 0.15 && props.items[0].heat < 0.25, "a fifth warmer after a second")
-	testing.expect(t, props.items[1].heat < -0.15 && props.items[1].heat > -0.25, "a fifth cooler")
-	testing.expect_value(t, props.items[2].heat, 0) // the one on the bench stays at the room
-	seconds(props, 6)
-	testing.expect_value(t, props.items[0].heat, 1) // fully hot in about five seconds, and no further
-	testing.expect_value(t, props.items[1].heat, -1)
-	testing.expect_value(t, props.items[2].heat, 0)
+	testing.expect(t, near(props.items[0].mix.heat_c, 26, 0.05), "6 degrees warmer after a second")
+	testing.expect(t, near(props.items[1].mix.heat_c, 14, 0.05), "6 degrees cooler")
+	testing.expect_value(t, props.items[2].mix.heat_c, ROOM_C) // the one on the bench stays at the room
+	seconds(props, 29)
+	testing.expect_value(t, props.items[0].mix.heat_c, HOT_PLATE_C) // 160 in about 23 seconds, and no further
+	testing.expect_value(t, props.items[1].mix.heat_c, ICE_BATH_C)
+	testing.expect_value(t, props.items[2].mix.heat_c, ROOM_C)
+	testing.expect_value(t, HOT_PLATE_C, f32(160))
+	testing.expect_value(t, ICE_BATH_C, f32(0))
 }
 
 @(test)
@@ -47,14 +54,16 @@ a_hot_vessel_cools_slowly_when_taken_off :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
 	props_add(props, l, .Flask, 0, 0.4, id(.Water), 300)
-	props.items[0].heat = 1
+	props.items[0].mix.heat_c = 100
 	seconds(props, 10)
-	testing.expect(t, props.items[0].heat < 0.8 && props.items[0].heat > 0.6, "still warm after ten seconds")
+	testing.expect(t, near(props.items[0].mix.heat_c, 80, 0.05), "20 degrees cooler after ten seconds")
 	seconds(props, 40)
-	testing.expect_value(t, props.items[0].heat, 0)
-	props.items[0].heat = -1
-	seconds(props, 10)
-	testing.expect(t, props.items[0].heat > -0.8 && props.items[0].heat < -0.6, "a cold one warms the same way")
+	testing.expect_value(t, props.items[0].mix.heat_c, ROOM_C) // and it stops at the room
+	props.items[0].mix.heat_c = 0
+	seconds(props, 5)
+	testing.expect(t, near(props.items[0].mix.heat_c, 10, 0.05), "a cold one warms the same way")
+	seconds(props, 20)
+	testing.expect_value(t, props.items[0].mix.heat_c, ROOM_C)
 }
 
 @(test)
@@ -68,26 +77,71 @@ only_a_resting_vessel_with_liquid_in_it_takes_the_heat :: proc(t: ^testing.T) {
 	props_add(props, l, .Flask, lab.HOT_PLATE.max_x + 0.1, hz, id(.Water), 300) // beside the plate
 	props.held = 1
 	props.items[2].pos.y = lab.COUNTER_HEIGHT + 0.5
-	props.items[0].heat = 0.5
+	props.items[0].mix.heat_c = 50
 	seconds(props, 3)
-	testing.expect_value(t, props.items[0].heat, 0) // an empty vessel has no temperature
-	testing.expect_value(t, props.items[1].heat, 0) // a held one does not heat
-	testing.expect_value(t, props.items[2].heat, 0) // nor one in the air
-	testing.expect_value(t, props.items[3].heat, 0) // nor one beside the plate
+	testing.expect_value(t, props.items[0].mix.heat_c, 0) // an empty vessel has no temperature
+	testing.expect_value(t, props.items[1].mix.heat_c, ROOM_C) // a held one does not heat
+	testing.expect_value(t, props.items[2].mix.heat_c, ROOM_C) // nor one in the air
+	testing.expect_value(t, props.items[3].mix.heat_c, ROOM_C) // nor one beside the plate
 }
 
 @(test)
-words_for_the_temperature :: proc(t: ^testing.T) {
-	testing.expect_value(t, heat_word(0), "")
-	testing.expect_value(t, heat_word(0.2), "")
-	testing.expect_value(t, heat_word(0.4), "warm")
-	testing.expect_value(t, heat_word(0.6), "warm")
-	testing.expect_value(t, heat_word(0.75), "hot")
-	testing.expect_value(t, heat_word(0.9), "hot")
-	testing.expect_value(t, heat_word(-0.4), "cool")
-	testing.expect_value(t, heat_word(-0.6), "cool")
-	testing.expect_value(t, heat_word(-0.75), "cold")
-	testing.expect_value(t, heat_word(-0.9), "cold")
+words_and_numbers_for_the_temperature :: proc(t: ^testing.T) {
+	testing.expect_value(t, heat_unit(20), f32(0))
+	testing.expect_value(t, heat_unit(100), f32(1))
+	testing.expect_value(t, heat_unit(160), f32(1))
+	testing.expect_value(t, heat_unit(60), f32(0.5))
+	testing.expect_value(t, heat_unit(0), f32(-1))
+	testing.expect_value(t, heat_unit(-30), f32(-1))
+	testing.expect_value(t, heat_unit(10), f32(-0.5))
+	testing.expect_value(t, heat_word(20), "")
+	testing.expect_value(t, heat_word(30), "")
+	testing.expect_value(t, heat_word(40.5), "warm")
+	testing.expect_value(t, heat_word(70), "warm")
+	testing.expect_value(t, heat_word(77), "warm")
+	testing.expect_value(t, heat_word(80), "hot")
+	testing.expect_value(t, heat_word(130), "hot")
+	testing.expect_value(t, heat_word(16), "")
+	testing.expect_value(t, heat_word(14), "cool")
+	testing.expect_value(t, heat_word(10), "cool")
+	testing.expect_value(t, heat_word(6), "cool")
+	testing.expect_value(t, heat_word(4), "cold")
+	testing.expect_value(t, heat_word(-20), "cold")
+}
+
+@(test)
+vessels_stand_on_the_station_the_pages_name :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	hx, hz := hot_spot()
+	cx, cz := cold_spot()
+	props_add(props, l, .Flask, hx, hz, id(.Water), 100)
+	props_add(props, l, .Flask, cx, cz, id(.Water), 100)
+	props_add(props, l, .Flask, 0, 0.4, id(.Water), 100)
+	testing.expect_value(t, station_of(props.items[0]), chemistry.Station.Hot_Bath)
+	testing.expect_value(t, station_of(props.items[1]), chemistry.Station.Cold_Bath)
+	testing.expect_value(t, station_of(props.items[2]), chemistry.Station.Any)
+}
+
+@(test)
+a_drop_keeps_its_purity_when_it_lands_and_a_removed_drop_does_not_mix_up_the_rest :: proc(t: ^testing.T) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	props_init(s.props)
+	props_add(s.props, s.l, .Beaker, 1.0, 1.0)
+	pr := s.props.items[0]
+	events: [MAX_EVENTS]Mix_Result
+	// A drop of purity 0.3 over the vessel and one of purity 0.7 beside it, in that order.
+	stream_spawn_ml(s.st, s.l, {pr.pos.x, pr.pos.y + 0.1, pr.pos.z}, {}, id(.Water), 10, 0.3, 40)
+	stream_spawn_ml(s.st, s.l, {pr.pos.x + 0.4, pr.pos.y + 0.3, pr.pos.z}, {}, id(.Ethanol), 20, 0.7, 60)
+	testing.expect_value(t, s.st.sim.count, 2)
+	stream_capture(s.st, s.props, {0, 1.6, 0}, &events)
+	testing.expect_value(t, s.props.items[0].mix.items[0].purity, f32(0.3)) // it landed with its purity
+	testing.expect_value(t, s.st.sim.count, 1)
+	testing.expect_value(t, s.st.compound[0], id(.Ethanol)) // the one that stayed is the one that stayed
+	testing.expect_value(t, s.st.purity[0], f32(0.7))
+	testing.expect_value(t, s.st.heat[0], f32(60))
+	testing.expect_value(t, s.st.ml[0], f32(20))
 }
 
 @(test)
@@ -95,40 +149,63 @@ a_hot_drop_warms_the_liquid_it_joins_by_its_share :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
 	props_add(props, l, .Beaker, 0, 0.4, id(.Water), 100)
-	apply_droplet(props, 0, id(.Water), 100, {0, 1.6, 0}, 1)
-	testing.expect(t, abs(props.items[0].heat - 0.5) < 1e-4, "half hot, half not")
-	props_add(props, l, .Beaker, 1, 0.4)
-	apply_droplet(props, 1, id(.Water), 10, {0, 1.6, 0}, 0.8)
-	testing.expect_value(t, props.items[1].heat, 0.8) // into an empty one, it is the drop's own
+	props_add(props, l, .Beaker, 0, 0.9)
+	apply_droplet(props, 0, id(.Water), 100, {0, 1.6, 0}, 80)
+	testing.expect(t, near(props.items[0].mix.heat_c, 50, 1e-3), "half at 20, half at 80")
+	apply_droplet(props, 1, id(.Water), 10, {0, 1.6, 0}, 64)
+	testing.expect_value(t, props.items[1].mix.heat_c, f32(64)) // into an empty one, it is the drop's own
 }
 
 @(test)
-heat_turns_a_calm_mix_into_a_blast_and_cold_tames_one :: proc(t: ^testing.T) {
+a_vessel_that_is_heated_into_a_window_reacts :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
-	eye := Vec3{0, 1.6, 3}
-	props_add(props, l, .Flask, 0, 0.4, id(.Soda_Base), 300)
-	r := apply_droplet(props, 0, id(.Fizz_Acid), DROP_ML, eye)
-	testing.expect_value(t, r.kind, Mix_Kind.Mixed) // calm in the room
+	hx, hz := hot_spot()
+	props_add(props, l, .Flask, hx, hz, id(.Ethanol), 100)
+	m := &props.items[0].mix
+	chemistry.mix_add(m, .Acetic_Acid, 100, 1, ROOM_C)
+	chemistry.mix_add(m, .Sulfuric_Acid, 3, 1, ROOM_C) // the catalyst, a little of it
+	testing.expect_value(t, chemistry.settle(m, .Hot_Bath).count, 0) // too cold
+	testing.expect(t, near(ml_of(m), 203, 0.05), "nothing has happened yet")
+	count := seconds(props, 8) // 20 to 68 degrees
+	testing.expect_value(t, count, 0)
+	count = seconds(props, 4) // through 75
+	testing.expect_value(t, count, 1)
+	testing.expect_value(t, chemistry.dominant(m), chemistry.Id.Ethyl_Acetate)
+	testing.expect(t, m.heat_c > 75 && m.heat_c < 100, "and it is still heating")
+	testing.expect_value(t, seconds(props, 20), 0) // nothing more to happen
+}
 
-	props_add(props, l, .Flask, 0, 0.4, id(.Soda_Base), 300)
-	props.items[props.count - 1].heat = 0.5
-	r = apply_droplet(props, props.count - 1, id(.Fizz_Acid), DROP_ML, eye)
-	testing.expect_value(t, r.kind, Mix_Kind.Spatter) // warm
+@(test)
+a_vessel_heated_past_a_limit_spatters_and_one_past_a_burst_breaks :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	hx, hz := hot_spot()
+	// Acid and water that were mixed the right way round and are just under the boil.
+	props_add(props, l, .Flask, hx, hz)
+	m := &props.items[0].mix
+	chemistry.mix_add(m, .Water, 90, 0.7, 99.95)
+	chemistry.mix_add(m, .Sulfuric_Acid, 10, 1, 99.95)
+	m.ran = u64(1) << u64(chemistry.reaction_index("dilute_acid_clean")) // as if it had been held there
+	events: [MAX_EVENTS]Mix_Result
+	n := props_heat_update(props, 1.0 / 60, {0, 1.6, 0}, &events)
+	testing.expect_value(t, n, 1)
+	testing.expect_value(t, events[0].kind, Mix_Kind.Spatter)
+	testing.expect_value(t, props.count, 1)
+	testing.expect(t, near(ml_of(&props.items[0].mix), 80, 0.01), "a fifth is thrown out")
 
-	props_add(props, l, .Flask, 0, 0.4, id(.Soda_Base), 300)
-	props.items[props.count - 1].heat = 1
-	before := props.count
-	r = apply_droplet(props, props.count - 1, id(.Fizz_Acid), DROP_ML, eye)
-	testing.expect_value(t, r.kind, Mix_Kind.Blast) // hot
-	testing.expect_value(t, props.count, before - 1) // and the vessel is gone
-	testing.expect(t, r.volatility > 0.6, "and it says how violent")
-
-	props_add(props, l, .Flask, 0, 0.4, id(.Ember_Oil), 300)
-	props.items[props.count - 1].heat = -1
-	r = apply_droplet(props, props.count - 1, id(.Spark_Blue), DROP_ML, eye)
-	testing.expect_value(t, r.kind, Mix_Kind.Spatter) // the worst blast, tamed by the ice
-	testing.expect(t, r.damage < 40, "and it hurts far less")
+	// Four things together, held just under the burst, and past it.
+	props_add(props, l, .Flask, hx + 0.2, hz)
+	b := &props.items[1].mix
+	chemistry.mix_add(b, .Water, 100, 1, 149.95)
+	chemistry.mix_add(b, .Ethanol, 100, 1, 149.95)
+	chemistry.mix_add(b, .Acetic_Acid, 100, 1, 149.95)
+	chemistry.mix_add(b, .Sulfuric_Acid, 100, 1, 149.95)
+	b.ran = u64(1) << u64(chemistry.reaction_index("spirit_and_acids"))
+	n = props_heat_update(props, 1.0 / 60, {0, 1.6, 0}, &events)
+	testing.expect_value(t, n, 1)
+	testing.expect_value(t, events[0].kind, Mix_Kind.Blast)
+	testing.expect_value(t, props.count, 1) // the vessel broke
 }
 
 @(test)
@@ -137,7 +214,7 @@ a_pour_carries_the_heat_of_the_vessel_it_comes_from :: proc(t: ^testing.T) {
 	defer free_pour_scene(s)
 	props_init(s.props)
 	props_add(s.props, s.l, .Beaker, 0, 0.5, id(.Water), 400)
-	s.props.items[0].heat = 0.8
+	s.props.items[0].mix.heat_c = 80
 	s.props.held = 0
 	s.props.pouring = true
 	look_at(s.p, {0, 1.2, 3})
@@ -146,7 +223,8 @@ a_pour_carries_the_heat_of_the_vessel_it_comes_from :: proc(t: ^testing.T) {
 		update(s.props, s.l, s.p, 1.0 / 60)
 		pour_flow(s.props, s.st, s.l, 1.0 / 60)
 		if s.st.sim.count > 0 {
-			testing.expect_value(t, s.st.heat[0], 0.8)
+			testing.expect_value(t, s.st.heat[0], f32(80))
+			testing.expect_value(t, s.st.purity[0], SINK_PURITY)
 			found = true
 			break
 		}
@@ -158,15 +236,12 @@ a_pour_carries_the_heat_of_the_vessel_it_comes_from :: proc(t: ^testing.T) {
 the_balloon_takes_the_heat_of_what_is_poured_in :: proc(t: ^testing.T) {
 	f := fresh_filler()
 	for _ in 0 ..< 50 {
-		filler_take_drop(&f, id(.Water), DROP_ML, EYE, 1)
+		filler_take_drop(&f, id(.Water), DROP_ML, EYE, 90)
 	}
-	testing.expect_value(t, f.heat, 1)
-	f.compound, f.ml, f.heat = id(.Soda_Base), 300, 1
-	r := filler_take_drop(&f, id(.Fizz_Acid), DROP_ML, EYE, 0)
-	testing.expect_value(t, r.mix.kind, Mix_Kind.Blast) // a hot balloon is dangerous to pour acid into
-	testing.expect(t, !f.present, "and it bursts")
-	testing.expect_value(t, f.heat, 0)
-	testing.expect_value(t, chem.hazard_of(chem.react(id(.Soda_Base), id(.Fizz_Acid)).volatility), chem.Hazard.Calm)
+	testing.expect(t, near(f.mix.heat_c, 90, 1e-3), "a balloon filled with hot water is hot")
+	fill_with(&f.mix, id(.Ethanol), 300, 90)
+	filler_take_drop(&f, id(.Water), DROP_ML, EYE, 20)
+	testing.expect(t, near(f.mix.heat_c, (90 * 300 + 20 * DROP_ML) / (300 + DROP_ML), 1e-3), "a cool drop cools it by its share")
 }
 
 @(test)
@@ -177,79 +252,80 @@ a_hot_drop_that_lands_in_a_vessel_or_the_funnel_brings_its_heat :: proc(t: ^test
 	props_add(s.props, s.l, .Beaker, 1.0, 1.0)
 	pr := s.props.items[0]
 	events: [MAX_EVENTS]Mix_Result
-	stream_spawn_ml(s.st, s.l, {pr.pos.x, pr.pos.y + 0.1, pr.pos.z}, {}, id(.Water), 50, 0.9)
+	stream_spawn_ml(s.st, s.l, {pr.pos.x, pr.pos.y + 0.1, pr.pos.z}, {}, id(.Water), 50, 1, 90)
 	stream_capture(s.st, s.props, {0, 1.6, 0}, &events)
-	testing.expect_value(t, s.props.items[0].ml, 50)
-	testing.expect_value(t, s.props.items[0].heat, 0.9)
+	testing.expect_value(t, ml_of(&s.props.items[0].mix), 50)
+	testing.expect_value(t, s.props.items[0].mix.heat_c, f32(90))
 
 	f := fresh_filler()
 	m := lab.FILLER_MOUTH
-	stream_spawn_ml(s.st, s.l, {m.x, m.y - 0.05, m.z}, {}, id(.Water), 50, -0.7)
+	stream_spawn_ml(s.st, s.l, {m.x, m.y - 0.05, m.z}, {}, id(.Water), 50, 1, 5)
 	fill_events: [MAX_EVENTS]Fill_Result
 	filler_capture(s.st, &f, EYE, &fill_events)
-	testing.expect_value(t, f.ml, 50)
-	testing.expect_value(t, f.heat, -0.7)
+	testing.expect_value(t, ml_of(&f.mix), 50)
+	testing.expect_value(t, f.mix.heat_c, f32(5))
 }
 
 @(test)
 a_burst_balloon_loses_its_heat_with_its_liquid :: proc(t: ^testing.T) {
 	f := fresh_filler()
-	f.compound, f.ml, f.heat = id(.Water), 1340, 0.8
-	r := filler_take_drop(&f, id(.Water), 20, EYE, 0.8)
+	fill_with(&f.mix, id(.Water), 1340, 80)
+	r := filler_take_drop(&f, id(.Water), 20, EYE, 80)
 	testing.expect(t, r.popped, "overfilled")
-	testing.expect_value(t, f.heat, 0)
+	testing.expect_value(t, f.mix.heat_c, 0)
 }
 
 @(test)
 the_liquid_in_the_balloon_drifts_back_to_the_room :: proc(t: ^testing.T) {
 	f := fresh_filler()
-	f.compound, f.ml, f.heat = id(.Soda_Base), 300, 1
+	fill_with(&f.mix, id(.Ethanol), 300, 100)
 	for _ in 0 ..< 10 * 60 {
 		filler_update(&f, 1.0 / 60)
 	}
-	testing.expect(t, f.heat < 0.8 && f.heat > 0.6, "still warm after ten seconds, as a vessel is")
+	testing.expect(t, near(f.mix.heat_c, 80, 0.05), "still warm after ten seconds, as a vessel is")
 	for _ in 0 ..< 40 * 60 {
 		filler_update(&f, 1.0 / 60)
 	}
-	testing.expect_value(t, f.heat, 0)
-	r := filler_take_drop(&f, id(.Fizz_Acid), DROP_ML, EYE)
-	testing.expect_value(t, r.mix.kind, Mix_Kind.Mixed) // calm again, as in the room
+	testing.expect_value(t, f.mix.heat_c, ROOM_C)
 
-	f.compound, f.ml, f.heat = id(.Ember_Oil), 300, -1
+	fill_with(&f.mix, id(.Ethanol), 300, 0)
 	for _ in 0 ..< 50 * 60 {
 		filler_update(&f, 1.0 / 60)
 	}
-	testing.expect_value(t, f.heat, 0) // a cold balloon warms back the same way
+	testing.expect_value(t, f.mix.heat_c, ROOM_C) // a cold balloon warms back the same way
 }
 
 @(test)
 an_empty_balloon_has_no_temperature_and_cooling_does_not_overshoot :: proc(t: ^testing.T) {
 	f := fresh_filler()
-	f.heat = 0.9
+	f.mix.heat_c = 90
 	filler_update(&f, 1.0 / 60)
-	testing.expect_value(t, f.heat, 0)
-	f.compound, f.ml, f.heat = id(.Water), 100, 0.01
+	testing.expect_value(t, f.mix.heat_c, 0)
+	fill_with(&f.mix, id(.Water), 100, 20.1)
 	filler_update(&f, 10)
-	testing.expect_value(t, f.heat, 0) // it stops at the room and does not go cold
+	testing.expect_value(t, f.mix.heat_c, ROOM_C) // it stops at the room and does not go cold
 }
 
 @(test)
 tied_balloons_cool_in_the_hand_the_clamp_and_on_the_hooks :: proc(t: ^testing.T) {
 	lo := new_loadout()
-	lo.hand = Item{used = true, compound = id(.Water), ml = 100, heat = 1}
-	lo.paint = Item{used = true, compound = id(.Water), ml = 100, heat = -1}
-	lo.slots[1] = Item{used = true, compound = id(.Water), ml = 100, heat = 0.5}
-	lo.slots[2] = Item{used = true, compound = id(.Water), ml = 0, heat = 0.5}
-	for _ in 0 ..< 10 * 60 {
+	lo.hand = balloon(id(.Water), 100)
+	lo.hand.mix.heat_c = 100
+	lo.paint = balloon(id(.Water), 100)
+	lo.paint.mix.heat_c = 12
+	lo.slots[1] = balloon(id(.Water), 100)
+	lo.slots[1].mix.heat_c = 60
+	lo.slots[2] = balloon(id(.Water), 0) // nothing in it
+	for _ in 0 ..< 3 * 60 {
 		loadout_heat_update(&lo, 1.0 / 60)
 	}
-	testing.expect(t, lo.hand.heat < 0.8 && lo.hand.heat > 0.6, "the hand")
-	testing.expect(t, lo.paint.heat > -0.8 && lo.paint.heat < -0.6, "the clamp")
-	testing.expect(t, lo.slots[1].heat < 0.3 && lo.slots[1].heat > 0.1, "a hook")
-	testing.expect_value(t, lo.slots[2].heat, 0) // nothing in it
-	testing.expect_value(t, lo.slots[0].heat, 0) // no balloon there
+	testing.expect(t, near(lo.hand.mix.heat_c, 94, 0.05), "the hand")
+	testing.expect(t, near(lo.paint.mix.heat_c, 18, 0.05), "the clamp")
+	testing.expect(t, near(lo.slots[1].mix.heat_c, 54, 0.05), "a hook")
+	testing.expect_value(t, lo.slots[2].mix.heat_c, 0) // nothing in it
+	testing.expect_value(t, lo.slots[0].mix.heat_c, 0) // no balloon there
 	for _ in 0 ..< 60 * 60 {
 		loadout_heat_update(&lo, 1.0 / 60)
 	}
-	testing.expect(t, lo.hand.heat == 0 && lo.paint.heat == 0 && lo.slots[1].heat == 0, "all back to the room")
+	testing.expect(t, lo.hand.mix.heat_c == ROOM_C && lo.paint.mix.heat_c == ROOM_C && lo.slots[1].mix.heat_c == ROOM_C, "all back to the room")
 }

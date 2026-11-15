@@ -196,7 +196,7 @@ arena_view_draw :: proc(av: ^Arena_View, v: ^arena.Match_View, slots: ^[carry.LO
 	if show_hand && av.hand_on && arena.slot_usable(slots, selected) {
 		s := slots[selected]
 		av.hand.view.art_turn = av.hand_turn
-		body_draw(&av.hand, av.hand_origin, eye, balloon_tint(s.compound, f32(s.ml)))
+		body_draw(&av.hand, av.hand_origin, eye, balloon_tint(&s.mix))
 	}
 	for i in 0 ..< v.balloon_count {
 		f := v.balloons[i]
@@ -205,6 +205,6 @@ arena_view_draw :: proc(av: ^Arena_View, v: ^arena.Match_View, slots: ^[carry.LO
 		centre := own ? av.centre[f.slot] : av.centre[carry.LOADOUT_SLOTS]
 		ml := own ? f32(slots[f.slot].ml) : PLAIN_ML
 		body.view.art_turn = math.mod(av.time * FLIGHT_SPIN + f32(f.id) * 0.37, 1)
-		flight_draw(body, centre, f.pos, eye, balloon_tint(f.compound, ml))
+		flight_draw(body, centre, f.pos, eye, compound_tint(f.compound, ml))
 	}
 }

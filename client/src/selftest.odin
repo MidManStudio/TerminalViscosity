@@ -7,7 +7,7 @@ package main
 
 import "arena"
 import "carry"
-import "chem"
+import "chemistry"
 import "lab"
 import "core:math"
 import "core:math/linalg"
@@ -298,7 +298,7 @@ selftest_arena :: proc(failures: ^int) {
 	check(failures, victim_found && victim.hp == arena.MAX_HEALTH, "players start with full hit points")
 	yaw, pitch, speed, reachable := arena.bot_aim(shooter.pos, victim.pos, {}, 0)
 	check(failures, reachable, "the other player is in reach")
-	check(failures, arena.host_throw(&target_host, {slot = 0, compound = u16(chem.Id.Water), ml = arena.PRACTICE_ML, dir = arena.look_dir({yaw = yaw, pitch = pitch}), power = u8(math.round(speed * 10))}), "the throw is accepted")
+	check(failures, arena.host_throw(&target_host, {slot = 0, compound = u16(chemistry.Id.Water), ml = arena.PRACTICE_ML, dir = arena.look_dir({yaw = yaw, pitch = pitch}), power = u8(math.round(speed * 10))}), "the throw is accepted")
 	for _ in 0 ..< 90 {
 		arena.host_step(&target_host, TICK_DT)
 	}
@@ -484,7 +484,7 @@ selftest_lab_equipment :: proc(failures: ^int) {
 	check(failures, vials == 24 && in_holes == vials, "every vial starts in a hole of a rack")
 	// A beaker of water on the scale: 60 g of glass and 100 ml.
 	scale: carry.Scale
-	carry.props_add(props, l, .Beaker, 0, -7.6, u16(chem.Id.Water), 100)
+	carry.props_add(props, l, .Beaker, 0, -7.6, u16(chemistry.Id.Water), 100)
 	grams, loaded := carry.scale_reading(&scale, props)
 	check(failures, loaded && abs(grams - 160) < 0.01, "a beaker with 100 ml of water on the scale reads 160 g")
 	scale.aimed = true

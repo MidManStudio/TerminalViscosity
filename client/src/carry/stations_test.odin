@@ -6,6 +6,7 @@
 package carry
 
 import "../chem"
+import "../chemistry"
 import "../lab"
 import "core:testing"
 
@@ -17,8 +18,17 @@ fresh_filler :: proc() -> Filler {
 	return f
 }
 
-id :: proc(i: chem.Id) -> u16 {
+id :: proc(i: chemistry.Id) -> u16 {
 	return u16(i)
+}
+
+// Makes a mixture that bursts at the next drop of water: spirit and the two acids, equal parts, at 160 degrees,
+// hotter than the four of them can be together. `each` is how many millilitres of each.
+burst_mix :: proc(m: ^chemistry.Mixture, each: f32) {
+	m^ = {}
+	chemistry.mix_add(m, .Ethanol, each, 1, 160)
+	chemistry.mix_add(m, .Acetic_Acid, each, 1, 160)
+	chemistry.mix_add(m, .Sulfuric_Acid, each, 1, 160)
 }
 
 // Drops of one liquid, `count` of them, into the balloon. Returns the results that
@@ -40,49 +50,48 @@ a_balloon_takes_drops_of_one_liquid :: proc(t: ^testing.T) {
 	found := drip(&f, id(.Water), 100)
 	defer delete(found)
 	testing.expect_value(t, len(found), 0)
-	testing.expect_value(t, f.compound, id(.Water))
-	testing.expect(t, abs(f.ml - 100 * DROP_ML) < 0.01, "all of it stays")
+	testing.expect_value(t, main_of(&f.mix), id(.Water))
+	testing.expect(t, abs(ml_of(&f.mix) - 100 * DROP_ML) < 0.01, "all of it stays")
 	testing.expect_value(t, f.generation, 1)
-	testing.expect(t, abs(fill_ratio(&f) - f.ml / BALLOON_REST_ML) < 1e-6, "the ratio is the share of the rest volume")
+	testing.expect(t, abs(fill_ratio(&f) - ml_of(&f.mix) / BALLOON_REST_ML) < 1e-6, "the ratio is the share of the rest volume")
 }
 
 @(test)
 a_pour_into_a_balloon_with_another_liquid_is_one_meeting :: proc(t: ^testing.T) {
 	f := fresh_filler()
-	f.compound, f.ml = id(.Soda_Base), 200
-	found := drip(&f, id(.Fizz_Acid), 60)
+	fill_with(&f.mix, id(.Ethanol), 200)
+	found := drip(&f, id(.Water), 60)
 	defer delete(found)
-	product := chem.react(id(.Soda_Base), id(.Fizz_Acid)).product
-	testing.expect_value(t, len(found), 1) // only the first drop starts it
+	testing.expect_value(t, len(found), 1) // only the drop that makes it the mix the reaction wants starts it
 	testing.expect_value(t, found[0].mix.kind, Mix_Kind.Mixed)
-	testing.expect_value(t, found[0].mix.product, product)
-	testing.expect_value(t, f.compound, product)
-	testing.expect(t, abs(f.ml - (200 + 60 * DROP_ML)) < 0.01, "later drops join the product as it is")
+	testing.expect_value(t, f.mix.count, 2)
+	testing.expect(t, abs(ml_of(&f.mix) - (200 + 60 * DROP_ML)) < 0.01, "later drops join it as it is")
+	testing.expect(t, f.mix.heat_c < ROOM_C + 2.5, "and it warmed once, not with every drop")
 	testing.expect(t, f.present, "a calm mix leaves the balloon")
 }
 
 @(test)
 a_blast_bursts_the_balloon_and_it_is_replaced :: proc(t: ^testing.T) {
 	f := fresh_filler()
-	f.compound, f.ml = id(.Ember_Oil), 300
-	r := filler_take_drop(&f, id(.Spark_Blue), DROP_ML, EYE)
+	burst_mix(&f.mix, 100)
+	r := filler_take_drop(&f, id(.Water), 100, EYE, 160)
 	testing.expect_value(t, r.mix.kind, Mix_Kind.Blast)
-	testing.expect_value(t, r.lost, id(.Ember_Oil))
+	testing.expect_value(t, r.lost, id(.Diethyl_Ether))
 	testing.expect(t, r.mix.damage > 0, "it hurts")
 	testing.expect(t, !f.present, "the balloon is gone")
-	testing.expect_value(t, f.ml, 0)
-	testing.expect_value(t, f.compound, 0)
+	testing.expect_value(t, ml_of(&f.mix), 0)
+	testing.expect_value(t, main_of(&f.mix), 0)
 
 	again := filler_take_drop(&f, id(.Water), DROP_ML, EYE)
 	testing.expect_value(t, again.mix.kind, Mix_Kind.Nothing)
-	testing.expect_value(t, f.ml, 0) // a drop with no balloon is lost
+	testing.expect_value(t, ml_of(&f.mix), 0) // a drop with no balloon is lost
 
 	filler_update(&f, FILLER_RESPAWN - 0.1)
 	testing.expect(t, !f.present, "not yet")
 	filler_update(&f, 0.2)
 	testing.expect(t, f.present, "a fresh balloon")
 	testing.expect_value(t, f.generation, 2)
-	testing.expect_value(t, f.ml, 0)
+	testing.expect_value(t, ml_of(&f.mix), 0)
 }
 
 @(test)
@@ -98,12 +107,12 @@ overfilling_bursts_the_balloon_at_the_limit :: proc(t: ^testing.T) {
 			pops += 1
 			testing.expect_value(t, r.lost, id(.Water))
 		} else {
-			most = max(most, f.ml)
+			most = max(most, ml_of(&f.mix))
 		}
 	}
 	testing.expect_value(t, pops, 1)
 	testing.expect(t, !f.present, "the balloon is lost")
-	testing.expect_value(t, f.ml, 0)
+	testing.expect_value(t, ml_of(&f.mix), 0)
 	testing.expect(t, most < BALLOON_POP_ML, "it held up to the limit")
 	testing.expect(t, most > BALLOON_POP_ML - 2 * DROP_ML, "and burst on the first drop over it")
 	testing.expect(t, drops <= int(BALLOON_POP_ML / DROP_ML) + 1, "no more than a drop past")
@@ -112,13 +121,13 @@ overfilling_bursts_the_balloon_at_the_limit :: proc(t: ^testing.T) {
 @(test)
 strain_runs_from_a_full_balloon_to_the_limit :: proc(t: ^testing.T) {
 	f := fresh_filler()
-	f.ml = BALLOON_REST_ML * 0.5
+	fill_with(&f.mix, id(.Water), BALLOON_REST_ML * 0.5)
 	testing.expect_value(t, strain(&f), 0)
-	f.ml = BALLOON_REST_ML
+	fill_with(&f.mix, id(.Water), BALLOON_REST_ML)
 	testing.expect_value(t, strain(&f), 0)
-	f.ml = BALLOON_REST_ML * (1 + (BALLOON_POP_AT - 1) * 0.5)
+	fill_with(&f.mix, id(.Water), BALLOON_REST_ML * (1 + (BALLOON_POP_AT - 1) * 0.5))
 	testing.expect(t, abs(strain(&f) - 0.5) < 1e-4, "halfway")
-	f.ml = BALLOON_POP_ML
+	fill_with(&f.mix, id(.Water), BALLOON_POP_ML)
 	testing.expect(t, abs(strain(&f) - 1) < 1e-4, "at the limit")
 	f.present = false
 	testing.expect_value(t, strain(&f), 0)
@@ -128,18 +137,18 @@ strain_runs_from_a_full_balloon_to_the_limit :: proc(t: ^testing.T) {
 @(test)
 a_spatter_in_the_balloon_loses_a_fifth :: proc(t: ^testing.T) {
 	f := fresh_filler()
-	f.compound, f.ml = id(.Soda_Base), 400
-	r := filler_take_drop(&f, id(.Spark_Blue), DROP_ML, EYE)
+	fill_with(&f.mix, id(.Sulfuric_Acid), 100)
+	r := filler_take_drop(&f, id(.Water), 900, EYE) // water into acid
 	testing.expect_value(t, r.mix.kind, Mix_Kind.Spatter)
 	testing.expect(t, f.present, "it survives a spatter")
-	testing.expect(t, abs(f.ml - (400 + DROP_ML) * (1 - chem.SPATTER_LOSS)) < 0.01, "a fifth is thrown out")
+	testing.expect(t, abs(ml_of(&f.mix) - 1000 * (1 - chem.SPATTER_LOSS)) < 0.01, "a fifth is thrown out")
 }
 
 @(test)
 the_station_says_where_a_reaction_was :: proc(t: ^testing.T) {
 	f := fresh_filler()
-	f.compound, f.ml = id(.Ember_Oil), 300
-	r := filler_take_drop(&f, id(.Spark_Blue), DROP_ML, EYE)
+	fill_with(&f.mix, id(.Sulfuric_Acid), 100)
+	r := filler_take_drop(&f, id(.Water), 900, EYE)
 	testing.expect_value(t, r.mix.at, lab.filler_center())
 	testing.expect_value(t, shield_factor(r.mix.at), 1)
 }
@@ -236,12 +245,12 @@ a_pour_into_the_funnel_fills_the_balloon :: proc(t: ^testing.T) {
 		stream_step(s.st, 21)
 		filler_capture(s.st, &f, view_of(s.p).eye, &events)
 	}
-	left := s.props.items[0].ml + s.props.items[0].flow_acc
+	left := ml_of(&s.props.items[0].mix) + s.props.items[0].flow_acc
 	in_air := f32(s.st.sim.count) * DROP_ML
-	testing.expect(t, f.ml > 200, "most of the pour reached the balloon")
+	testing.expect(t, ml_of(&f.mix) > 200, "most of the pour reached the balloon")
 	testing.expect(t, left < 30, "the beaker ran dry")
-	testing.expect(t, f.ml + left + in_air < 300 + 1, "and nothing was made from nothing")
-	testing.expect_value(t, f.compound, id(.Water))
+	testing.expect(t, ml_of(&f.mix) + left + in_air < 300 + 1, "and nothing was made from nothing")
+	testing.expect_value(t, main_of(&f.mix), id(.Water))
 }
 
 @(test)
@@ -269,7 +278,7 @@ only_drops_in_the_funnel_column_are_taken :: proc(t: ^testing.T) {
 	events: [MAX_EVENTS]Fill_Result
 	filler_capture(s.st, &f, EYE, &events)
 	testing.expect_value(t, s.st.sim.count, 2)
-	testing.expect(t, abs(f.ml - DROP_ML) < 0.01, "one drop went in")
+	testing.expect(t, abs(ml_of(&f.mix) - DROP_ML) < 0.01, "one drop went in")
 }
 
 // ---- the sink and the fume hood ----
@@ -317,14 +326,16 @@ a_blast_in_the_hood_hurts_less_than_the_same_blast_outside :: proc(t: ^testing.T
 	defer free_scene(l, p, props)
 	h := lab.HOOD
 	hx, hz := (h.min_x + h.max_x) * 0.5, (h.min_z + h.max_z) * 0.5
-	props_add(props, l, .Flask, hx, hz, id(.Ember_Oil), 300)
-	props_add(props, l, .Flask, 0, 0.4, id(.Ember_Oil), 300)
+	props_add(props, l, .Flask, hx, hz)
+	props_add(props, l, .Flask, 0, 0.4)
+	burst_mix(&props.items[0].mix, 100)
+	burst_mix(&props.items[1].mix, 100)
 	// The player is the same distance, 0.8 m, from the middle of each flask.
 	mid := kind_dims(.Flask).height * 0.5
 	in_hood_eye := Vec3{hx, lab.COUNTER_HEIGHT + mid, hz + 0.8}
 	out_eye := Vec3{0.8, lab.COUNTER_HEIGHT + mid, 0.4}
-	a := apply_droplet(props, 0, id(.Spark_Blue), DROP_ML, in_hood_eye)
-	b := apply_droplet(props, 0, id(.Spark_Blue), DROP_ML, out_eye) // the other flask is now number 0
+	a := apply_droplet(props, 0, id(.Water), 100, in_hood_eye, 160)
+	b := apply_droplet(props, 0, id(.Water), 100, out_eye, 160) // the other flask is now number 0
 	testing.expect_value(t, a.kind, Mix_Kind.Blast)
 	testing.expect_value(t, b.kind, Mix_Kind.Blast)
 	testing.expect(t, abs(a.damage - b.damage) < 0.5, "the same force at the same distance")
@@ -426,14 +437,14 @@ pour_into_funnel :: proc(speed: f32, ml: f32) -> (frames: int, delivered: f32) {
 		}
 		stream_step(s.st, 21)
 		filler_capture(s.st, &f, view_of(s.p).eye, &events)
-		if empty_at < 0 && s.props.items[0].ml + s.props.items[0].flow_acc < 1 {
+		if empty_at < 0 && ml_of(&s.props.items[0].mix) + s.props.items[0].flow_acc < 1 {
 			empty_at = frame
 		}
 		if s.st.sim.count == 0 && empty_at >= 0 {
 			break
 		}
 	}
-	return empty_at, f.ml
+	return empty_at, ml_of(&f.mix)
 }
 
 @(test)
@@ -457,18 +468,37 @@ fill_at_tap :: proc(aside: f32, frames: int, speed: f32) -> (got, air: f32) {
 	props_init(s.props)
 	props_add(s.props, s.l, .Beaker, 0, 0, 0, 0)
 	s.props.held = 0
-	n := lab.dispenser_nozzle(4)
+	n := lab.dispenser_nozzle(2)
 	s.props.items[0].pos = {n.x - 0.1, n.y - 0.25 - kind_dims(.Beaker).height, n.z + aside}
 	events: [MAX_EVENTS]Mix_Result
 	for _ in 0 ..< frames {
-		station_flow_to(&st, s.st, s.l, 4, 1.0 / 60, tap_mouth(s.props), true, speed)
+		station_flow_to(&st, s.st, s.l, 2, 1.0 / 60, tap_mouth(s.props), true, speed)
 		stream_step(s.st, 21)
 		stream_capture(s.st, s.props, {0, 1.6, 0}, &events)
 	}
 	for i in 0 ..< s.st.sim.count {
 		air += s.st.ml[i]
 	}
-	return s.props.items[0].ml, air
+	return ml_of(&s.props.items[0].mix), air
+}
+
+// The purity of the first drop that comes out of tap `i`.
+first_drop_purity :: proc(i: int) -> f32 {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	st: Station
+	station_init(&st)
+	for _ in 0 ..< 20 {
+		station_flow(&st, s.st, s.l, i, 1.0 / 60)
+	}
+	return s.st.sim.count > 0 ? s.st.purity[0] : -1
+}
+
+@(test)
+water_from_a_tap_is_tap_water_and_the_other_chemicals_are_pure :: proc(t: ^testing.T) {
+	testing.expect_value(t, first_drop_purity(0), SINK_PURITY) // water
+	testing.expect_value(t, first_drop_purity(1), STOCK_PURITY) // acetic acid
+	testing.expect_value(t, first_drop_purity(3), STOCK_PURITY) // sulfuric acid
 }
 
 @(test)

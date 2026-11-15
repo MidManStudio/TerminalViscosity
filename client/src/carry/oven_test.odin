@@ -5,7 +5,7 @@
 
 package carry
 
-import "../chem"
+import "../chemistry"
 import "../lab"
 import "core:testing"
 
@@ -21,11 +21,30 @@ over_port :: proc(i: int, up: f32) -> Vec3 {
 	return {m.x, m.y + up, m.z}
 }
 
+// A port holding `ml` of a compound at a purity, 1 unless the compound is water out of the tap.
+port :: proc(compound: chemistry.Id, ml: f32, purity := f32(-1)) -> Port {
+	return {u16(compound), ml, purity < 0 ? stock_purity(u16(compound)) : purity}
+}
+
 loaded_oven :: proc(a, b, c, d: Port) -> Oven {
 	o: Oven
 	oven_init(&o)
 	o.ports = {a, b, c, d}
 	return o
+}
+
+@(test)
+a_port_blends_the_purity_of_what_goes_in :: proc(t: ^testing.T) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	o: Oven
+	oven_init(&o)
+	events: [MAX_EVENTS]Oven_Event
+	stream_spawn_ml(s.st, s.l, over_port(0, 0.1), {}, id(.Ethanol), 3.375, 0.2)
+	stream_spawn_ml(s.st, s.l, over_port(0, 0.15), {}, id(.Ethanol), 3.375, 0.6)
+	oven_capture(s.st, &o, &events)
+	testing.expect_value(t, o.ports[0].ml, f32(6.75))
+	testing.expect(t, abs(o.ports[0].purity - 0.4) < 1e-4, "the mean by volume")
 }
 
 @(test)
@@ -42,7 +61,7 @@ a_port_takes_one_liquid_and_turns_other_liquids_away :: proc(t: ^testing.T) {
 	testing.expect(t, abs(o.ports[0].ml - 6.75) < 1e-4, "both went in")
 	testing.expect_value(t, s.st.sim.count, 0)
 
-	drop_at(s, over_port(0, 0.1), id(.Fizz_Acid), 3.375)
+	drop_at(s, over_port(0, 0.1), id(.Ethanol), 3.375)
 	testing.expect_value(t, oven_capture(s.st, &o, &events), 1)
 	testing.expect_value(t, events[0].kind, Oven_Event_Kind.Refused)
 	testing.expect_value(t, events[0].port, 0)
@@ -51,11 +70,11 @@ a_port_takes_one_liquid_and_turns_other_liquids_away :: proc(t: ^testing.T) {
 	testing.expect(t, abs(o.ports[0].ml - 6.75) < 1e-4, "the port is as it was")
 	testing.expect_value(t, s.st.sim.count, 0) // and the drop is gone
 
-	drop_at(s, over_port(0, 0.1), id(.Fizz_Acid), 3.375)
+	drop_at(s, over_port(0, 0.1), id(.Ethanol), 3.375)
 	testing.expect_value(t, oven_capture(s.st, &o, &events), 0) // told once, not at every drop
 	testing.expect_value(t, s.st.sim.count, 0)
 	oven_update(&o, REFUSED_GAP + 0.1)
-	drop_at(s, over_port(0, 0.1), id(.Fizz_Acid), 3.375)
+	drop_at(s, over_port(0, 0.1), id(.Ethanol), 3.375)
 	testing.expect_value(t, oven_capture(s.st, &o, &events), 1) // and again after a while
 }
 
@@ -66,7 +85,7 @@ each_port_has_its_own_funnel :: proc(t: ^testing.T) {
 	o: Oven
 	oven_init(&o)
 	events: [MAX_EVENTS]Oven_Event
-	liquids := [lab.MIXER_PORTS]u16{id(.Water), 0, id(.Fizz_Acid), id(.Spark_Blue)}
+	liquids := [lab.MIXER_PORTS]u16{id(.Water), 0, id(.Ethanol), id(.Sulfuric_Acid)}
 	for i in 0 ..< lab.MIXER_PORTS {
 		if liquids[i] != 0 {
 			// One at a time: the liquid simulation box is set by the first drop, and
@@ -77,8 +96,8 @@ each_port_has_its_own_funnel :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, o.ports[0].compound, id(.Water))
 	testing.expect_value(t, o.ports[1].ml, 0)
-	testing.expect_value(t, o.ports[2].compound, id(.Fizz_Acid))
-	testing.expect_value(t, o.ports[3].compound, id(.Spark_Blue))
+	testing.expect_value(t, o.ports[2].compound, id(.Ethanol))
+	testing.expect_value(t, o.ports[3].compound, id(.Sulfuric_Acid))
 	testing.expect_value(t, oven_loaded(&o), 3)
 }
 
@@ -89,7 +108,7 @@ a_full_port_loses_the_rest_and_only_drops_in_a_funnel_go_in :: proc(t: ^testing.
 	o: Oven
 	oven_init(&o)
 	events: [MAX_EVENTS]Oven_Event
-	o.ports[1] = {id(.Water), PORT_CAPACITY - 2}
+	o.ports[1] = port(.Water, PORT_CAPACITY - 2)
 	drop_at(s, over_port(1, 0.1), id(.Water), 10)
 	oven_capture(s.st, &o, &events)
 	testing.expect_value(t, o.ports[1].ml, PORT_CAPACITY)
@@ -106,7 +125,7 @@ a_full_port_loses_the_rest_and_only_drops_in_a_funnel_go_in :: proc(t: ^testing.
 a_closed_oven_takes_nothing :: proc(t: ^testing.T) {
 	s := pour_scene()
 	defer free_pour_scene(s)
-	o := loaded_oven({id(.Water), 100}, {}, {}, {})
+	o := loaded_oven(port(.Water, 100), {}, {}, {})
 	oven_start(&o, 1)
 	events: [MAX_EVENTS]Oven_Event
 	drop_at(s, over_port(1, 0.1), id(.Water), 3.375)
@@ -121,9 +140,9 @@ a_run_needs_something_in_a_port_and_an_empty_tank :: proc(t: ^testing.T) {
 	oven_init(&o)
 	testing.expect(t, !oven_can_run(&o), "nothing loaded")
 	testing.expect(t, !oven_start(&o, 1), "so it will not start")
-	o.ports[3] = {id(.Water), 50}
+	o.ports[3] = port(.Water, 50)
 	testing.expect(t, oven_can_run(&o), "something loaded")
-	o.tank = {id(.Slurry), 10}
+	fill_with(&o.tank, id(.Ethyl_Acetate), 10)
 	testing.expect(t, !oven_can_run(&o), "the tank still holds a product")
 	o.tank = {}
 	testing.expect(t, oven_start(&o, 1), "it starts")
@@ -133,18 +152,17 @@ a_run_needs_something_in_a_port_and_an_empty_tank :: proc(t: ^testing.T) {
 
 @(test)
 a_run_takes_its_time_and_makes_the_product :: proc(t: ^testing.T) {
-	o := loaded_oven({id(.Soda_Base), 200}, {id(.Fizz_Acid), 100}, {}, {})
+	o := loaded_oven(port(.Water, 450), port(.Sulfuric_Acid, 50), {}, {})
 	oven_start(&o, 1)
 	testing.expect_value(t, oven_progress(&o), 0)
 	testing.expect_value(t, oven_update(&o, OVEN_RUN_TIME - 0.1).kind, Oven_Event_Kind.Nothing)
 	testing.expect(t, oven_progress(&o) > 0.95 && oven_progress(&o) < 1, "nearly there")
 	e := oven_update(&o, 0.2)
-	product := chem.react(id(.Soda_Base), id(.Fizz_Acid)).product
 	testing.expect_value(t, e.kind, Oven_Event_Kind.Finished)
-	testing.expect_value(t, e.compound, product)
-	testing.expect_value(t, e.ml, 300)
-	testing.expect_value(t, o.tank.compound, product)
-	testing.expect_value(t, o.tank.ml, 300)
+	testing.expect_value(t, e.compound, id(.Dilute_Sulfuric_Acid))
+	testing.expect_value(t, e.ml, 500)
+	testing.expect_value(t, main_of(&o.tank), id(.Dilute_Sulfuric_Acid))
+	testing.expect_value(t, ml_of(&o.tank), 500)
 	testing.expect_value(t, oven_loaded(&o), 0)
 	testing.expect_value(t, o.state, Oven_State.Idle)
 	testing.expect_value(t, oven_progress(&o), 0)
@@ -152,44 +170,46 @@ a_run_takes_its_time_and_makes_the_product :: proc(t: ^testing.T) {
 
 @(test)
 a_violent_mix_is_safe_in_the_oven_and_gives_its_product :: proc(t: ^testing.T) {
-	o := loaded_oven({id(.Ember_Oil), 300}, {id(.Spark_Blue), 100}, {}, {})
-	outcome := chem.react(id(.Ember_Oil), id(.Spark_Blue))
-	testing.expect_value(t, chem.hazard_of(outcome.volatility), chem.Hazard.Blast) // in a vessel this is a blast
+	// Water into the acid, which is a splash in a vessel.
+	o := loaded_oven(port(.Sulfuric_Acid, 50), port(.Water, 450), {}, {})
 	oven_start(&o, 1)
 	e := oven_update(&o, OVEN_RUN_TIME + 0.1)
 	testing.expect_value(t, e.kind, Oven_Event_Kind.Finished)
-	testing.expect_value(t, e.volatility, outcome.volatility)
-	testing.expect_value(t, o.tank.compound, outcome.product)
-	testing.expect_value(t, o.tank.ml, 400) // none of it lost
+	testing.expect_value(t, e.volatility, f32(0.45))
+	testing.expect_value(t, o.tank.count, 2)
+	testing.expect_value(t, ml_of(&o.tank), 500) // none of it lost
 }
 
 @(test)
 the_ports_are_mixed_in_order :: proc(t: ^testing.T) {
-	o := loaded_oven({id(.Soda_Base), 100}, {id(.Fizz_Acid), 100}, {}, {id(.Dye_Red), 50})
-	compound, ml, _ := oven_fold(&o)
-	step1 := chem.react(id(.Soda_Base), id(.Fizz_Acid)).product
-	step2 := chem.react(step1, id(.Dye_Red)).product
-	testing.expect_value(t, compound, step2)
-	testing.expect_value(t, ml, 250)
+	good := loaded_oven(port(.Water, 450), port(.Sulfuric_Acid, 50), {}, {})
+	made, calm := oven_fold(&good)
+	testing.expect_value(t, calm, 0)
+	testing.expect_value(t, made.count, 1)
+	testing.expect_value(t, made.items[0].compound, chemistry.Id.Dilute_Sulfuric_Acid)
+	wrong := loaded_oven(port(.Sulfuric_Acid, 50), port(.Water, 450), {}, {})
+	spat, volatility := oven_fold(&wrong)
+	testing.expect_value(t, volatility, f32(0.45))
+	testing.expect_value(t, spat.count, 2) // the same ports in another order do not make the acid
 }
 
 @(test)
 the_same_liquid_in_two_ports_adds_up_and_one_port_moves_over :: proc(t: ^testing.T) {
-	o := loaded_oven({id(.Water), 100}, {}, {id(.Water), 120}, {})
-	compound, ml, volatility := oven_fold(&o)
-	testing.expect_value(t, compound, id(.Water))
-	testing.expect_value(t, ml, 220)
+	o := loaded_oven(port(.Water, 100), {}, port(.Water, 120), {})
+	made, volatility := oven_fold(&o)
+	testing.expect_value(t, main_of(&made), id(.Water))
+	testing.expect_value(t, ml_of(&made), 220)
 	testing.expect_value(t, volatility, 0)
 
-	single := loaded_oven({}, {}, {id(.Frost_Gel), 75}, {})
-	compound, ml, _ = oven_fold(&single)
-	testing.expect_value(t, compound, id(.Frost_Gel))
-	testing.expect_value(t, ml, 75)
+	single := loaded_oven({}, {}, port(.Acetic_Acid, 75), {})
+	one, _ := oven_fold(&single)
+	testing.expect_value(t, main_of(&one), id(.Acetic_Acid))
+	testing.expect_value(t, ml_of(&one), 75)
 }
 
 @(test)
 speed_shortens_a_run :: proc(t: ^testing.T) {
-	o := loaded_oven({id(.Water), 100}, {}, {}, {})
+	o := loaded_oven(port(.Water, 100), {}, {}, {})
 	oven_start(&o, 4)
 	testing.expect_value(t, oven_update(&o, OVEN_RUN_TIME / 4 - 0.1).kind, Oven_Event_Kind.Nothing)
 	testing.expect_value(t, oven_update(&o, 0.2).kind, Oven_Event_Kind.Finished)
@@ -226,7 +246,7 @@ the_crosshair_finds_the_oven_and_the_port_it_points_at :: proc(t: ^testing.T) {
 the_buttons_are_ready_for_the_oven_only_when_they_should_be :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
-	o := loaded_oven({id(.Water), 100}, {}, {}, {})
+	o := loaded_oven(port(.Water, 100), {}, {}, {})
 	o.aimed, o.aimed_t = true, 0.8
 	testing.expect(t, oven_run_ready(&o, props), "nothing held, the oven aimed at, something loaded")
 	testing.expect(t, !oven_pour_ready(&o, props), "nothing to pour")
@@ -240,7 +260,7 @@ the_buttons_are_ready_for_the_oven_only_when_they_should_be :: proc(t: ^testing.
 	o.aimed_t = 0.8
 	props.held = -1
 
-	o.tank = {id(.Slurry), 10}
+	fill_with(&o.tank, id(.Ethyl_Acetate), 10)
 	testing.expect(t, !oven_run_ready(&o, props), "a product waits in the tank")
 	o.tank = {}
 	o.aimed = false
@@ -269,7 +289,7 @@ a_vessel_is_found_at_the_spout_only_when_there_is_product :: proc(t: ^testing.T)
 	oven_init(&o)
 	place(props, n.x, under, n.z)
 	testing.expect(t, !oven_spout_under(&o, props), "no product")
-	o.tank = {id(.Slurry), 100}
+	fill_with(&o.tank, id(.Ethyl_Acetate), 100)
 	testing.expect(t, oven_spout_under(&o, props), "under the spout")
 	place(props, n.x + 0.3, under, n.z)
 	testing.expect(t, oven_spout_under(&o, props), "a little to the side")
@@ -281,9 +301,9 @@ a_vessel_is_found_at_the_spout_only_when_there_is_product :: proc(t: ^testing.T)
 	props.items[0].tilt = 0.8
 	testing.expect(t, !oven_spout_under(&o, props), "tipped over")
 	props.items[0].tilt = 0
-	props.items[0].compound, props.items[0].ml = id(.Water), capacity_ml(.Beaker)
+	fill_with(&props.items[0].mix, id(.Water), capacity_ml(.Beaker))
 	testing.expect(t, !oven_spout_under(&o, props), "already full")
-	props.items[0].compound, props.items[0].ml = 0, 0
+	fill_with(&props.items[0].mix, 0, 0)
 	props.held = -1
 	testing.expect(t, !oven_spout_under(&o, props), "nothing held")
 }
@@ -300,7 +320,7 @@ run_spout :: proc(s: PourScene, o: ^Oven, frames: int, speed: f32) -> (in_vessel
 	for i in 0 ..< s.st.sim.count {
 		in_air += s.st.ml[i]
 	}
-	return s.props.items[0].ml, in_air
+	return ml_of(&s.props.items[0].mix), in_air
 }
 
 held_beaker_at_the_spout :: proc(s: PourScene, aside: f32) {
@@ -318,13 +338,13 @@ the_spout_fills_a_vessel_with_the_product :: proc(t: ^testing.T) {
 	held_beaker_at_the_spout(s, 0.3) // off to one side, as a hand will be
 	o: Oven
 	oven_init(&o)
-	o.tank = {id(.Fizz_Acid), 300}
+	fill_with(&o.tank, id(.Ethanol), 300)
 	got, air := run_spout(s, &o, 420, 1)
-	testing.expect_value(t, s.props.items[0].compound, id(.Fizz_Acid))
+	testing.expect_value(t, main_of(&s.props.items[0].mix), id(.Ethanol))
 	testing.expectf(t, got > 280, "the vessel holds %v ml", got)
-	testing.expect(t, got + air + o.tank.ml <= 300.01, "nothing was made from nothing")
-	testing.expect_value(t, o.tank.ml, 0)
-	testing.expect_value(t, o.tank.compound, 0) // an empty tank holds no liquid
+	testing.expect(t, got + air + ml_of(&o.tank) <= 300.01, "nothing was made from nothing")
+	testing.expect_value(t, ml_of(&o.tank), 0)
+	testing.expect_value(t, main_of(&o.tank), 0) // an empty tank holds no liquid
 }
 
 @(test)
@@ -337,8 +357,8 @@ a_faster_spout_empties_the_tank_sooner_with_bigger_drops :: proc(t: ^testing.T) 
 	a, b: Oven
 	oven_init(&a)
 	oven_init(&b)
-	a.tank = {id(.Water), 800}
-	b.tank = {id(.Water), 800}
+	fill_with(&a.tank, id(.Water), 800)
+	fill_with(&b.tank, id(.Water), 800)
 	run_spout(slow, &a, 120, 1)
 	run_spout(fast, &b, 2, 8) // the first frame only gathers a drop's worth
 	biggest := f32(0)
@@ -347,9 +367,9 @@ a_faster_spout_empties_the_tank_sooner_with_bigger_drops :: proc(t: ^testing.T) 
 	}
 	testing.expect_value(t, biggest, DROP_ML * 8) // each drop carries eight times as much
 	run_spout(fast, &b, 118, 8)
-	let_out := 800 - a.tank.ml
+	let_out := 800 - ml_of(&a.tank)
 	testing.expect(t, let_out > 190 && let_out < 250, "two seconds at normal speed")
-	testing.expect_value(t, b.tank.ml, 0) // eight times as fast is done
+	testing.expect_value(t, ml_of(&b.tank), 0) // eight times as fast is done
 	testing.expect(t, fast.st.sim.count <= MAX_STREAM, "and no more drops in flight than before")
 }
 
@@ -362,7 +382,7 @@ a_vessel_standing_on_the_tray_is_found_and_filled_without_being_held :: proc(t: 
 	n := lab.MIXER_SPOUT
 	props_add(props, l, .Beaker, n.x, n.z, 0, 0)
 	testing.expect_value(t, oven_rest_under(&o, props), -1) // no product
-	o.tank = {id(.Slurry), 100}
+	fill_with(&o.tank, id(.Ethyl_Acetate), 100)
 	testing.expect_value(t, oven_rest_under(&o, props), 0)
 	props.items[0].pos.x = n.x + lab.MIXER_TRAY_RADIUS + 0.05
 	testing.expect_value(t, oven_rest_under(&o, props), -1) // off the tray
@@ -373,9 +393,9 @@ a_vessel_standing_on_the_tray_is_found_and_filled_without_being_held :: proc(t: 
 	props.items[0].tilt = 0.8
 	testing.expect_value(t, oven_rest_under(&o, props), -1) // tipped over
 	props.items[0].tilt = 0
-	props.items[0].compound, props.items[0].ml = id(.Water), capacity_ml(.Beaker)
+	fill_with(&props.items[0].mix, id(.Water), capacity_ml(.Beaker))
 	testing.expect_value(t, oven_rest_under(&o, props), -1) // full
-	props.items[0].compound, props.items[0].ml = 0, 0
+	fill_with(&props.items[0].mix, 0, 0)
 	props.held = 0
 	testing.expect_value(t, oven_rest_under(&o, props), -1) // held ones are the other case
 	props.held = -1
@@ -392,7 +412,7 @@ the_spout_fills_a_vessel_standing_on_the_tray :: proc(t: ^testing.T) {
 	props_add(s.props, s.l, .Beaker, n.x, n.z, 0, 0)
 	o: Oven
 	oven_init(&o)
-	o.tank = {id(.Frost_Gel), 300}
+	fill_with(&o.tank, id(.Acetic_Acid), 300)
 	events: [MAX_EVENTS]Mix_Result
 	for _ in 0 ..< 420 {
 		if i := oven_rest_under(&o, s.props); i != -1 {
@@ -401,7 +421,7 @@ the_spout_fills_a_vessel_standing_on_the_tray :: proc(t: ^testing.T) {
 		stream_step(s.st, 21)
 		stream_capture(s.st, s.props, {0, 1.6, 0}, &events)
 	}
-	testing.expect_value(t, s.props.items[0].compound, id(.Frost_Gel))
-	testing.expectf(t, s.props.items[0].ml > 280, "the vessel on the tray holds %v ml", s.props.items[0].ml)
-	testing.expect_value(t, o.tank.ml, 0)
+	testing.expect_value(t, main_of(&s.props.items[0].mix), id(.Acetic_Acid))
+	testing.expectf(t, ml_of(&s.props.items[0].mix) > 280, "the vessel on the tray holds %v ml", ml_of(&s.props.items[0].mix))
+	testing.expect_value(t, ml_of(&o.tank), 0)
 }

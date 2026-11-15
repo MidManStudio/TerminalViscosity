@@ -6,7 +6,7 @@
 package main
 
 import "arena"
-import "chem"
+import "chemistry"
 import "core:math"
 
 TICK_DT :: f32(1.0 / 60.0) // the simulation's tick, tv_sim::DT
@@ -179,7 +179,7 @@ local_bot_tick :: proc(h: ^Local_Host) {
 		act := arena.bot_step(&b.bot, &h.curr, b.id, TICK_DT)
 		local_send(h, b.id, act.input)
 		if act.throw {
-			local_throw(h, b.id, {slot = 0, compound = u16(chem.Id.Water), ml = arena.PRACTICE_ML, dir = act.dir, power = act.power})
+			local_throw(h, b.id, {slot = 0, compound = u16(chemistry.Id.Water), ml = arena.PRACTICE_ML, dir = act.dir, power = act.power})
 		}
 	}
 }

@@ -12,7 +12,7 @@
 package arena
 
 import "../carry"
-import "../chem"
+import "../chemistry"
 import "core:math"
 
 MAX_PLAYERS :: 8 // the same number as tv_proto::MAX_PLAYERS
@@ -213,8 +213,9 @@ charge_power :: proc(charge: f32) -> u8 {
 // water balloon the arena offers when the loadout is empty, so the scene can say so.
 Slot :: struct {
 	used:     bool,
-	compound: u16,
-	ml:       u16,
+	mix:      chemistry.Mixture, // the whole mixture the balloon carries
+	compound: u16, // the compound there is most of, which is all the wire carries so far
+	ml:       u16, // and the whole volume
 	art:      u16,
 	practice: bool,
 }
@@ -228,20 +229,23 @@ slots_from_loadout :: proc(lo: ^carry.Loadout) -> (slots: [carry.LOADOUT_SLOTS]S
 			continue
 		}
 		any_used = true
+		m := item.mix
 		slots[i] = {
 			used     = true,
-			compound = item.compound,
-			ml       = u16(clamp(item.ml + 0.5, 1, f32(carry.BALLOON_REST_ML))),
+			mix      = m,
+			compound = carry.main_of(&m),
+			ml       = u16(clamp(carry.ml_of(&m) + 0.5, 1, f32(carry.BALLOON_REST_ML))),
 			art      = item.art,
 		}
 	}
 	if !any_used {
 		slots[0] = {
 			used     = true,
-			compound = u16(chem.Id.Water),
+			compound = u16(chemistry.Id.Water),
 			ml       = PRACTICE_ML,
 			practice = true,
 		}
+		chemistry.mix_add(&slots[0].mix, .Water, f32(PRACTICE_ML), carry.SINK_PURITY, carry.ROOM_C)
 	}
 	return
 }

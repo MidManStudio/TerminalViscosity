@@ -5,7 +5,7 @@
 
 package carry
 
-import "../chem"
+import "../chemistry"
 import "../lab"
 import "core:testing"
 
@@ -62,8 +62,8 @@ the_vials_start_in_the_holes_empty_and_standing_on_the_lower_plate :: proc(t: ^t
 		slot, in_hole := vial_slot_at(pr.pos.x, pr.pos.z)
 		testing.expect(t, in_hole, "every vial starts in a hole")
 		testing.expect_value(t, pr.pos.y, slot.y)
-		testing.expect_value(t, pr.compound, u16(0))
-		testing.expect_value(t, pr.ml, f32(0))
+		testing.expect_value(t, main_of(&pr.mix), u16(0))
+		testing.expect_value(t, ml_of(&pr.mix), f32(0))
 		for rack in 0 ..< lab.VIAL_RACK_COUNT {
 			for n in 0 ..< lab.VIAL_SLOTS_PER_RACK {
 				s := lab.vial_slot(rack, n)
@@ -216,14 +216,15 @@ a_vessel_on_the_plate_stands_on_it_and_is_weighed_with_its_glass :: proc(t: ^tes
 	sc: Scale
 	_, loaded := scale_reading(&sc, props)
 	testing.expect(t, !loaded, "nothing on the plate")
-	props_add(props, l, .Beaker, x, z, u16(chem.Id.Water), 100)
+	props_add(props, l, .Beaker, x, z, u16(chemistry.Id.Water), 100)
 	settle_for(props, l, p, 1)
 	testing.expect_value(t, props.items[0].pos.y, lab.COUNTER_HEIGHT + lab.SCALE_PLATE_TOP)
 	grams, ok := scale_reading(&sc, props)
 	testing.expect(t, ok, "something on the plate")
 	testing.expect(t, near(grams, 160, 0.01), "60 g of glass and 100 ml at 1 g a ml")
 	// The other kinds of glass.
-	props.items[0].kind, props.items[0].ml, props.items[0].compound = .Flask, 0, 0
+	props.items[0].kind = .Flask
+	fill_with(&props.items[0].mix, 0, 0)
 	grams, _ = scale_reading(&sc, props)
 	testing.expect(t, near(grams, 85, 0.01), "an empty flask")
 	props.items[0].kind = .Bottle
@@ -239,10 +240,10 @@ a_vessel_that_is_beside_the_plate_or_held_or_in_the_air_is_not_weighed :: proc(t
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
 	x, z := plate_middle()
-	props_add(props, l, .Beaker, x + 0.5, z, u16(chem.Id.Water), 100) // on the counter beside it
+	props_add(props, l, .Beaker, x + 0.5, z, u16(chemistry.Id.Water), 100) // on the counter beside it
 	sc: Scale
 	testing.expect_value(t, scale_vessel(props), -1)
-	props_add(props, l, .Beaker, x, z, u16(chem.Id.Water), 100)
+	props_add(props, l, .Beaker, x, z, u16(chemistry.Id.Water), 100)
 	testing.expect_value(t, scale_vessel(props), 1)
 	props.held = 1
 	testing.expect_value(t, scale_vessel(props), -1)
@@ -258,7 +259,7 @@ zeroing_takes_what_is_on_the_plate_off_the_display_until_it_is_taken_off :: proc
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
 	x, z := plate_middle()
-	props_add(props, l, .Beaker, x, z, u16(chem.Id.Water), 100)
+	props_add(props, l, .Beaker, x, z, u16(chemistry.Id.Water), 100)
 	settle_for(props, l, p, 1)
 	sc := Scale {
 		aimed = true,
@@ -270,7 +271,7 @@ zeroing_takes_what_is_on_the_plate_off_the_display_until_it_is_taken_off :: proc
 	testing.expect(t, !scale_zero_ready(&sc, props), "and there is nothing to zero")
 	testing.expect(t, !scale_zero(&sc, props), "so zeroing again does nothing")
 	// Pour 50 ml in: the display reads the 50.
-	props.items[0].ml += 50
+	fill_with(&props.items[0].mix, id(.Water), ml_of(&props.items[0].mix) + 50)
 	grams, _ = scale_reading(&sc, props)
 	testing.expect(t, near(grams, 50, 0.01), "what was added")
 	// Take the vessel off, and the tare goes.
@@ -291,7 +292,7 @@ the_scale_is_zeroed_only_when_aimed_at_with_empty_hands :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
 	x, z := plate_middle()
-	props_add(props, l, .Beaker, x, z, u16(chem.Id.Water), 100)
+	props_add(props, l, .Beaker, x, z, u16(chemistry.Id.Water), 100)
 	settle_for(props, l, p, 1)
 	sc: Scale
 	testing.expect(t, !scale_zero_ready(&sc, props), "not aimed at")
@@ -322,7 +323,7 @@ the_scale_and_the_cabinet_are_aimed_at_within_reach_unless_a_vessel_is_nearer ::
 	update(props, l, p, 1.0 / 60)
 	testing.expect(t, !scale_aim(&sc, props, view_of(p)), "out of reach")
 	// A vessel on the plate under the crosshair comes first.
-	props_add(props, l, .Beaker, x, z, u16(chem.Id.Water), 100)
+	props_add(props, l, .Beaker, x, z, u16(chemistry.Id.Water), 100)
 	p.z = z + 1.0
 	look_at(p, {x, lab.COUNTER_HEIGHT + 0.12, z})
 	settle_for(props, l, p, 1)
@@ -413,10 +414,29 @@ the_grab_button_uses_the_cabinet_only_aimed_at_with_empty_hands_and_ready :: pro
 @(test)
 a_vessel_weighs_its_glass_and_what_is_in_it :: proc(t: ^testing.T) {
 	testing.expect_value(t, vessel_grams({kind = .Beaker}), f32(60))
-	testing.expect_value(t, vessel_grams({kind = .Flask, compound = 1, ml = 40}), f32(125))
-	testing.expect_value(t, vessel_grams({kind = .Bottle, compound = 2, ml = 600}), f32(710))
-	testing.expect_value(t, vessel_grams({kind = .Vial, compound = 3, ml = 12}), f32(20))
-	for id in 0 ..= len(chem.COMPOUNDS) {
+	flask := Prop {
+		kind = .Flask,
+	}
+	fill_with(&flask.mix, 1, 40)
+	bottle := Prop {
+		kind = .Bottle,
+	}
+	fill_with(&bottle.mix, 2, 600)
+	vial := Prop {
+		kind = .Vial,
+	}
+	fill_with(&vial.mix, 3, 12)
+	testing.expect_value(t, vessel_grams(flask), f32(125))
+	testing.expect_value(t, vessel_grams(bottle), f32(710))
+	testing.expect_value(t, vessel_grams(vial), f32(20))
+	// A mixture weighs what all its compounds weigh.
+	both := Prop {
+		kind = .Beaker,
+	}
+	fill_with(&both.mix, 1, 100)
+	chemistry.mix_add(&both.mix, .Ethanol, 50, 1, ROOM_C)
+	testing.expect_value(t, vessel_grams(both), f32(210))
+	for id in 0 ..= chemistry.COMPOUND_COUNT {
 		testing.expect_value(t, compound_density(u16(id)), f32(1))
 	}
 }
@@ -424,9 +444,10 @@ a_vessel_weighs_its_glass_and_what_is_in_it :: proc(t: ^testing.T) {
 @(test)
 the_shelf_bottles_are_coloured_by_the_compounds_in_turn :: proc(t: ^testing.T) {
 	colors := shelf_colors()
-	table := chem.COMPOUNDS
 	for i in 0 ..< lab.SHELF_BOTTLES {
-		c := table[i % len(table)].color
+		c := chemistry.compounds[i % chemistry.COMPOUND_COUNT].color
 		testing.expect_value(t, colors[i], [4]u8{c.r, c.g, c.b, 255})
 	}
+	testing.expect_value(t, colors[0], [4]u8{0x6f, 0xb4, 0xe8, 255}) // water is first and blue
+	testing.expect_value(t, colors[chemistry.COMPOUND_COUNT], colors[0]) // and the colours start over after the last compound
 }

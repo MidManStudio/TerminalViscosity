@@ -5,155 +5,28 @@
 
 package chem
 
+import "../chemistry"
 import "core:testing"
 
-// Every id from 1 up to the last product.
-all_ids :: proc() -> []u16 {
-	@(static) ids: [64]u16
-	n := compound_count()
-	for i in 0 ..< n {
-		ids[i] = u16(i + 1)
-	}
-	return ids[:n]
-}
-
-// An id for one compound of each class, to walk the matrix by class.
-first_of :: proc(c: Class) -> u16 {
-	for id in all_ids() {
-		if class_of(id) == c {
-			return id
-		}
-	}
-	return 0
+@(test)
+names_and_colours_come_from_the_pages :: proc(t: ^testing.T) {
+	testing.expect_value(t, compound_name(u16(chemistry.Id.Ethanol)), "Ethanol")
+	testing.expect_value(t, compound_name(0), "")
+	testing.expect_value(t, string(compound_cname(u16(chemistry.Id.Water))), "Water")
+	testing.expect_value(t, compound_color(0), [3]f32{1, 1, 1})
+	c := compound_color(u16(chemistry.Id.Water))
+	testing.expect(t, abs(c.b - f32(0xe8) / 255) < 0.001, "water is blue")
+	testing.expect_value(t, compound_name(9999), "")
 }
 
 @(test)
-the_ids_and_the_table_agree :: proc(t: ^testing.T) {
-	testing.expect_value(t, compound_count(), int(max(Id)))
-	table := COMPOUNDS
-	for i in 0 ..< len(table) {
-		for j in i + 1 ..< len(table) {
-			testing.expectf(t, string(table[i].name) != string(table[j].name), "two compounds are called %v", table[i].name)
-		}
-	}
-	testing.expect_value(t, compound_name(u16(Id.Spark_Blue)), "Spark Blue")
-	testing.expect_value(t, compound_name(u16(Id.Magenta)), "Magenta")
-	testing.expect_value(t, compound_name(0), "Empty")
-	testing.expect_value(t, compound_name(999), "Empty")
-	for id in all_ids() {
-		c := compound_color(id)
-		testing.expect(t, c.r >= 0 && c.r <= 1 && c.g >= 0 && c.g <= 1 && c.b >= 0 && c.b <= 1)
-	}
-}
-
-@(test)
-every_pair_of_classes_has_exactly_one_rule :: proc(t: ^testing.T) {
-	table := RULES
-	testing.expect_value(t, len(table), CLASS_COUNT * (CLASS_COUNT + 1) / 2)
-	for a in Class {
-		for b in Class {
-			found := 0
-			for r in table {
-				if (r.a == a && r.b == b) || (r.a == b && r.b == a) {
-					found += 1
-				}
-			}
-			testing.expectf(t, found == 1, "%v with %v has %v rules", a, b, found)
-		}
-	}
-}
-
-@(test)
-every_product_is_a_known_compound :: proc(t: ^testing.T) {
-	table := RULES
-	for r in table {
-		if r.product != KEEP_OTHER {
-			testing.expectf(t, r.product >= 1 && int(r.product) <= compound_count(), "%v with %v makes an unknown compound", r.a, r.b)
-		}
-		testing.expect(t, r.volatility >= 0 && r.volatility <= 1)
-	}
-}
-
-@(test)
-the_outcome_does_not_depend_on_the_order :: proc(t: ^testing.T) {
-	for a in all_ids() {
-		for b in all_ids() {
-			testing.expectf(t, react(a, b) == react(b, a), "%v and %v depend on the order", compound_name(a), compound_name(b))
-		}
-	}
-}
-
-@(test)
-nothing_reacts_with_itself_or_with_nothing :: proc(t: ^testing.T) {
-	for a in all_ids() {
-		same := react(a, a)
-		testing.expect(t, !same.reacted && same.product == a && same.volatility == 0)
-		empty := react(a, 0)
-		testing.expect(t, !empty.reacted && empty.product == a)
-		testing.expect(t, react(0, a) == empty)
-	}
-	testing.expect(t, !react(0, 0).reacted)
-}
-
-@(test)
-a_reaction_always_makes_something_real :: proc(t: ^testing.T) {
-	for a in all_ids() {
-		for b in all_ids() {
-			if a == b {
-				continue
-			}
-			o := react(a, b)
-			testing.expect(t, o.reacted)
-			testing.expectf(t, o.product >= 1 && int(o.product) <= compound_count(), "%v with %v made %v", compound_name(a), compound_name(b), o.product)
-		}
-	}
-}
-
-@(test)
-water_thins_acids_bases_oxidizers_and_dyes_without_changing_them :: proc(t: ^testing.T) {
-	water := u16(Id.Water)
-	for other in ([]Id{.Fizz_Acid, .Soda_Base, .Spark_Blue, .Dye_Red, .Dye_Violet, .Magenta}) {
-		o := react(water, u16(other))
-		testing.expect_value(t, o.product, u16(other))
-		testing.expect_value(t, o.volatility, 0)
-	}
-}
-
-@(test)
-the_known_recipes_make_what_they_should :: proc(t: ^testing.T) {
-	testing.expect_value(t, react(u16(Id.Fizz_Acid), u16(Id.Soda_Base)).product, u16(Id.Neutral_Foam))
-	testing.expect_value(t, react(u16(Id.Frost_Gel), u16(Id.Water)).product, u16(Id.Slush))
-	testing.expect_value(t, react(u16(Id.Dye_Red), u16(Id.Dye_Violet)).product, u16(Id.Magenta))
-	testing.expect_value(t, react(u16(Id.Glue_Goo), u16(Id.Dye_Red)).product, u16(Id.Sticky_Mess))
-	testing.expect_value(t, react(u16(Id.Slick), u16(Id.Water)).product, u16(Id.Slick_Mess))
-	testing.expect_value(t, react(u16(Id.Ember_Oil), u16(Id.Spark_Blue)).product, u16(Id.Char))
-}
-
-// The danger of the matrix is meant to sit around the oxidizer. This fails if a
-// rule is changed so that something else becomes a blast or a spatter, which
-// is then a decision to make on purpose.
-@(test)
-only_the_planned_pairs_are_dangerous :: proc(t: ^testing.T) {
-	blasts, spatters := 0, 0
-	table := RULES
-	for r in table {
-		switch hazard_of(r.volatility) {
-		case .Calm:
-		case .Spatter:
-			spatters += 1
-			testing.expect(t, r.a == .Oxidizer || r.b == .Oxidizer)
-		case .Blast:
-			blasts += 1
-			testing.expect(t, r.a == .Oxidizer || r.b == .Oxidizer)
-		}
-	}
-	testing.expect_value(t, blasts, 2)
-	testing.expect_value(t, spatters, 2)
-	testing.expect_value(t, hazard_of(react(u16(Id.Ember_Oil), u16(Id.Spark_Blue)).volatility), Hazard.Blast)
-	testing.expect_value(t, hazard_of(react(u16(Id.Fizz_Acid), u16(Id.Spark_Blue)).volatility), Hazard.Blast)
-	testing.expect_value(t, hazard_of(react(u16(Id.Soda_Base), u16(Id.Spark_Blue)).volatility), Hazard.Spatter)
-	testing.expect_value(t, hazard_of(react(u16(Id.Frost_Gel), u16(Id.Spark_Blue)).volatility), Hazard.Spatter)
-	testing.expect_value(t, hazard_of(react(u16(Id.Fizz_Acid), u16(Id.Soda_Base)).volatility), Hazard.Calm)
+the_hazard_levels_start_where_they_are_documented :: proc(t: ^testing.T) {
+	testing.expect_value(t, hazard_of(0), Hazard.Calm)
+	testing.expect_value(t, hazard_of(0.29), Hazard.Calm)
+	testing.expect_value(t, hazard_of(0.3), Hazard.Spatter)
+	testing.expect_value(t, hazard_of(0.59), Hazard.Spatter)
+	testing.expect_value(t, hazard_of(0.6), Hazard.Blast)
+	testing.expect_value(t, hazard_of(1), Hazard.Blast)
 }
 
 @(test)
@@ -176,34 +49,10 @@ damage_falls_with_distance_and_grows_with_volatility :: proc(t: ^testing.T) {
 // Mixing happens with the vessel in the hands, so under a metre from the eye.
 @(test)
 the_worst_blast_at_arms_length_hurts_a_lot_but_does_not_kill :: proc(t: ^testing.T) {
-	worst := damage_of(react(u16(Id.Ember_Oil), u16(Id.Spark_Blue)).volatility, 0.8)
+	worst := damage_of(1, 0.8)
 	testing.expectf(t, worst >= 60 && worst < 100, "the worst blast does %v at 0.8 m", worst)
-	smaller := damage_of(react(u16(Id.Fizz_Acid), u16(Id.Spark_Blue)).volatility, 0.8)
-	testing.expectf(t, smaller >= 20 && smaller < 45, "the acid blast does %v at 0.8 m", smaller)
-	spatter := damage_of(react(u16(Id.Soda_Base), u16(Id.Spark_Blue)).volatility, 0.8)
+	smaller := damage_of(0.7, 0.8)
+	testing.expectf(t, smaller >= 20 && smaller < 100, "a smaller blast does %v at 0.8 m", smaller)
+	spatter := damage_of(0.45, 0.8)
 	testing.expectf(t, spatter > 0 && spatter < 10, "a spatter does %v at 0.8 m", spatter)
-}
-
-@(test)
-heat_adds_volatility_and_cold_takes_it_away :: proc(t: ^testing.T) {
-	for v in ([]f32{0, 0.1, 0.3, 0.6, 1}) {
-		testing.expect_value(t, heated(v, 0), v) // at room temperature nothing changes
-		testing.expect(t, heated(v, 0.5) >= v && heated(v, 1) >= heated(v, 0.5), "hotter is more volatile")
-		testing.expect(t, heated(v, -0.5) <= v && heated(v, -1) <= heated(v, -0.5), "colder is less")
-	}
-	testing.expect_value(t, heated(0.9, 1), 1) // never above 1
-	testing.expect_value(t, heated(0.2, -1) >= 0, true)
-	testing.expect_value(t, heated(0.5, 5), heated(0.5, 1)) // beyond the ends counts as the ends
-	testing.expect_value(t, heated(0.5, -5), heated(0.5, -1))
-}
-
-@(test)
-a_safe_pair_is_violent_when_hot_and_the_worst_blast_is_tamed_when_cold :: proc(t: ^testing.T) {
-	safe := react(u16(Id.Fizz_Acid), u16(Id.Soda_Base)).volatility
-	testing.expect_value(t, hazard_of(safe), Hazard.Calm)
-	testing.expect_value(t, hazard_of(heated(safe, 1)), Hazard.Blast) // fully hot
-	testing.expect_value(t, hazard_of(heated(safe, 0.5)), Hazard.Spatter) // warm
-	worst := react(u16(Id.Ember_Oil), u16(Id.Spark_Blue)).volatility
-	testing.expect_value(t, hazard_of(worst), Hazard.Blast)
-	testing.expect_value(t, hazard_of(heated(worst, -1)), Hazard.Spatter) // fully cold
 }

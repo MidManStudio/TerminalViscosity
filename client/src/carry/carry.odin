@@ -10,7 +10,7 @@
 // It has no raylib dependency, so it is tested without a window.
 package carry
 
-import "../chem"
+import "../chemistry"
 import "../lab"
 import "core:math"
 
@@ -55,32 +55,21 @@ kind_dims :: proc(k: Kind) -> Dims {
 }
 
 // One thing that can be picked up. `pos` is the middle of its base. A vessel
-// holds one compound at a time, as an id (0 for empty) and an amount.
+// holds a mixture: up to eight compounds, each with an amount and a purity, at one temperature
+// in degrees, with the unsafe meter that reactions raise.
 Prop :: struct {
 	kind:     Kind,
 	pos:      Vec3,
 	yaw:      f32,
 	vy:       f32, // how fast it is falling, in metres per second, while it settles
-	compound: u16,
-	ml:       f32,
+	mix:      chemistry.Mixture,
 	tilt:     f32, // how far it is tipped over toward the way it faces, in radians
-	flow_acc: f32, // liquid that has run over the lip and not yet left as drops, in ml
-	heat:     f32, // temperature of the liquid, from -1 fully cold through 0 to 1 fully hot
+	flow_acc: f32, // liquid that is to leave over the lip and has not yet left as drops, in ml
 }
 
 TILT_MAX :: f32(2.4) // about 137 degrees, nearly upside down, so a narrow neck can empty
 TILT_RATE_IN :: f32(1.3) // radians a second while tipping it over
 TILT_RATE_OUT :: f32(2.6) // and while putting it back
-
-// A pour that is making two liquids meet. While drops of `src` keep arriving in
-// vessel `target`, they join the product at once instead of reacting again, so a
-// whole pour is one meeting. It ends when the drops stop for a moment.
-Session :: struct {
-	target:  int, // index of the vessel, or -1
-	src:     u16,
-	product: u16,
-	timer:   f32, // seconds left before the pour counts as over
-}
 
 Props :: struct {
 	items:   [MAX_PROPS]Prop,
@@ -90,7 +79,6 @@ Props :: struct {
 	aimed_t: f32, // how far along the view that prop is, in metres
 	pouring: bool, // the pour button is down, so the held vessel is tipping over
 	speed:   f32, // how many times faster than normal liquid runs, from SPEEDS; 0 counts as 1
-	session: Session,
 }
 
 // What the hands are doing, which also drives the crosshair and the button.
@@ -131,7 +119,6 @@ props_init :: proc(props: ^Props) {
 	props.held = -1
 	props.aimed = -1
 	props.speed = 1
-	props.session.target = -1
 }
 
 // The horizontal direction a vessel pours toward when held by a player facing `yaw`.
@@ -218,15 +205,16 @@ vial_snap :: proc(props: ^Props, i: int) {
 }
 
 // Adds a vessel standing on whatever is under (x, z), holding `ml` of a
-// compound, which is cut down to what the vessel can hold. False if the list
-// is full.
+// compound, which is cut down to what the vessel can hold, at room temperature and the purity
+// that compound has out of the lab's bottles. False if the list is full.
 props_add :: proc(props: ^Props, l: ^lab.Layout, kind: Kind, x, z: f32, compound: u16 = 0, ml: f32 = 0) -> bool {
 	if props.count == MAX_PROPS {
 		return false
 	}
 	d := kind_dims(kind)
 	amount := compound == 0 ? f32(0) : clamp(ml, 0, capacity_ml(kind))
-	props.items[props.count] = {kind = kind, pos = {x, support_height(l, x, z, d.radius), z}, compound = compound, ml = amount}
+	props.items[props.count] = {kind = kind, pos = {x, support_height(l, x, z, d.radius), z}}
+	fill_with(&props.items[props.count].mix, compound, amount)
 	props.items[props.count].pos.y = standing_height(l, &props.items[props.count])
 	props.count += 1
 	return true
@@ -249,32 +237,27 @@ props_remove :: proc(props: ^Props, i: int) {
 	} else if props.aimed > i {
 		props.aimed -= 1
 	}
-	if props.session.target == i {
-		props.session.target = -1
-	} else if props.session.target > i {
-		props.session.target -= 1
-	}
 }
 
 // The vessels on the island: one filled with each stock liquid, in two rows
 // along its near edge, and a third row and the ends of the first two left
 // empty to pour into and mix in.
 props_place_defaults :: proc(props: ^Props, l: ^lab.Layout) {
-	id :: proc(s: chem.Id) -> u16 {
+	id :: proc(s: chemistry.Id) -> u16 {
 		return u16(s)
 	}
-	// Front row.
+	// Front row: the four chemicals the lab starts with, one vessel each.
 	props_add(props, l, .Beaker, -1.2, 0.40, id(.Water), 250)
-	props_add(props, l, .Bottle, -0.6, 0.40, id(.Fizz_Acid), 600)
-	props_add(props, l, .Bottle, 0, 0.40, id(.Soda_Base), 500)
-	props_add(props, l, .Flask, 0.6, 0.40, id(.Ember_Oil), 450)
-	props_add(props, l, .Flask, 1.2, 0.40, id(.Spark_Blue), 300)
-	// Middle row.
-	props_add(props, l, .Bottle, -1.2, -0.05, id(.Frost_Gel), 600)
-	props_add(props, l, .Bottle, -0.6, -0.05, id(.Glue_Goo), 600)
-	props_add(props, l, .Flask, 0, -0.05, id(.Slick), 400)
-	props_add(props, l, .Beaker, 0.6, -0.05, id(.Dye_Red), 400)
-	props_add(props, l, .Beaker, 1.2, -0.05, id(.Dye_Violet), 400)
+	props_add(props, l, .Bottle, -0.6, 0.40, id(.Acetic_Acid), 600)
+	props_add(props, l, .Bottle, 0, 0.40, id(.Ethanol), 500)
+	props_add(props, l, .Flask, 0.6, 0.40, id(.Sulfuric_Acid), 450)
+	// The rest of the front and middle rows, empty.
+	props_add(props, l, .Flask, 1.2, 0.40)
+	props_add(props, l, .Bottle, -1.2, -0.05)
+	props_add(props, l, .Bottle, -0.6, -0.05)
+	props_add(props, l, .Flask, 0, -0.05)
+	props_add(props, l, .Beaker, 0.6, -0.05)
+	props_add(props, l, .Beaker, 1.2, -0.05)
 	// Back row, all empty.
 	props_add(props, l, .Beaker, -1.2, -0.50)
 	props_add(props, l, .Flask, -0.6, -0.50)
@@ -464,7 +447,6 @@ settle :: proc(pr: ^Prop, l: ^lab.Layout, dt: f32) {
 update :: proc(props: ^Props, l: ^lab.Layout, p: ^lab.Player, dt: f32) {
 	v := view_of(p)
 	props.aimed, props.aimed_t = aim(props, l, v)
-	props.session.timer -= dt
 	if props.held != -1 {
 		pr := &props.items[props.held]
 		target := props.pouring ? TILT_MAX : 0
@@ -502,7 +484,7 @@ pour_target :: proc(props: ^Props) -> int {
 		return -1
 	}
 	t := props.items[props.aimed]
-	if t.ml >= capacity_ml(t.kind) - 0.5 {
+	if ml_of(&t.mix) >= capacity_ml(t.kind) - 0.5 {
 		return -1
 	}
 	return props.aimed

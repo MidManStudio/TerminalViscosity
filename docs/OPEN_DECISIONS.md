@@ -15,7 +15,7 @@
 ### Chemistry integration
 
 - The compound pages are turned into constant tables by `scripts/gen_chem.py` and read by the `chemistry` package, and the lab does not use them yet. The game does not read the pages while it runs, because the client's DixScript binding cannot follow imports or read decimals. Whoever changes a page runs the script again, and CI checks that they did. Whether the owner can run it from a phone is not known.
-- The engine's own readings of the rules are listed in `docs/REACTIONS.md` under "What the engine does with them": the tie rule (most inputs, then a station of its own, then the one listed first), that a made compound never counts as poured in the wrong order, that a reaction with no outputs runs once until something is poured in, that a failure with nothing to make leaves the vessel as it is, eight compounds to a vessel at most.
+- The engine's own readings of the rules are listed in `docs/REACTIONS.md` under "What the engine does with them": the tie rule (most inputs, then a station of its own, then the one listed first), that a made compound never counts as poured in the wrong order, that a reaction stays done while its conditions hold and can act again after they have stopped holding, that a failure with nothing to make leaves the vessel as it is, eight compounds to a vessel at most.
 - Ethylene, sulfur dioxide and hydrogen are drafts written by Claude, as their pages were missing.
 - Wiring it in means a vessel holds a mixture instead of one compound, which touches the vessels, the filler, the oven, the stream, the balloon recipe (one compound id for each of four chambers on the Rust side), the loadout file and the lab menus.
 

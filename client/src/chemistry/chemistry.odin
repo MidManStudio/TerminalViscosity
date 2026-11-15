@@ -109,6 +109,28 @@ compound_of :: proc(id: Id) -> ^Compound {
 	return &compounds[int(id) - 1]
 }
 
+// The name of a compound for the player, such as "Sulfuric acid", and "" for none.
+name_of :: proc(id: Id) -> string {
+	c := compound_of(id)
+	return c == nil ? "" : c.name
+}
+
+// The same for a function that wants a C string. The names are text literals in the generated
+// table and end in a zero byte, so no copy is made. "" for none.
+cname_of :: proc(id: Id) -> cstring {
+	c := compound_of(id)
+	return c == nil ? cstring("") : cstring(raw_data(c.name))
+}
+
+// The colour of a compound as red, green and blue from 0 to 1, white for none.
+color_of :: proc(id: Id) -> [3]f32 {
+	c := compound_of(id)
+	if c == nil {
+		return {1, 1, 1}
+	}
+	return {f32(c.color.r), f32(c.color.g), f32(c.color.b)} / 255
+}
+
 // The number of the compound with this page id, such as "sulfuric_acid", or .None.
 id_of :: proc(page_id: string) -> Id {
 	for i in 0 ..< COMPOUND_COUNT {
@@ -171,14 +193,17 @@ Ingredient :: struct {
 }
 
 // What is in a vessel: up to MAX_INGREDIENTS compounds, in the order they went in, at one
-// temperature, with the unsafe meter. `ran` and `failed` remember the reactions that have
-// already done their part, or their penalty, for this set of ingredients, one bit for each table
-// index, so a reaction that leaves its inputs in the vessel does not run again every frame.
+// temperature, with the unsafe meter. `phase` is where `mix_draw` is in its walk through the
+// ingredients. `ran` and `failed` remember the reactions that have already done their part, or
+// their penalty, one bit for each table index, for as long as the conditions that started them
+// hold, so a reaction that leaves its inputs in the vessel does not run again with every drop
+// poured in. When the conditions stop holding the bits are cleared, and the reaction can act again.
 Mixture :: struct {
 	items:        [MAX_INGREDIENTS]Ingredient,
 	count:        int,
 	heat_c:       f32,
 	unsafe:       f32, // from 0 to 1
+	phase:        f32,
 	ran, failed:  u64,
 }
 
@@ -223,9 +248,8 @@ add_ingredient :: proc(m: ^Mixture, id: Id, ml, purity: f32, made: bool) -> bool
 }
 
 // Pours `ml` of a compound at `heat_c` degrees into the mixture. The temperature becomes the
-// mean of the two by volume, and the reactions that had already run get their turn again,
-// because the ingredients are not what they were. False, with nothing changed, if there is no
-// room for another compound.
+// mean of the two by volume. False, with nothing changed, if there is no room for another
+// compound.
 mix_add :: proc(m: ^Mixture, id: Id, ml, purity, heat_c: f32) -> bool {
 	if id == .None || ml <= 0 {
 		return false
@@ -235,8 +259,60 @@ mix_add :: proc(m: ^Mixture, id: Id, ml, purity, heat_c: f32) -> bool {
 		return false
 	}
 	m.heat_c = (m.heat_c * before + heat_c * ml) / (before + ml)
-	m.ran, m.failed = 0, 0
 	return true
+}
+
+// The compound there is most of, or .None for an empty mixture. A tie goes to the one that went in first.
+dominant :: proc(m: ^Mixture) -> Id {
+	best := Id.None
+	most := f32(0)
+	for i in 0 ..< m.count {
+		if m.items[i].ml > most {
+			best, most = m.items[i].compound, m.items[i].ml
+		}
+	}
+	return best
+}
+
+// Takes up to `ml` out of the mixture as one ingredient, and says what it took. Successive draws
+// walk through the ingredients so that a long pour is made of drops in the proportions of the
+// mixture, without keeping a list of what is owed: the choice follows the golden ratio round the
+// shares, which spreads the drops evenly. An ingredient that is used up leaves the list. The
+// temperature and the unsafe meter stay with the mixture.
+mix_draw :: proc(m: ^Mixture, ml: f32) -> (drawn: Ingredient) {
+	total := mix_volume(m)
+	if total <= 0 || ml <= 0 {
+		return
+	}
+	m.phase += 0.6180339887
+	m.phase -= f32(int(m.phase))
+	at := m.count - 1
+	upto := f32(0)
+	for i in 0 ..< m.count {
+		upto += m.items[i].ml / total
+		if m.phase < upto {
+			at = i
+			break
+		}
+	}
+	take := min(ml, m.items[at].ml)
+	drawn = {m.items[at].compound, take, m.items[at].purity, m.items[at].made}
+	m.items[at].ml -= take
+	if m.items[at].ml <= 0.0001 {
+		remove_at(m, at)
+	}
+	return
+}
+
+// Keeps `share` of every ingredient, from 0 to 1, and loses the rest: what a spatter throws out of
+// a vessel. An ingredient that is left with nothing leaves the list.
+mix_scale :: proc(m: ^Mixture, share: f32) {
+	for i := m.count - 1; i >= 0; i -= 1 {
+		m.items[i].ml *= clamp(share, 0, 1)
+		if m.items[i].ml <= 0.0001 {
+			remove_at(m, i)
+		}
+	}
 }
 
 remove_at :: proc(m: ^Mixture, at: int) {
@@ -304,11 +380,19 @@ Pick_Kind :: enum {
 
 // Which reaction acts on the mixture now, and whether it runs or fails; index -1 and .None when
 // none does. A reaction that is not unlocked (its bit in `unlocked`) is passed over, and so is
-// one that has already run, or failed, or been penalised for the wrong order, for these
-// ingredients. Of those that act, the one with the most inputs wins, then one that needs its own
+// one that has already run, or failed, or been penalised for the wrong order, while the
+// conditions it did that in still hold: the bits of a reaction whose conditions no longer hold are
+// cleared first. Of those that act, the one with the most inputs wins, then one that needs its own
 // station over one that works anywhere, then the one that comes first in the table.
 pick :: proc(m: ^Mixture, station: Station, unlocked: u64) -> (index: int, kind: Pick_Kind) {
 	index = -1
+	for i in 0 ..< REACTION_COUNT {
+		bit := u64(1) << u64(i)
+		if (m.ran | m.failed) & bit != 0 && !context_ok(m, &reactions[i], station) {
+			m.ran &= ~bit
+			m.failed &= ~bit
+		}
+	}
 	best_inputs, best_named := 0, false
 	for i in 0 ..< REACTION_COUNT {
 		bit := u64(1) << u64(i)

@@ -6,7 +6,7 @@
 package arena
 
 import "../carry"
-import "../chem"
+import "../chemistry"
 import "core:math"
 import "core:testing"
 
@@ -77,22 +77,34 @@ power_runs_from_the_weakest_to_the_strongest_throw :: proc(t: ^testing.T) {
 	}
 }
 
+// A balloon of one compound, for a hook.
+balloon :: proc(compound: u16, ml: f32, art: u16 = 0) -> carry.Item {
+	item := carry.Item {
+		used = true,
+		art  = art,
+	}
+	carry.fill_with(&item.mix, compound, ml)
+	return item
+}
+
 loadout_with :: proc(hooks: [carry.LOADOUT_SLOTS]carry.Item) -> carry.Loadout {
 	return carry.Loadout{slots = hooks, spot_slot = -1}
 }
 
 @(test)
 slots_follow_the_hooks_one_for_one :: proc(t: ^testing.T) {
-	lo := loadout_with({{}, {used = true, compound = 4, ml = 640.4, art = 7}, {used = true, compound = 9, ml = 1000}})
+	lo := loadout_with({{}, balloon(4, 640.4, 7), balloon(9, 1000)})
+	chemistry.mix_add(&lo.slots[1].mix, .Water, 0.05, 0.25, carry.ROOM_C)
 	s := slots_from_loadout(&lo)
 	testing.expect(t, !s[0].used, "an empty hook stays empty")
-	testing.expect_value(t, s[1], Slot{used = true, compound = 4, ml = 640, art = 7})
-	testing.expect_value(t, s[2], Slot{used = true, compound = 9, ml = 1000})
+	testing.expect_value(t, s[1], Slot{used = true, mix = lo.slots[1].mix, compound = 4, ml = 640, art = 7})
+	testing.expect_value(t, s[1].mix.count, 2) // the slot has the whole mixture, and the wire fields the main part
+	testing.expect_value(t, s[2], Slot{used = true, mix = lo.slots[2].mix, compound = 9, ml = 1000})
 }
 
 @(test)
 fill_is_rounded_and_kept_inside_what_a_balloon_holds :: proc(t: ^testing.T) {
-	lo := loadout_with({{used = true, compound = 1, ml = 0.2}, {used = true, compound = 1, ml = 640.6}, {used = true, compound = 1, ml = 5000}})
+	lo := loadout_with({balloon(1, 0.2), balloon(1, 640.6), balloon(1, 5000)})
 	s := slots_from_loadout(&lo)
 	testing.expect_value(t, s[0].ml, u16(1))
 	testing.expect_value(t, s[1].ml, u16(641))
@@ -103,13 +115,18 @@ fill_is_rounded_and_kept_inside_what_a_balloon_holds :: proc(t: ^testing.T) {
 an_empty_loadout_offers_one_practice_water_balloon :: proc(t: ^testing.T) {
 	lo := loadout_with({})
 	s := slots_from_loadout(&lo)
-	testing.expect_value(t, s[0], Slot{used = true, compound = u16(chem.Id.Water), ml = PRACTICE_ML, practice = true})
+	testing.expect_value(t, s[0].used, true)
+	testing.expect_value(t, s[0].compound, u16(chemistry.Id.Water))
+	testing.expect_value(t, s[0].ml, PRACTICE_ML)
+	testing.expect_value(t, s[0].practice, true)
+	testing.expect_value(t, s[0].mix.count, 1)
+	testing.expect_value(t, chemistry.dominant(&s[0].mix), chemistry.Id.Water)
 	testing.expect(t, !s[1].used && !s[2].used, "only the first slot is offered")
 }
 
 @(test)
 a_loadout_with_any_balloon_gets_no_practice_one :: proc(t: ^testing.T) {
-	lo := loadout_with({{}, {}, {used = true, compound = 3, ml = 100}})
+	lo := loadout_with({{}, {}, balloon(3, 100)})
 	s := slots_from_loadout(&lo)
 	testing.expect(t, !s[0].used, "hook 0 stays empty")
 	testing.expect(t, !s[0].practice && !s[2].practice, "none of them is a practice balloon")
@@ -471,7 +488,7 @@ cancelling_a_charge_throws_nothing_and_costs_no_cooldown :: proc(t: ^testing.T) 
 	slots: [carry.LOADOUT_SLOTS]Slot
 	slots[0] = {
 		used     = true,
-		compound = u16(chem.Id.Water),
+		compound = u16(chemistry.Id.Water),
 		ml       = 500,
 	}
 	th: Thrower

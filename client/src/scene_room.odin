@@ -9,6 +9,7 @@ import rl "vendor:raylib"
 import rlgl "vendor:raylib/rlgl"
 import "carry"
 import "chem"
+import "chemistry"
 import "core:fmt"
 import "core:math"
 import "core:time"
@@ -104,11 +105,15 @@ room_react :: proc(room: ^Room, r: carry.Mix_Result) {
 	switch r.kind {
 	case .Nothing:
 	case .Mixed:
-		room_toast(room, "%v + %v made %v", a, b, product)
+		if r.product != 0 {
+			room_toast(room, "%v + %v made %v", a, b, product)
+		} else {
+			room_toast(room, "%v + %v mixed", a, b)
+		}
 	case .Spatter:
 		room.blast_flash = 0.4
 		effects.spatter(&room.fx, r.at, effects.mix_color(color_a, color_b, 0.5), floor)
-		room_toast(room, "SPATTER! %v + %v made %v", a, b, product)
+		room_toast(room, "SPATTER! %v + %v %v", a, b, event_word(r))
 	case .Blast:
 		room.blast_flash = 0.4 + 0.6 * open
 		effects.blast(&room.fx, r.at, chem.blast_power(r.volatility), open, color_a, color_b, floor)
@@ -119,6 +124,25 @@ room_react :: proc(room: ^Room, r: carry.Mix_Result) {
 		}
 	}
 	carry.health_hurt(&room.health, carry.felt_damage(r))
+}
+
+// What went wrong in a reaction, in words, from the first step of it that had an event: a splash, fumes,
+// a fire or a burst.
+event_word :: proc(r: carry.Mix_Result) -> string {
+	for i in 0 ..< r.steps.count {
+		step := r.steps.steps[i]
+		#partial switch step.event {
+		case .Splash:
+			return step.wrong_order ? "spat: water went into the acid" : "splashed"
+		case .Fumes:
+			return "gave off fumes"
+		case .Fire:
+			return "caught fire"
+		case .Burst:
+			return "burst"
+		}
+	}
+	return "went wrong"
 }
 
 // What a drop into the balloon did: a reaction, shown as for a vessel, and a burst
@@ -170,7 +194,8 @@ room_balloon_action :: proc(room: ^Room, lo: ^carry.Loadout, action: carry.Ballo
 // A balloon dropped in the incinerator: a flash of fire in the hopper, in the colours of what was
 // in it, and smoke from the chimney for a few seconds.
 room_burn :: proc(room: ^Room, item: carry.Item) {
-	color := chem.compound_color(item.compound)
+	item_mix := item.mix
+	color := chemistry.mix_color(&item_mix)
 	effects.blast(&room.fx, lab.INCINERATOR_MOUTH, 0.2, 0, color, color, lab.COUNTER_HEIGHT)
 	room.burn_timer = 2.5
 	room.burn_vent = 0
@@ -196,6 +221,17 @@ room_burn_effects :: proc(room: ^Room, dt: f32) {
 	}
 }
 
+// Heats and cools the liquids, and shows what a vessel did that reacted because its temperature moved,
+// in the same way as a drop that starts a reaction. A vessel that blasts has broken.
+room_heat_events :: proc(room: ^Room, dt: f32) {
+	events: [carry.MAX_EVENTS]carry.Mix_Result
+	eye := carry.view_of(&room.player).eye
+	count := carry.props_heat_update(&room.props, dt, eye, &events)
+	for i in 0 ..< count {
+		room_react(room, events[i])
+	}
+}
+
 // Hot liquid gives off steam: a wisp from the top of each vessel that is hot, a few
 // times a second.
 room_steam :: proc(room: ^Room, dt: f32) {
@@ -206,9 +242,9 @@ room_steam :: proc(room: ^Room, dt: f32) {
 	room.steam_timer = 0
 	for i in 0 ..< room.props.count {
 		pr := room.props.items[i]
-		if pr.ml > 0 && pr.heat > 0.6 {
+		if carry.ml_of(&pr.mix) > 0 && carry.heat_unit(pr.mix.heat_c) > 0.6 {
 			top := Vec3{pr.pos.x, pr.pos.y + carry.kind_dims(pr.kind).height, pr.pos.z}
-			effects.steam(&room.fx, top, chem.compound_color(pr.compound))
+			effects.steam(&room.fx, top, chemistry.mix_color(&pr.mix))
 		}
 	}
 }
@@ -542,7 +578,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	carry.filler_update(&room.filler, dt)
 	filler_view_update(&room.filler_view, &room.filler, dt)
 	loadout_view_update(&room.loadout_view, &game.loadout, game.art, carry.view_of(&room.player), dt)
-	carry.props_heat_update(&room.props, dt)
+	room_heat_events(room, dt)
 	carry.loadout_heat_update(&game.loadout, dt)
 	room_steam(room, dt)
 	effects.step(&room.fx, dt)

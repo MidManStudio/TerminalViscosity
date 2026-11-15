@@ -5,7 +5,7 @@
 
 package carry
 
-import "../chem"
+import "../chemistry"
 import "../lab"
 
 // What the first aid cabinet and the scale of the lab do. Where they stand is in package lab.
@@ -78,7 +78,11 @@ compound_density :: proc(id: u16) -> f32 {
 
 // The mass of a vessel and what is in it, in grams.
 vessel_grams :: proc(pr: Prop) -> f32 {
-	return glass_grams(pr.kind) + pr.ml * compound_density(pr.compound)
+	grams := glass_grams(pr.kind)
+	for i in 0 ..< pr.mix.count {
+		grams += pr.mix.items[i].ml * compound_density(u16(pr.mix.items[i].compound))
+	}
+	return grams
 }
 
 // The scale reads the vessel on its plate, less the tare: the weight that was on it when it was
@@ -142,13 +146,12 @@ scale_zero :: proc(sc: ^Scale, props: ^Props) -> bool {
 
 // ---- The shelves ----
 
-// The colours of the bottles on the shelves, from the compound table in turn, and over again when
-// the table has fewer compounds than there are bottles.
+// The colours of the bottles on the shelves, from the compounds in turn, and over again when
+// there are fewer compounds than there are bottles.
 shelf_colors :: proc() -> [lab.SHELF_BOTTLES][4]u8 {
 	colors: [lab.SHELF_BOTTLES][4]u8
-	table := chem.COMPOUNDS
 	for i in 0 ..< lab.SHELF_BOTTLES {
-		c := table[i % len(table)].color
+		c := chemistry.compound_of(chemistry.Id(i % chemistry.COMPOUND_COUNT + 1)).color
 		colors[i] = {c.r, c.g, c.b, 255}
 	}
 	return colors

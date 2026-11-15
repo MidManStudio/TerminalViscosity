@@ -5,6 +5,7 @@
 
 package carry
 
+import "../chemistry"
 import "../lab"
 import "core:testing"
 
@@ -13,7 +14,11 @@ new_loadout :: proc() -> Loadout {
 }
 
 balloon :: proc(compound: u16, ml: f32) -> Item {
-	return {used = true, compound = compound, ml = ml}
+	item := Item {
+		used = true,
+	}
+	fill_with(&item.mix, compound, ml)
+	return item
 }
 
 @(test)
@@ -99,7 +104,7 @@ the_grab_button_does_the_right_thing_at_each_place :: proc(t: ^testing.T) {
 
 	lo.spot = .Fill
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // nothing in the balloon
-	f.compound, f.ml = id(.Water), 400
+	fill_with(&f.mix, id(.Water), 400)
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.Tie_Take)
 	lo.hand = balloon(id(.Water), 100)
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // the hand is full
@@ -111,7 +116,7 @@ the_grab_button_does_the_right_thing_at_each_place :: proc(t: ^testing.T) {
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // nothing to do
 	lo.hand = balloon(id(.Water), 100)
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.Clamp)
-	lo.paint = balloon(id(.Slurry), 50)
+	lo.paint = balloon(id(.Ethyl_Acetate), 50)
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // taken
 	lo.hand = {}
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.Take_Paint)
@@ -121,7 +126,7 @@ the_grab_button_does_the_right_thing_at_each_place :: proc(t: ^testing.T) {
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // no balloon clamped to draw on
 	lo.paint = balloon(id(.Water), 100)
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.Paint)
-	lo.hand = balloon(id(.Slurry), 50)
+	lo.hand = balloon(id(.Ethyl_Acetate), 50)
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.Paint) // a balloon in the hand does not stop it
 	lo.hand = {}
 	lo.paint = {}
@@ -130,7 +135,7 @@ the_grab_button_does_the_right_thing_at_each_place :: proc(t: ^testing.T) {
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // hand empty, hook empty
 	lo.hand = balloon(id(.Water), 100)
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.Store)
-	lo.slots[1] = balloon(id(.Slurry), 50)
+	lo.slots[1] = balloon(id(.Ethyl_Acetate), 50)
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // the hook is taken
 	lo.hand = {}
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.Take_Slot)
@@ -140,8 +145,8 @@ the_grab_button_does_the_right_thing_at_each_place :: proc(t: ^testing.T) {
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.None) // nothing in the hand to burn
 	lo.hand = balloon(id(.Water), 100)
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.Burn)
-	lo.paint = balloon(id(.Slurry), 50) // balloons elsewhere do not matter
-	lo.slots[0] = balloon(id(.Slurry), 50)
+	lo.paint = balloon(id(.Ethyl_Acetate), 50) // balloons elsewhere do not matter
+	lo.slots[0] = balloon(id(.Ethyl_Acetate), 50)
 	testing.expect_value(t, balloon_action(&lo, &f, props), Balloon_Action.Burn)
 	lo.hand, lo.paint, lo.slots[0] = {}, {}, {}
 
@@ -161,8 +166,9 @@ the_grab_button_does_the_right_thing_at_each_place :: proc(t: ^testing.T) {
 drawing_moves_nothing :: proc(t: ^testing.T) {
 	f := fresh_filler()
 	lo := new_loadout()
-	lo.paint = Item{used = true, compound = id(.Water), ml = 400, art = 3}
-	lo.hand = balloon(id(.Slurry), 50)
+	lo.paint = balloon(id(.Water), 400)
+	lo.paint.art = 3
+	lo.hand = balloon(id(.Ethyl_Acetate), 50)
 	before := lo
 	_, ok := balloon_do(&lo, &f, .Paint)
 	testing.expect(t, ok, "it can start")
@@ -177,17 +183,21 @@ drawing_moves_nothing :: proc(t: ^testing.T) {
 tying_a_balloon_takes_what_is_in_it_and_the_station_makes_another :: proc(t: ^testing.T) {
 	f := fresh_filler()
 	lo := new_loadout()
-	f.compound, f.ml, f.heat = id(.Fizz_Acid), 640, 0.5
+	fill_with(&f.mix, id(.Ethanol), 640, 50)
+	chemistry.mix_add(&f.mix, .Water, 100, 0.25, 50)
+	before := f.mix
 	let_out, ok := balloon_do(&lo, &f, .Tie_Take)
 	testing.expect(t, ok, "it works")
 	testing.expect_value(t, let_out, 0)
-	testing.expect_value(t, lo.hand, Item{used = true, compound = id(.Fizz_Acid), ml = 640, heat = 0.5})
+	testing.expect_value(t, lo.hand, Item{used = true, mix = before})
+	testing.expect_value(t, lo.hand.mix.count, 2)
+	testing.expect_value(t, lo.hand.mix.heat_c, f32(50))
 	testing.expect(t, !f.present, "the clamp is empty")
-	testing.expect_value(t, f.ml, 0)
-	testing.expect_value(t, f.heat, 0)
+	testing.expect_value(t, ml_of(&f.mix), 0)
+	testing.expect_value(t, f.mix.heat_c, 0)
 	filler_update(&f, FILLER_RESPAWN + 0.1)
 	testing.expect(t, f.present, "and fresh in a moment")
-	testing.expect_value(t, f.ml, 0)
+	testing.expect_value(t, ml_of(&f.mix), 0)
 	_, again := balloon_do(&lo, &f, .Tie_Take)
 	testing.expect(t, !again, "an empty balloon is not tied")
 }
@@ -196,10 +206,10 @@ tying_a_balloon_takes_what_is_in_it_and_the_station_makes_another :: proc(t: ^te
 a_stretched_balloon_is_let_down_to_full_when_tied :: proc(t: ^testing.T) {
 	f := fresh_filler()
 	lo := new_loadout()
-	f.compound, f.ml = id(.Water), 1250
+	fill_with(&f.mix, id(.Water), 1250)
 	let_out, ok := balloon_do(&lo, &f, .Tie_Take)
 	testing.expect(t, ok, "it works")
-	testing.expect_value(t, lo.hand.ml, BALLOON_REST_ML)
+	testing.expect_value(t, ml_of(&lo.hand.mix), BALLOON_REST_ML)
 	testing.expect_value(t, let_out, 250)
 }
 
@@ -207,13 +217,9 @@ a_stretched_balloon_is_let_down_to_full_when_tied :: proc(t: ^testing.T) {
 balloons_move_between_the_hand_the_paint_station_and_the_hooks_unchanged :: proc(t: ^testing.T) {
 	f := fresh_filler()
 	lo := new_loadout()
-	item := Item {
-		used     = true,
-		compound = id(.Dye_Red),
-		ml       = 777,
-		heat     = -0.3,
-		art      = 42,
-	}
+	item := balloon(id(.Ethanol), 777)
+	item.mix.heat_c = 5
+	item.art = 42
 	lo.hand = item
 	_, ok := balloon_do(&lo, &f, .Clamp)
 	testing.expect(t, ok && !lo.hand.used && lo.paint == item, "clamped")
@@ -235,11 +241,12 @@ balloons_move_between_the_hand_the_paint_station_and_the_hooks_unchanged :: proc
 burning_takes_the_balloon_in_the_hand_and_nothing_else :: proc(t: ^testing.T) {
 	f := fresh_filler()
 	lo := new_loadout()
-	kept := Item{used = true, compound = id(.Dye_Red), ml = 600, art = 9}
+	kept := balloon(id(.Ethanol), 600)
+	kept.art = 9
 	lo.paint = kept
 	lo.slots[0] = kept
 	lo.slots[2] = kept
-	lo.hand = balloon(id(.Slurry), 800)
+	lo.hand = balloon(id(.Ethyl_Acetate), 800)
 	_, ok := balloon_do(&lo, &f, .Burn)
 	testing.expect(t, ok && !lo.hand.used, "the balloon in the hand is gone")
 	testing.expect(t, lo.hand == Item{}, "and nothing of it is left in the hand")
@@ -257,16 +264,19 @@ the_presets_are_what_the_server_needs_of_the_balloons_on_the_hooks :: proc(t: ^t
 	_, n := loadout_presets(&lo)
 	testing.expect_value(t, n, 0)
 
-	lo.slots[0] = {used = true, compound = id(.Fizz_Acid), ml = 640.4, art = 7}
-	lo.slots[2] = {used = true, compound = id(.Frost_Gel), ml = 999.7}
+	lo.slots[0] = balloon(id(.Ethanol), 640.4)
+	lo.slots[0].art = 7
+	chemistry.mix_add(&lo.slots[0].mix, .Water, 0.2, 0.25, ROOM_C)
+	lo.slots[2] = balloon(id(.Acetic_Acid), 999.7)
 	lo.paint = balloon(id(.Water), 500) // not on a hook, so not in the loadout
 	lo.hand = balloon(id(.Water), 500)
 	out, count := loadout_presets(&lo)
 	testing.expect_value(t, count, 2)
-	testing.expect_value(t, out[0], Preset{compound = id(.Fizz_Acid), volume_ml = 640, art = 7})
-	testing.expect_value(t, out[1], Preset{compound = id(.Frost_Gel), volume_ml = 1000, art = 0})
+	testing.expect_value(t, out[0], Preset{mix = lo.slots[0].mix, compound = id(.Ethanol), volume_ml = 641, art = 7})
+	testing.expect_value(t, out[0].mix.count, 2) // the whole mixture goes, not only what there is most of
+	testing.expect_value(t, out[1], Preset{mix = lo.slots[2].mix, compound = id(.Acetic_Acid), volume_ml = 1000, art = 0})
 
-	lo.slots[1] = {used = true, compound = id(.Water), ml = 5000} // cannot happen, and is held to a full balloon if it does
+	lo.slots[1] = balloon(id(.Water), 5000) // cannot happen, and is held to a full balloon if it does
 	out, count = loadout_presets(&lo)
 	testing.expect_value(t, count, 3)
 	testing.expect_value(t, out[1].volume_ml, 1000)

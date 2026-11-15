@@ -5,6 +5,7 @@
 
 package carry
 
+import "../chemistry"
 import "../lab"
 import "../mpm"
 
@@ -30,7 +31,8 @@ Stream :: struct {
 	age:       [MAX_STREAM]f32,
 	rest:      [MAX_STREAM]f32, // how long the particle has been lying still
 	ml:        [MAX_STREAM]f32, // the liquid the particle stands for, DROP_ML at normal speed
-	heat:      [MAX_STREAM]f32, // its temperature, from the vessel it was poured from
+	purity:    [MAX_STREAM]f32, // how pure the compound is, from 0 to 1
+	heat:      [MAX_STREAM]f32, // its temperature in degrees, from the vessel it was poured from
 	origin:    Vec3, // where the corner of the box is in the world
 	air_floor: bool, // the box floor is above the real floor, so a particle reaching it falls out
 }
@@ -52,7 +54,7 @@ stream_destroy :: proc(st: ^Stream) {
 
 stream_remove :: proc(st: ^Stream, i: int) {
 	last := st.sim.count - 1
-	st.compound[i], st.age[i], st.rest[i], st.ml[i], st.heat[i] = st.compound[last], st.age[last], st.rest[last], st.ml[last], st.heat[last]
+	st.compound[i], st.age[i], st.rest[i], st.ml[i], st.purity[i], st.heat[i] = st.compound[last], st.age[last], st.rest[last], st.ml[last], st.purity[last], st.heat[last]
 	mpm.sim_remove_particle(&st.sim, i)
 }
 
@@ -60,18 +62,18 @@ stream_clear :: proc(st: ^Stream) {
 	mpm.sim_clear(&st.sim)
 }
 
-// Makes a drop of `compound` at a place in the world, moving at `vel`. With no
-// other drops in the air, the box is first set around the place, with its floor
-// on whatever is under it. False if the stream is full or the place is outside
-// the box.
+// Makes a drop of `compound` at a place in the world, moving at `vel`, with the purity
+// a bottle gives it and at room temperature. With no other drops in the air, the box is first
+// set around the place, with its floor on whatever is under it. False if the stream is full or
+// the place is outside the box.
 stream_spawn :: proc(st: ^Stream, l: ^lab.Layout, world, vel: Vec3, compound: u16) -> bool {
-	return stream_spawn_ml(st, l, world, vel, compound, DROP_ML)
+	return stream_spawn_ml(st, l, world, vel, compound, DROP_ML, stock_purity(compound))
 }
 
 // The same, for a particle that stands for `ml` millilitres. A particle in the
 // simulation does not care how much liquid it stands for, so a faster pour is
 // made of drops that carry more, and costs the simulation nothing more.
-stream_spawn_ml :: proc(st: ^Stream, l: ^lab.Layout, world, vel: Vec3, compound: u16, ml: f32, heat := f32(0)) -> bool {
+stream_spawn_ml :: proc(st: ^Stream, l: ^lab.Layout, world, vel: Vec3, compound: u16, ml: f32, purity := STOCK_PURITY, heat := ROOM_C) -> bool {
 	if st.sim.count >= MAX_STREAM {
 		return false
 	}
@@ -94,7 +96,7 @@ stream_spawn_ml :: proc(st: ^Stream, l: ^lab.Layout, world, vel: Vec3, compound:
 	if !mpm.sim_add_particle(&st.sim, local, vel) {
 		return false
 	}
-	st.compound[i], st.age[i], st.rest[i], st.ml[i], st.heat[i] = compound, 0, 0, ml, heat
+	st.compound[i], st.age[i], st.rest[i], st.ml[i], st.purity[i], st.heat[i] = compound, 0, 0, ml, purity, heat
 	return true
 }
 
@@ -148,7 +150,7 @@ stream_capture :: proc(st: ^Stream, props: ^Props, eye: Vec3, events: ^[MAX_EVEN
 			if w.y < pr.pos.y + 0.02 || w.y > pr.pos.y + d.height + CAPTURE_ABOVE {
 				continue
 			}
-			r := apply_droplet(props, v, st.compound[i], st.ml[i], eye, st.heat[i])
+			r := apply_droplet(props, v, st.compound[i], st.ml[i], eye, st.heat[i], st.purity[i])
 			if r.kind != .Nothing && n < MAX_EVENTS {
 				events[n] = r
 				n += 1
@@ -232,24 +234,22 @@ pour_flow_to :: proc(props: ^Props, st: ^Stream, l: ^lab.Layout, dt: f32, mouth:
 	}
 	pr := &props.items[props.held]
 	if pr.tilt < 0.05 {
-		// Put upright again: what was waiting at the lip runs back in.
-		if pr.compound != 0 {
-			pr.ml += pr.flow_acc
-		}
+		// Put upright again: what was waiting to leave stays in.
 		pr.flow_acc = 0
 		return
 	}
-	if pr.ml <= 0 && pr.flow_acc <= 0 {
-		pr.compound = 0
+	volume := ml_of(&pr.mix)
+	if volume <= 0 {
+		pr.mix, pr.flow_acc = {}, 0
 		return
 	}
 	speed := flow_speed(props)
 	drop := DROP_ML * speed
-	excess := pr.ml - capacity_at_tilt(pr.kind, pr.tilt)
+	// The liquid that is to leave is counted apart from the liquid that is still in the vessel:
+	// each drop is drawn from the mixture as it is made, so a pour has what the vessel has in it.
+	excess := volume - pr.flow_acc - capacity_at_tilt(pr.kind, pr.tilt)
 	if excess > 0 && pr.flow_acc < 2 * drop {
-		q := min(excess, pr.ml, flow_max(pr.kind) * speed * dt)
-		pr.ml -= q
-		pr.flow_acc += q
+		pr.flow_acc += min(excess, flow_max(pr.kind) * speed * dt)
 	}
 	d := pour_dir(pr.yaw)
 	lip := pr.pos + lip_offset(pr.kind, pr.tilt, d)
@@ -266,18 +266,29 @@ pour_flow_to :: proc(props: ^Props, st: ^Stream, l: ^lab.Layout, dt: f32, mouth:
 	count := int(pr.flow_acc / drop)
 	for j in 0 ..< count {
 		age := dt * f32(count - 1 - j) / f32(count)
-		if !stream_spawn_ml(st, l, lip + vel * age, vel, pr.compound, drop, pr.heat) {
+		// A drop is made of one ingredient. If the stream is full, the drop is put back.
+		taken := chemistry.mix_draw(&pr.mix, drop)
+		if taken.ml <= 0 {
 			break
 		}
-		pr.flow_acc -= drop
+		if !stream_spawn_ml(st, l, lip + vel * age, vel, u16(taken.compound), taken.ml, taken.purity, pr.mix.heat_c) {
+			chemistry.add_ingredient(&pr.mix, taken.compound, taken.ml, taken.purity, taken.made)
+			break
+		}
+		pr.flow_acc -= taken.ml
 	}
 	// The last of a pour goes as one smaller drop, so none of it is lost.
-	if count == 0 && pr.ml < 0.05 && pr.flow_acc > 0.2 {
-		if stream_spawn_ml(st, l, lip, vel, pr.compound, pr.flow_acc, pr.heat) {
-			pr.flow_acc = 0
+	if count == 0 && ml_of(&pr.mix) < 0.05 + pr.flow_acc && pr.flow_acc > 0.2 {
+		taken := chemistry.mix_draw(&pr.mix, pr.flow_acc)
+		if taken.ml > 0 {
+			if stream_spawn_ml(st, l, lip, vel, u16(taken.compound), taken.ml, taken.purity, pr.mix.heat_c) {
+				pr.flow_acc -= taken.ml
+			} else {
+				chemistry.add_ingredient(&pr.mix, taken.compound, taken.ml, taken.purity, taken.made)
+			}
 		}
 	}
-	if pr.ml < 0.05 && pr.flow_acc <= 0.2 {
-		pr.ml, pr.flow_acc, pr.compound, pr.heat = 0, 0, 0, 0
+	if ml_of(&pr.mix) < 0.05 {
+		pr.mix, pr.flow_acc = {}, 0
 	}
 }

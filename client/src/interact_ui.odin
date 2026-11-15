@@ -119,17 +119,24 @@ contents_text :: proc(buf: ^[96]u8, pr: ^carry.Prop) -> cstring {
 		}
 	}
 	digits: [24]u8
-	put(buf[:], &n, chem.compound_name(pr.compound))
-	if pr.compound != 0 {
+	name: [32]u8
+	have := carry.ml_of(&pr.mix)
+	put(buf[:], &n, mix_label(&pr.mix, name[:]))
+	if have > 0 {
 		put(buf[:], &n, "  ")
-		put(buf[:], &n, strconv.write_int(digits[:], i64(pr.ml + 0.5), 10))
+		put(buf[:], &n, strconv.write_int(digits[:], i64(have + 0.5), 10))
 		put(buf[:], &n, " / ")
 		put(buf[:], &n, strconv.write_int(digits[:], i64(carry.capacity_ml(pr.kind) + 0.5), 10))
 		put(buf[:], &n, " ml")
 	}
-	if word := carry.heat_word(pr.heat); pr.compound != 0 && word != "" {
+	if have > 0 {
 		put(buf[:], &n, ", ")
-		put(buf[:], &n, word)
+		put(buf[:], &n, strconv.write_int(digits[:], i64(pr.mix.heat_c + 0.5), 10))
+		put(buf[:], &n, " C")
+		if word := carry.heat_word(pr.mix.heat_c); word != "" {
+			put(buf[:], &n, ", ")
+			put(buf[:], &n, word)
+		}
 	}
 	buf[n] = 0
 	return cstring(raw_data(buf[:]))
@@ -259,9 +266,11 @@ draw_toast :: proc(w, h: f32, text: cstring, timer: f32) {
 // line about a vessel is already under the crosshair, and 0 when this is the first.
 draw_filler_readout :: proc(w, h: f32, f: ^carry.Filler, line: int) {
 	buf: [96]u8
-	name := f.ml > 0 ? chem.compound_name(f.compound) : "empty"
-	word := carry.heat_word(f.heat)
-	text := fmt.bprintf(buf[:95], "balloon  %v  %d / %d ml  %d%%%v%v", name, int(f.ml + 0.5), int(carry.BALLOON_REST_ML), int(carry.fill_ratio(f) * 100 + 0.5), f.ml > 0 && word != "" ? ", " : "", f.ml > 0 ? word : "")
+	name_buf: [32]u8
+	name := mix_label(&f.mix, name_buf[:])
+	have := carry.ml_of(&f.mix)
+	word := carry.heat_word(f.mix.heat_c)
+	text := fmt.bprintf(buf[:95], "balloon  %v  %d / %d ml  %d%%%v%v", name, int(have + 0.5), int(carry.BALLOON_REST_ML), int(carry.fill_ratio(f) * 100 + 0.5), have > 0 && word != "" ? ", " : "", have > 0 ? word : "")
 	buf[len(text)] = 0
 	font := i32(max(f32(16), h * 0.032))
 	y := i32(h * 0.5) + i32(max(f32(30), h * 0.075)) + 24 + i32(line) * (font + font / 3)
@@ -310,8 +319,9 @@ draw_oven_readout :: proc(w, h: f32, o: ^carry.Oven, line: int) {
 	switch {
 	case o.state == .Running:
 		pos += len(fmt.bprintf(buf[pos:150], "  running %d%%", int(carry.oven_progress(o) * 100 + 0.5)))
-	case o.tank.ml > 0:
-		pos += len(fmt.bprintf(buf[pos:150], "  tank: %v %d ml, spout at the right", chem.compound_name(o.tank.compound), int(o.tank.ml + 0.5)))
+	case carry.ml_of(&o.tank) > 0:
+		tank_name: [32]u8
+		pos += len(fmt.bprintf(buf[pos:150], "  tank: %v %d ml, spout at the right", mix_label(&o.tank, tank_name[:]), int(carry.ml_of(&o.tank) + 0.5)))
 	}
 	buf[min(pos, 159)] = 0
 	font := i32(max(f32(16), h * 0.032))
@@ -368,7 +378,8 @@ draw_spot_readout :: proc(w, h: f32, lo: ^carry.Loadout, line: int) {
 		}
 	case .Paint:
 		if lo.paint.used {
-			text = fmt.bprintf(buf[:120], "paint station  %v  %d ml", chem.compound_name(lo.paint.compound), int(lo.paint.ml + 0.5))
+			label: [32]u8
+			text = fmt.bprintf(buf[:120], "paint station  %v  %d ml", mix_label(&lo.paint.mix, label[:]), int(carry.ml_of(&lo.paint.mix) + 0.5))
 		} else {
 			text = fmt.bprintf(buf[:120], "paint station  empty")
 		}
@@ -381,7 +392,8 @@ draw_spot_readout :: proc(w, h: f32, lo: ^carry.Loadout, line: int) {
 	case .Slot:
 		slot := lo.slots[lo.spot_slot]
 		if slot.used {
-			text = fmt.bprintf(buf[:120], "hook %d  %v  %d ml", lo.spot_slot + 1, chem.compound_name(slot.compound), int(slot.ml + 0.5))
+			label: [32]u8
+			text = fmt.bprintf(buf[:120], "hook %d  %v  %d ml", lo.spot_slot + 1, mix_label(&slot.mix, label[:]), int(carry.ml_of(&slot.mix) + 0.5))
 		} else {
 			text = fmt.bprintf(buf[:120], "hook %d  empty", lo.spot_slot + 1)
 		}
@@ -398,7 +410,9 @@ draw_carrying :: proc(w, h: f32, item: carry.Item) {
 		return
 	}
 	buf: [96]u8
-	text := fmt.bprintf(buf[:95], "carrying a balloon  %v  %d ml", chem.compound_name(item.compound), int(item.ml + 0.5))
+	label: [32]u8
+	item_mix := item.mix
+	text := fmt.bprintf(buf[:95], "carrying a balloon  %v  %d ml", mix_label(&item_mix, label[:]), int(carry.ml_of(&item_mix) + 0.5))
 	buf[len(text)] = 0
 	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), i32(h * 0.86), i32(max(f32(16), h * 0.032)), {255, 214, 120, 255})
 }

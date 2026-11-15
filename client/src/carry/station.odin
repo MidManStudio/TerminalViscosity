@@ -5,22 +5,24 @@
 
 package carry
 
-import "../chem"
+import "../chemistry"
 import "../lab"
 
+STOCK_COUNT :: 4 // the chemicals the lab starts with: water, acetic acid, ethanol and sulfuric acid, numbers 1 to 4
 DISPENSER_FLOW :: f32(110) // ml a second out of a nozzle
 TAP_ASSIST :: f32(0.5) // how far sideways a held vessel may be from a nozzle, and the stream still finds its mouth
 NOZZLE_NEAR :: f32(-0.35) // the top of the vessel may be this far over the tip, at most
 NOZZLE_FAR :: f32(0.9) // and at most this far under it
 
 // One tap of the bottle wall. `unlocked` is the hook for progression: a locked
-// tap gives nothing, and for now every tap is unlocked.
+// tap gives nothing. A tap that holds no compound is locked.
 Dispenser :: struct {
 	compound: u16,
 	unlocked: bool,
 }
 
-// The bottle wall: a tap for each stock liquid, in the order of the ids.
+// The bottle wall: a tap for each of the chemicals the lab starts with, in the order of their
+// numbers, and the taps after those locked, with nothing in them.
 Station :: struct {
 	items:    [lab.DISPENSER_COUNT]Dispenser,
 	flow_acc: f32, // liquid let out and not yet made into drops, in ml
@@ -28,18 +30,19 @@ Station :: struct {
 
 station_init :: proc(st: ^Station) {
 	st^ = {}
-	for i in 0 ..< lab.DISPENSER_COUNT {
+	for i in 0 ..< min(STOCK_COUNT, lab.DISPENSER_COUNT) {
 		st.items[i] = {compound = u16(i + 1), unlocked = true}
 	}
 }
 
-// The color of the bottle above each tap, from the liquid it holds.
+// The color of the bottle above each tap, from the liquid it holds. A tap with nothing in it has a grey one.
 station_colors :: proc() -> [lab.DISPENSER_COUNT][4]u8 {
 	colors: [lab.DISPENSER_COUNT][4]u8
-	table := chem.COMPOUNDS
 	for i in 0 ..< lab.DISPENSER_COUNT {
-		c := table[i].color
-		colors[i] = {c.r, c.g, c.b, 255}
+		colors[i] = {70, 74, 80, 255}
+		if c := chemistry.compound_of(chemistry.Id(i + 1)); c != nil && i < STOCK_COUNT {
+			colors[i] = {c.color.r, c.color.g, c.color.b, 255}
+		}
 	}
 	return colors
 }
@@ -53,7 +56,7 @@ dispenser_under :: proc(st: ^Station, props: ^Props) -> int {
 		return -1
 	}
 	pr := props.items[props.held]
-	if pr.tilt > 0.2 || pr.ml >= capacity_ml(pr.kind) - 0.5 {
+	if pr.tilt > 0.2 || ml_of(&pr.mix) >= capacity_ml(pr.kind) - 0.5 {
 		return -1
 	}
 	d := kind_dims(pr.kind)
@@ -104,7 +107,7 @@ station_flow_to :: proc(st: ^Station, stream: ^Stream, l: ^lab.Layout, i: int, d
 	count := int(st.flow_acc / drop)
 	for j in 0 ..< count {
 		age := dt * f32(count - 1 - j) / f32(count) // spread along the way, as for a pour
-		if !stream_spawn_ml(stream, l, nozzle + vel * age, vel, st.items[i].compound, drop) {
+		if !stream_spawn_ml(stream, l, nozzle + vel * age, vel, st.items[i].compound, drop, stock_purity(st.items[i].compound)) {
 			break
 		}
 		st.flow_acc -= drop

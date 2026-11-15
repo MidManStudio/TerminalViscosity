@@ -7,6 +7,7 @@ package main
 
 import "carry"
 import "chem"
+import "chemistry"
 import "lab"
 import rl "vendor:raylib"
 import rlgl "vendor:raylib/rlgl"
@@ -24,6 +25,18 @@ liquid_light :: proc(compound: u16, ml, capacity: f32) -> [4]u8 {
 	return {u8(c.r * k * 255), u8(c.g * k * 255), u8(c.b * k * 255), 255}
 }
 
+// The color of a light that shows a mixture: its blended color, brighter the fuller it is, and dark for
+// an empty one.
+mix_light :: proc(m: ^chemistry.Mixture, capacity: f32) -> [4]u8 {
+	ml := carry.ml_of(m)
+	if ml <= 0 {
+		return OVEN_OFF
+	}
+	c := chemistry.mix_color(m)
+	k := 0.45 + 0.55 * clamp(ml / capacity, 0, 1)
+	return {u8(c.r * k * 255), u8(c.g * k * 255), u8(c.b * k * 255), 255}
+}
+
 // The parts of the reaction oven that change from frame to frame, drawn over the
 // front of the box: a light for each port in the color of what it holds, a strip of
 // ten lights that fills while a run goes, a light for the product in the tank, and a
@@ -37,10 +50,10 @@ oven_draw :: proc(o: ^carry.Oven) {
 		p := o.ports[i]
 		draw_flat_box(lab.mixer_port_light(i), {0.14, 0.05, 0.012}, liquid_light(p.compound, p.ml, carry.PORT_CAPACITY))
 	}
-	draw_flat_box(lab.mixer_tank_light(), {0.14, 0.18, 0.012}, liquid_light(o.tank.compound, o.tank.ml, carry.TANK_CAPACITY * 0.5))
+	draw_flat_box(lab.mixer_tank_light(), {0.14, 0.18, 0.012}, mix_light(&o.tank, carry.TANK_CAPACITY * 0.5))
 	// A light at the tip of the spout, in the color of the product, while there is some.
-	if o.tank.ml > 0 {
-		draw_flat_box(lab.mixer_spout_light(), {0.035, 0.035, 0.035}, liquid_light(o.tank.compound, 1, 1))
+	if carry.ml_of(&o.tank) > 0 {
+		draw_flat_box(lab.mixer_spout_light(), {0.035, 0.035, 0.035}, liquid_light(carry.main_of(&o.tank), 1, 1))
 	}
 
 	running := o.state == .Running

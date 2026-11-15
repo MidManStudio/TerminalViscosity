@@ -167,9 +167,15 @@ water_into_acid_splashes_and_makes_nothing :: proc(t: ^testing.T) {
 	testing.expect_value(t, m.count, 2)
 	testing.expect(t, near(amount(&m, .Sulfuric_Acid), 100) && near(amount(&m, .Water), 900), "the vessel is as it was")
 	testing.expect_value(t, settle(&m, .Any).count, 0)
-	// More water poured in gives it another go at splashing.
+	// More water, still in the ratio, is the same mistake and does not splash again.
 	pour(&m, .Water, 5, 0.7)
-	testing.expect_value(t, settle(&m, .Any).count, 1)
+	testing.expect_value(t, settle(&m, .Any).count, 0)
+	// Once it has stopped being the mix that splashes, and become it again, it splashes again.
+	pour(&m, .Water, 5000, 0.7)
+	testing.expect_value(t, settle(&m, .Any).count, 0)
+	pour(&m, .Sulfuric_Acid, 600)
+	done = settle(&m, .Any)
+	testing.expect(t, done.count == 1 && done.steps[0].wrong_order, "it splashes again")
 }
 
 @(test)
@@ -205,6 +211,12 @@ a_boiling_mix_fails_and_the_failure_is_the_splash :: proc(t: ^testing.T) {
 	testing.expect_value(t, m.count, 2)
 	testing.expect(t, near(m.heat_c, 100) && near(m.unsafe, 0), "a failure that makes nothing leaves the vessel as it is")
 	testing.expect_value(t, settle(&m, .Any).count, 0)
+	// It can fail again once it has stopped being that mix and become it again.
+	pour(&m, .Water, 5000, 0.7)
+	testing.expect_value(t, settle(&m, .Any).count, 0)
+	pour(&m, .Sulfuric_Acid, 600)
+	again := settle(&m, .Any)
+	testing.expect(t, again.count == 1 && again.steps[0].failed, "it fails again")
 
 	cool := start(99.9)
 	pour(&cool, .Water, 900, 0.7)
@@ -225,9 +237,18 @@ a_reaction_with_no_outputs_leaves_the_ingredients_and_runs_once :: proc(t: ^test
 	testing.expect(t, near(m.heat_c, 22) && near(m.unsafe, 0.05), "it warms by 2 degrees and adds 0.05 once")
 	testing.expect_value(t, settle(&m, .Any).count, 0)
 	testing.expect(t, near(m.heat_c, 22), "settling again changes nothing")
-	pour(&m, .Water, 10, 0.7)
+	for _ in 0 ..< 10 {
+		pour(&m, .Water, 3.375, 0.7)
+		testing.expect_value(t, settle(&m, .Any).count, 0)
+	}
+	testing.expect(t, near(m.heat_c, 22), "a pour of more water, still in the ratio, does not warm it again")
+	// Pour in so much ethanol that it is no longer the mix the reaction asks for, and it can run again
+	// when the mix comes back.
+	pour(&m, .Ethanol, 10000, 0.8)
+	testing.expect_value(t, settle(&m, .Any).count, 0)
+	pour(&m, .Water, 10000, 0.7)
 	testing.expect_value(t, settle(&m, .Any).count, 1)
-	testing.expect(t, near(m.heat_c, 24, 0.1), "pouring in more lets it run again, and the heat adds up")
+	testing.expect(t, near(m.heat_c, 24, 0.1), "it runs again and the heat adds up")
 }
 
 @(test)
@@ -517,4 +538,92 @@ of_two_reactions_that_tie_the_one_listed_first_acts :: proc(t: ^testing.T) {
 	testing.expect_value(t, done.steps[0].reaction, reaction_index("diethyl_ether"))
 	testing.expect(t, reaction_index("diethyl_ether") < reaction_index("ethyl_acetate_synthesis"), "the ether is listed first")
 	testing.expect(t, !done.steps[0].failed, "and it runs")
+}
+
+@(test)
+the_dominant_compound_is_the_one_there_is_most_of :: proc(t: ^testing.T) {
+	m := start()
+	testing.expect_value(t, dominant(&m), Id.None)
+	pour(&m, .Ethanol, 100)
+	pour(&m, .Water, 300)
+	pour(&m, .Acetic_Acid, 200)
+	testing.expect_value(t, dominant(&m), Id.Water)
+	tied := start()
+	pour(&tied, .Ethanol, 100)
+	pour(&tied, .Water, 100)
+	testing.expect_value(t, dominant(&tied), Id.Ethanol)
+}
+
+@(test)
+drawing_follows_the_proportions_of_the_mixture :: proc(t: ^testing.T) {
+	m := start()
+	pour(&m, .Water, 600, 0.3)
+	pour(&m, .Ethanol, 300, 0.9)
+	pour(&m, .Acetic_Acid, 100, 0.8)
+	taken: [3]f32
+	count := 0
+	for mix_volume(&m) > 0 {
+		d := mix_draw(&m, 5)
+		testing.expect(t, d.ml > 0 && d.ml <= 5, "a draw is at most what was asked for")
+		#partial switch d.compound {
+		case .Water:
+			testing.expect(t, near(d.purity, 0.3), "it keeps its purity")
+			taken[0] += d.ml
+		case .Ethanol:
+			taken[1] += d.ml
+		case .Acetic_Acid:
+			taken[2] += d.ml
+		case:
+			testing.fail_now(t, "a compound that was never in it")
+		}
+		count += 1
+		if count == 100 {
+			// Half way through, the drops have been in the proportions of the mixture, within a drop.
+			testing.expect(t, near(taken[0], 300, 10) && near(taken[1], 150, 10) && near(taken[2], 50, 10), "a long pour is in proportion all the way")
+		}
+		testing.expect(t, count < 1000, "it empties")
+	}
+	testing.expect(t, near(taken[0], 600) && near(taken[1], 300) && near(taken[2], 100), "and everything comes out in the end")
+	testing.expect_value(t, m.count, 0)
+}
+
+@(test)
+drawing_does_not_touch_the_temperature_and_the_last_of_an_ingredient_is_whole :: proc(t: ^testing.T) {
+	m := start(70)
+	m.unsafe = 0.4
+	pour(&m, .Water, 3)
+	d := mix_draw(&m, 5)
+	testing.expect(t, near(d.ml, 3) && m.count == 0, "less than a drop left is one smaller drop")
+	testing.expect(t, near(m.heat_c, 70) && near(m.unsafe, 0.4), "the temperature and the meter stay")
+	testing.expect_value(t, mix_draw(&m, 5), Ingredient{})
+	pour(&m, .Water, 10)
+	testing.expect_value(t, mix_draw(&m, 0), Ingredient{})
+}
+
+@(test)
+scaling_keeps_a_share_of_everything :: proc(t: ^testing.T) {
+	m := start()
+	pour(&m, .Water, 500, 0.6)
+	pour(&m, .Ethanol, 100, 0.9)
+	mix_scale(&m, 0.8)
+	testing.expect(t, near(amount(&m, .Water), 400) && near(amount(&m, .Ethanol), 80), "a share of each")
+	testing.expect(t, near(m.items[0].purity, 0.6), "purity is not changed by losing some")
+	mix_scale(&m, 2)
+	testing.expect(t, near(amount(&m, .Water), 400) && near(amount(&m, .Ethanol), 80), "a share over 1 does not make more")
+	mix_scale(&m, -1)
+	testing.expect_value(t, m.count, 0) // and a share under 0 is nothing
+	pour(&m, .Water, 100)
+	mix_scale(&m, 0)
+	testing.expect_value(t, m.count, 0)
+}
+
+@(test)
+names_and_colours_by_number :: proc(t: ^testing.T) {
+	testing.expect_value(t, name_of(.Sulfuric_Acid), "Sulfuric acid")
+	testing.expect_value(t, name_of(.None), "")
+	testing.expect_value(t, string(cname_of(.Water)), "Water")
+	testing.expect_value(t, string(cname_of(.None)), "")
+	testing.expect_value(t, color_of(.None), [3]f32{1, 1, 1})
+	c := color_of(.Chlorine)
+	testing.expect(t, near(c.r, f32(0x8f) / 255, 0.001) && near(c.g, f32(0xe0) / 255, 0.001), "a compound's colour")
 }

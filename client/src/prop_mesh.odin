@@ -8,7 +8,7 @@ package main
 import rl "vendor:raylib"
 import rlgl "vendor:raylib/rlgl"
 import "carry"
-import "chem"
+import "chemistry"
 
 GLOVE_COLOR :: [4]u8{70, 150, 215, 255}
 SLEEVE_COLOR :: [4]u8{236, 240, 244, 255}
@@ -142,11 +142,11 @@ props_draw_liquids :: proc(m: ^Prop_Meshes, props: ^carry.Props, eye: Vec3) {
 	rlgl.DisableBackfaceCulling()
 	for i in 0 ..< props.count {
 		pr := &props.items[i]
-		if pr.ml <= 0 {
+		if carry.ml_of(&pr.mix) <= 0 {
 			continue
 		}
 		level := carry.liquid_level(pr)
-		color := chem.compound_color(pr.compound)
+		color := chemistry.mix_color(&pr.mix)
 		rl.SetShaderValue(m.vessel.shader, m.level_loc, &level, .FLOAT)
 		rl.SetShaderValue(m.vessel.shader, m.color_loc, &color, .VEC3)
 		draw_placed(m.liquids[pr.kind], m.vessel, carry.prop_placed(pr))

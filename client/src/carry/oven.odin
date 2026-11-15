@@ -5,7 +5,7 @@
 
 package carry
 
-import "../chem"
+import "../chemistry"
 import "../lab"
 
 PORT_CAPACITY :: f32(500) // ml one port holds
@@ -15,10 +15,11 @@ OVEN_CAPTURE_PAD :: f32(0.015) // how far outside a funnel a falling drop still 
 OVEN_SPOUT_FLOW :: f32(110) // ml a second out of the spout, at normal speed
 REFUSED_GAP :: f32(1.5) // seconds between two tellings that a port refused a liquid
 
-// One port of the oven: one liquid, and how much.
+// One port of the oven: one liquid, how much, and how pure it is.
 Port :: struct {
 	compound: u16,
 	ml:       f32,
+	purity:   f32,
 }
 
 Oven_State :: enum u8 {
@@ -28,11 +29,11 @@ Oven_State :: enum u8 {
 
 // The reaction oven: four ports that each hold one liquid kept apart from the
 // others, and a tank. A run mixes the four, in order, the way a vessel would, but
-// inside the machine: a volatile reaction gives its product and hurts no one. The
-// product waits in the tank, which a held vessel is filled from at the spout.
+// inside the machine and as a station of its own: a violent reaction gives its product and
+// hurts no one. The product waits in the tank, which a held vessel is filled from at the spout.
 Oven :: struct {
 	ports:      [lab.MIXER_PORTS]Port,
-	tank:       Port,
+	tank:       chemistry.Mixture, // what the four made, which a held vessel is filled from at the spout
 	state:      Oven_State,
 	timer:      f32, // seconds left of the run
 	length:     f32, // seconds the run takes, for how far along it is
@@ -50,8 +51,8 @@ Oven_Event_Kind :: enum {
 }
 
 // What the player is to be told. For a refusal `compound` is what the port holds,
-// and for a run `compound` is the product, `ml` how much, and `volatility` how
-// violent the worst reaction in it was, for the look of the end of the run.
+// and for a run `compound` is the compound the tank has most of, `ml` how much it holds, and
+// `volatility` how violent the worst thing that happened in it was, for the look of the end of the run.
 Oven_Event :: struct {
 	kind:       Oven_Event_Kind,
 	port:       int,
@@ -80,7 +81,7 @@ oven_loaded :: proc(o: ^Oven) -> int {
 // Whether a run could start: the oven is idle, something is in a port, and the
 // tank is empty.
 oven_can_run :: proc(o: ^Oven) -> bool {
-	return o.state == .Idle && o.tank.ml <= 0 && oven_loaded(o) > 0
+	return o.state == .Idle && ml_of(&o.tank) <= 0 && oven_loaded(o) > 0
 }
 
 // Starts a run that takes `OVEN_RUN_TIME / speed` seconds. False if it cannot start.
@@ -102,25 +103,19 @@ oven_progress :: proc(o: ^Oven) -> f32 {
 	return clamp(1 - o.timer / max(o.length, 1e-3), 0, 1)
 }
 
-// What the ports make: the first liquid, then each next one mixed into it by the
-// reaction matrix, in the order of the ports, with the liquid of a port that holds
-// the same thing as the mix so far simply added. Nothing is lost, the oven is shut.
-// Also gives the worst volatility of any step.
-oven_fold :: proc(o: ^Oven) -> (compound: u16, ml: f32, volatility: f32) {
+// What the ports make: each port in the order of the ports is poured into one mixture at the
+// station of the oven, and the mixture reacts after each, as a vessel does. Nothing is lost, the
+// oven is shut. Also gives the most violent thing that happened at any step.
+oven_fold :: proc(o: ^Oven) -> (m: chemistry.Mixture, volatility: f32) {
+	m.heat_c = ROOM_C
 	for p in o.ports {
 		if p.ml <= 0 {
 			continue
 		}
-		switch {
-		case compound == 0:
-			compound, ml = p.compound, p.ml
-		case compound == p.compound:
-			ml += p.ml
-		case:
-			outcome := chem.react(compound, p.compound)
-			volatility = max(volatility, outcome.volatility)
-			compound = outcome.product
-			ml += p.ml
+		chemistry.mix_add(&m, chemistry.Id(p.compound), p.ml, p.purity, m.heat_c)
+		done := chemistry.settle(&m, .Oven)
+		for i in 0 ..< done.count {
+			volatility = max(volatility, event_volatility(done.steps[i].event, m.unsafe))
 		}
 	}
 	return
@@ -137,14 +132,14 @@ oven_update :: proc(o: ^Oven, dt: f32) -> Oven_Event {
 	if o.timer > 0 {
 		return {}
 	}
-	compound, ml, volatility := oven_fold(o)
+	made, volatility := oven_fold(o)
 	for &p in o.ports {
 		p = {}
 	}
-	o.tank = {compound, ml}
+	o.tank = made
 	o.state = .Idle
 	o.timer, o.length = 0, 0
-	return {kind = .Finished, compound = compound, ml = ml, volatility = volatility}
+	return {kind = .Finished, compound = main_of(&made), ml = ml_of(&made), volatility = volatility}
 }
 
 // Whether the crosshair is on the oven, within reach, and nearer than any vessel
@@ -210,8 +205,12 @@ oven_capture :: proc(st: ^Stream, o: ^Oven, events: ^[MAX_EVENTS]Oven_Event) -> 
 			port := &o.ports[k]
 			switch {
 			case port.ml <= 0 || port.compound == st.compound[i]:
-				port.compound = st.compound[i]
-				port.ml += min(st.ml[i], PORT_CAPACITY - port.ml)
+				take := min(st.ml[i], PORT_CAPACITY - port.ml)
+				if take > 0 {
+					port.purity = (port.purity * port.ml + st.purity[i] * take) / (port.ml + take)
+					port.compound = st.compound[i]
+					port.ml += take
+				}
 			case o.refused <= 0 && n < MAX_EVENTS:
 				events[n] = {
 					kind     = .Refused,
@@ -232,11 +231,11 @@ oven_capture :: proc(st: ^Stream, o: ^Oven, events: ^[MAX_EVENTS]Oven_Event) -> 
 // same rule as a tap: upright, with room, within half a metre sideways, and not too
 // far over or under the tip, and there is product in the tank.
 oven_spout_under :: proc(o: ^Oven, props: ^Props) -> bool {
-	if props.held == -1 || o.tank.ml <= 0 {
+	if props.held == -1 || ml_of(&o.tank) <= 0 {
 		return false
 	}
 	pr := props.items[props.held]
-	if pr.tilt > 0.2 || pr.ml >= capacity_ml(pr.kind) - 0.5 {
+	if pr.tilt > 0.2 || ml_of(&pr.mix) >= capacity_ml(pr.kind) - 0.5 {
 		return false
 	}
 	n := lab.MIXER_SPOUT
@@ -251,13 +250,13 @@ oven_spout_under :: proc(o: ^Oven, props: ^Props) -> bool {
 // A vessel standing on the drip tray under the spout, or -1: not held, upright, with
 // room in it, and its middle on the tray. It is filled without being held.
 oven_rest_under :: proc(o: ^Oven, props: ^Props) -> int {
-	if o.tank.ml <= 0 {
+	if ml_of(&o.tank) <= 0 {
 		return -1
 	}
 	n := lab.MIXER_SPOUT
 	for i in 0 ..< props.count {
 		pr := props.items[i]
-		if i == props.held || pr.tilt > 0.2 || pr.ml >= capacity_ml(pr.kind) - 0.5 {
+		if i == props.held || pr.tilt > 0.2 || ml_of(&pr.mix) >= capacity_ml(pr.kind) - 0.5 {
 			continue
 		}
 		dx, dz := pr.pos.x - n.x, pr.pos.z - n.z
@@ -278,7 +277,7 @@ oven_rest_mouth :: proc(props: ^Props, i: int) -> Vec3 {
 // `mouth`. A faster spout lets out drops that carry more. The tank is emptied as the
 // liquid leaves, and the last of it goes as a smaller drop. False if the tank is empty.
 oven_flow :: proc(o: ^Oven, st: ^Stream, l: ^lab.Layout, dt: f32, mouth: Vec3, speed: f32) -> bool {
-	if o.tank.ml <= 0 {
+	if ml_of(&o.tank) <= 0 {
 		return false
 	}
 	drop := DROP_ML * speed
@@ -286,18 +285,22 @@ oven_flow :: proc(o: ^Oven, st: ^Stream, l: ^lab.Layout, dt: f32, mouth: Vec3, s
 	nozzle := lab.MIXER_SPOUT
 	vel := arc_to(nozzle, mouth)
 	for n in 0 ..< 2 {
-		amount := min(drop, o.tank.ml)
+		amount := min(drop, ml_of(&o.tank))
 		if amount <= 0 || o.flow_acc < amount - 1e-4 {
 			break
 		}
 		age := dt * 0.5 * f32(1 - n)
-		if !stream_spawn_ml(st, l, nozzle + vel * age, vel, o.tank.compound, amount) {
+		taken := chemistry.mix_draw(&o.tank, amount)
+		if taken.ml <= 0 {
 			break
 		}
-		o.flow_acc -= amount
-		o.tank.ml -= amount
+		if !stream_spawn_ml(st, l, nozzle + vel * age, vel, u16(taken.compound), taken.ml, taken.purity, o.tank.heat_c) {
+			chemistry.add_ingredient(&o.tank, taken.compound, taken.ml, taken.purity, taken.made)
+			break
+		}
+		o.flow_acc -= taken.ml
 	}
-	if o.tank.ml <= 0.01 {
+	if ml_of(&o.tank) <= 0.01 {
 		o.tank = {}
 		o.flow_acc = 0
 	}
