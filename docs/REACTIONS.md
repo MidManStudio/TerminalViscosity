@@ -26,6 +26,8 @@ data/chem/
 - **Station**: where a reaction needs the vessel to be. ANY is anywhere, then HOT_BATH, COLD_BATH, OVEN, FREEZER, FURNACE, ELECTROLYSIS, DISTILLATION, CENTRIFUGE.
 - **Outcome**: what can happen in the world: NONE, FREEZE, BOIL, VAPOR, SPLASH, FUMES, FIRE, BURST.
 - **LiquidEffect**: the small effect of the liquid shader: NONE, SHIMMER, SWIRL, BUBBLES, OILY.
+- **Status**: what a compound does to a player on top of its damage: NONE, BURNING, CORRODING, CHOKING, DROWSY.
+- **Death**: how a player goes who dies of a compound: NONE, SOAKED, MELTED, BURNED, BLOWN, SUFFOCATED.
 - **Gear** is written as text in a list, `"goggles"`, `"gas_mask"`, `"ballistic_shield"`, `"fire_extinguisher"`, so a list of it needs no enum.
 
 An enum comes out of the compiler as its number. Temperatures are in degrees Celsius, volumes in parts that are relative to each other, and the meters (`unsafe`, `reactivity`, `purity`, `clarity`, `strength`) run from 0 to 1. QuickFunc parameters start with an underscore, as the owner asks.
@@ -37,6 +39,7 @@ An enum comes out of the compiler as its number. Temperatures are in degrees Cel
 | `identity` | id, name, real_name, formula, phase, level, tier, price | The id is the key everything else uses. The name is what the game calls it, which may not be the real one. The level is how many reactions it is from the base chemicals: 0, 1 or 2. The tier is when it unlocks. The price is per litre: what the shop charges for a base chemical, or what the broker pays for a product, 0 for neither. |
 | `properties` | melts_c, boils_c, flash_c, unsafe | Melting, boiling and flash points, -1 for no flash point, and how unsafe it is by itself. |
 | `look` | color, seed, clarity, effect, strength | How the liquid is drawn: a base colour as text, a seed for the procedural shader, how clear it is, a small effect and how strong. |
+| `harm` | damage, status, status_power, status_seconds, death | What a balloon of the compound does to the player it hits: the damage at a point blank, a status effect with its power and its seconds, and how a player goes who dies of it. It is written as `water.harm`, with one record named `effect`. |
 | `form` | id, label, purity_min, purity_max, price_factor | One band of the purity ladder of the compound: its name, the purity it covers, and what it multiplies a price by. |
 | `behavior` | from_c, to_c, outcome, rate | What temperature does to it alone, between two temperatures. |
 | `part` | compound, parts, purity_min, purity_max | An ingredient of a reaction: which compound, how many parts of the mix, and the band of purity it has to have. |
@@ -71,6 +74,12 @@ This is proposed too.
 
 The unsafe meter, and the outcomes it can trigger, are for the world to work out: a SPLASH hurts what is near, a BURST breaks the vessel, FUMES need a gas mask, FIRE needs an extinguisher. What each does is not part of this format.
 
+### What a compound does to a player
+
+Each page has a `harm` group with one record, built by `builders.harm(damage, status, status_power, status_seconds, death)`: the damage in hit points that a balloon of nothing but that compound does at a point blank, from 0 to 100; a status effect from the vocabulary (`NONE`, `BURNING`, `CORRODING`, `CHOKING`, `DROWSY`), its power from 0 to 1 and the seconds it lasts, 0 for both when there is none; and how a player goes who dies of it (`NONE`, `SOAKED`, `MELTED`, `BURNED`, `BLOWN`, `SUFFOCATED`). The checker requires it of every page. All the numbers are drafts.
+
+`harm_of` in `chemistry.odin` reads a mixture: the damage is the mean of the compounds' damage by volume. A compound that is at least a tenth of the mixture gives its status, at the power of its page scaled up to full at half the mixture, for the seconds of its page. Two compounds with the same status add their powers, to at most 1, and the longer time counts, and a hit carries two statuses at most, the strongest. How the player goes is the death of the compound that does the most of the damage, which is its share times its damage, and a tie goes to the one that went in first. The distance from the balloon, the burst radius and what a status does each second belong to the simulation, and are not worked out here.
+
 ### What the engine does with them
 
 `chemistry.odin` reads the rules above as follows. Where the rules say nothing, this is what it does, and each of these is open to the owner to change.
@@ -87,7 +96,7 @@ The unsafe meter, and the outcomes it can trigger, are for the world to work out
 
 ## What the checker checks
 
-`python3 scripts/check_chem.py data/chem` compiles every page and reports, for each: a page that does not compile or is named for another compound; a level outside 0 to 2; a melting point at or above the boiling point; a bad colour, seed, clarity or strength; purity bands that leave a gap, overlap or do not run from 0 to 1; behaviors that overlap; a reaction with fewer than two inputs, written on a page that is not its first input's, naming a compound with no page, with a catalyst that is also an input, with `first` outside the inputs or without a wrong-order outcome, with a meter outside 0 to 1, with a failure below the window or failure outputs and no failure, or gear that is not in the list; two reactions that can both match; a product of the wrong level, or a level 3; electrolysis of a band that does not exist, of a level 2 compound, or making the wrong level; two compounds with the same seed or colours less than 40 steps apart; and a product that nothing makes.
+`python3 scripts/check_chem.py data/chem` compiles every page and reports, for each: a page that does not compile or is named for another compound; a level outside 0 to 2; a melting point at or above the boiling point; a bad colour, seed, clarity or strength; a harm that is missing, with a damage outside 0 to 100, a status or a death that is not in the vocabulary, a power outside 0 to 1, a status with no power or no seconds, or a power or seconds on a compound that has no status; purity bands that leave a gap, overlap or do not run from 0 to 1; behaviors that overlap; a reaction with fewer than two inputs, written on a page that is not its first input's, naming a compound with no page, with a catalyst that is also an input, with `first` outside the inputs or without a wrong-order outcome, with a meter outside 0 to 1, with a failure below the window or failure outputs and no failure, or gear that is not in the list; two reactions that can both match; a product of the wrong level, or a level 3; electrolysis of a band that does not exist, of a level 2 compound, or making the wrong level; two compounds with the same seed or colours less than 40 steps apart; and a product that nothing makes.
 
 ## The files
 

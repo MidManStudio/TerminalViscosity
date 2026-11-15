@@ -627,3 +627,128 @@ names_and_colours_by_number :: proc(t: ^testing.T) {
 	c := color_of(.Chlorine)
 	testing.expect(t, near(c.r, f32(0x8f) / 255, 0.001) && near(c.g, f32(0xe0) / 255, 0.001), "a compound's colour")
 }
+
+@(test)
+a_balloon_of_one_compound_does_what_its_page_says :: proc(t: ^testing.T) {
+	cases := [?]struct {
+		id:      Id,
+		damage:  f32,
+		status:  Status,
+		power:   f32,
+		seconds: f32,
+		death:   Death,
+	}{
+		{.Water, 20, .None, 0, 0, .Soaked},
+		{.Sulfuric_Acid, 70, .Corroding, 0.6, 6, .Melted},
+		{.Chlorine, 65, .Choking, 0.8, 6, .Suffocated},
+		{.Hydrogen, 50, .Burning, 0.5, 3, .Blown},
+		{.Diethyl_Ether, 45, .Drowsy, 0.6, 6, .Burned},
+	}
+	for c in cases {
+		m := start()
+		pour(&m, c.id, 400)
+		h := harm_of(&m)
+		testing.expect_value(t, h.damage, c.damage)
+		testing.expect_value(t, h.death, c.death)
+		if c.status == .None {
+			testing.expect_value(t, h.count, 0)
+		} else {
+			testing.expect_value(t, h.count, 1)
+			testing.expect_value(t, h.statuses[0], Status_Hit{c.status, c.power, c.seconds})
+		}
+	}
+	empty := start()
+	testing.expect_value(t, harm_of(&empty), Harm{})
+}
+
+@(test)
+the_damage_of_a_mixture_is_the_mean_by_volume :: proc(t: ^testing.T) {
+	m := start()
+	pour(&m, .Water, 600)
+	pour(&m, .Sulfuric_Acid, 400)
+	testing.expect(t, near(harm_of(&m).damage, 40), "0.6 of 20 and 0.4 of 70")
+	pour(&m, .Water, 1000)
+	testing.expect(t, near(harm_of(&m).damage, 0.8 * 20 + 0.2 * 70), "diluting with water is less damage")
+}
+
+@(test)
+a_status_needs_a_tenth_of_the_mixture_and_is_full_at_a_half :: proc(t: ^testing.T) {
+	power :: proc(acid_ml: f32) -> (f32, int) {
+		m := start()
+		pour(&m, .Water, 1000 - acid_ml)
+		pour(&m, .Sulfuric_Acid, acid_ml)
+		h := harm_of(&m)
+		return h.count > 0 ? h.statuses[0].power : 0, h.count
+	}
+	_, none := power(90)
+	testing.expect_value(t, none, 0) // 9 percent
+	p, count := power(110)
+	testing.expect(t, count == 1 && near(p, 0.6 * 0.22), "11 percent is a fifth of a half, of the page's 0.6")
+	p, _ = power(250)
+	testing.expect(t, near(p, 0.3), "a quarter is half of it")
+	p, _ = power(500)
+	testing.expect(t, near(p, 0.6), "a half is all of it")
+	p, _ = power(800)
+	testing.expect(t, near(p, 0.6), "and more does not add")
+}
+
+@(test)
+two_compounds_with_the_same_status_add_up_to_at_most_one :: proc(t: ^testing.T) {
+	m := start()
+	pour(&m, .Sulfuric_Acid, 300)
+	pour(&m, .Acetic_Acid, 300)
+	h := harm_of(&m)
+	testing.expect_value(t, h.count, 1)
+	testing.expect(t, h.statuses[0].status == .Corroding && near(h.statuses[0].power, 0.8), "0.6 and 0.2")
+	testing.expect_value(t, h.statuses[0].seconds, f32(6)) // the longer of 6 and 4
+	choking := start()
+	pour(&choking, .Chlorine, 500)
+	pour(&choking, .Sulfur_Dioxide, 500)
+	testing.expect_value(t, harm_of(&choking).statuses[0].power, f32(1)) // 0.8 and 0.6 stop at 1
+}
+
+@(test)
+a_hit_carries_two_statuses_and_the_strongest_win :: proc(t: ^testing.T) {
+	m := start()
+	pour(&m, .Sulfuric_Acid, 250) // corroding, 0.3
+	pour(&m, .Diethyl_Ether, 250) // drowsy, 0.3
+	pour(&m, .Ethylene, 250) // burning, 0.25: weaker than both, so it is left out
+	h := harm_of(&m)
+	testing.expect_value(t, h.count, 2)
+	testing.expect_value(t, h.statuses[0].status, Status.Corroding)
+	testing.expect_value(t, h.statuses[1].status, Status.Drowsy)
+	pour(&m, .Chlorine, 250) // choking, 0.4: stronger than the weakest, so it takes the place of corroding
+	h = harm_of(&m)
+	testing.expect_value(t, h.count, 2)
+	testing.expect(t, (h.statuses[0].status == .Choking && h.statuses[1].status == .Drowsy) || (h.statuses[1].status == .Choking && h.statuses[0].status == .Drowsy), "choking and drowsy")
+}
+
+@(test)
+the_compound_that_does_most_of_the_damage_decides_how_the_player_goes :: proc(t: ^testing.T) {
+	a := start()
+	pour(&a, .Water, 900)
+	pour(&a, .Sulfuric_Acid, 100)
+	testing.expect_value(t, harm_of(&a).death, Death.Soaked) // 18 of water against 7 of acid
+	b := start()
+	pour(&b, .Water, 600)
+	pour(&b, .Chlorine, 400)
+	testing.expect_value(t, harm_of(&b).death, Death.Suffocated) // 26 of chlorine against 12 of water, though there is more water
+	tie_1 := start()
+	pour(&tie_1, .Acetic_Acid, 500) // 30 damage, melts
+	pour(&tie_1, .Ethanol, 500) // 30 damage, burns
+	testing.expect_value(t, harm_of(&tie_1).death, Death.Melted)
+	tie_2 := start()
+	pour(&tie_2, .Ethanol, 500)
+	pour(&tie_2, .Acetic_Acid, 500)
+	testing.expect_value(t, harm_of(&tie_2).death, Death.Burned) // a tie goes to the first
+}
+
+@(test)
+every_compound_page_has_a_harm_within_the_limits :: proc(t: ^testing.T) {
+	for i in 0 ..< COMPOUND_COUNT {
+		c := compounds[i]
+		testing.expect(t, c.damage >= 0 && c.damage <= 100, "damage is from 0 to 100")
+		testing.expect(t, c.status_power >= 0 && c.status_power <= 1, "power is from 0 to 1")
+		testing.expect_value(t, c.status == .None, c.status_power == 0 && c.status_seconds == 0)
+	}
+}

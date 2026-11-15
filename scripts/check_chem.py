@@ -6,8 +6,8 @@
 """Checks the compound pages in data/chem against the rules of docs/REACTIONS.md.
 
 Each page is compiled by the real DixScript compiler (pip install midmanstudio-mdix), read back,
-and checked: who it is, its purity bands, its reactions, its electrolysis, the pages together,
-and index.mdix, which gives each compound its number. Usage: python3 scripts/check_chem.py [folder]. Exits 1 if anything is wrong.
+and checked: who it is, its purity bands, what it does to a player, its reactions, its
+electrolysis, the pages together, and index.mdix, which gives each compound its number. Usage: python3 scripts/check_chem.py [folder]. Exits 1 if anything is wrong.
 """
 import os
 import re
@@ -133,6 +133,34 @@ def check_identity(stem, page, enums, errors):
         e("clarity and strength run from 0 to 1")
     if look["effect"] not in enums["LiquidEffect"]:
         e("effect is not in the vocabulary")
+
+
+MAX_DAMAGE = 100  # a player has 100 hit points, so no compound can do more than that at a point blank
+
+
+def check_harm(stem, page, enums, errors):
+    """What a compound does to a player: its damage, its status effect, and how a player dies of it."""
+    e = lambda msg: errors.append(f"{stem}: {msg}")
+    harm = page.get("harm", {}).get("effect")
+    if not harm:
+        e("it has no harm: its damage, status and death effect")
+        return
+    if not in_range(harm["damage"], 0, MAX_DAMAGE):
+        e(f"damage is not from 0 to {MAX_DAMAGE}")
+    if harm["status"] not in enums["Status"]:
+        e("status is not in the vocabulary")
+        return
+    if harm["death"] not in enums["Death"]:
+        e("death is not in the vocabulary")
+    if not in_range(harm["status_power"], 0, 1):
+        e("status_power is not from 0 to 1")
+    if harm["status_seconds"] < 0:
+        e("status_seconds cannot be negative")
+    quiet = enums["Status"][harm["status"]] == "NONE"
+    if quiet and (harm["status_power"] != 0 or harm["status_seconds"] != 0):
+        e("it has no status, so its power and its seconds must be 0")
+    if not quiet and (harm["status_power"] <= 0 or harm["status_seconds"] <= 0):
+        e("a status needs a power and a number of seconds above 0")
 
 
 def check_forms_and_behaviors(stem, page, errors):
@@ -299,6 +327,7 @@ def main():
     ready = {s: p for s, p in pages.items() if "core" in p.get("identity", {})}
     for stem, page in ready.items():
         check_forms_and_behaviors(stem, page, errors)
+        check_harm(stem, page, enums, errors)
         check_reactions(stem, page, ready, enums, errors, seen_ids)
         check_electrolysis(stem, page, ready, enums, errors)
     check_together(ready, errors)

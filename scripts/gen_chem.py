@@ -87,17 +87,20 @@ def build(folder):
                 for b in page.get("behaviors", [])
             ]
         )
+        harm = page["harm"]["effect"]
         color = [int(look["color"][i : i + 2], 16) for i in (1, 3, 5)]
         compounds.append(
             "{id = %s, name = %s, real_name = %s, formula = %s, phase = %s, level = %d, tier = %d, price = %s, "
             "melts_c = %s, boils_c = %s, flash_c = %s, unsafe = %s, color = {%d, %d, %d}, seed = %d, clarity = %s, "
-            "effect = %s, strength = %s, forms = %s, behaviors = %s}"
+            "effect = %s, strength = %s, damage = %s, status = %s, status_power = %s, status_seconds = %s, death = %s, "
+            "forms = %s, behaviors = %s}"
             % (
                 text(core["id"]), text(core["name"]), text(core["real_name"]), text(core["formula"]),
                 enum("Phase", core["phase"]), core["level"], core["tier"], num(core["price_per_litre"]),
                 num(props["melts_c"]), num(props["boils_c"]), num(props["flash_c"]), num(props["unsafe"]),
                 color[0], color[1], color[2], look["seed"], num(look["clarity"]),
-                enum("LiquidEffect", look["effect"]), num(look["strength"]), form_span, behavior_span,
+                enum("LiquidEffect", look["effect"]), num(look["strength"]), num(harm["damage"]), enum("Status", harm["status"]),
+                num(harm["status_power"]), num(harm["status_seconds"]), enum("Death", harm["death"]), form_span, behavior_span,
             )
         )
 
@@ -178,6 +181,8 @@ def build(folder):
         enum_source("Station", "Station"),
         enum_source("Event", "Outcome"),
         enum_source("Liquid_Effect", "LiquidEffect"),
+        enum_source("Status", "Status"),
+        enum_source("Death", "Death"),
         "Gear_Kind :: enum u8 {\n" + ",\n".join("\t" + ada(g) for g in GEAR_NAMES) + ",\n}\n",
         table("compounds", "Compound", compounds),
         table("forms", "Form", forms.rows),

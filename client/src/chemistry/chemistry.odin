@@ -11,6 +11,9 @@
 package chemistry
 
 MAX_INGREDIENTS :: 8 // the different compounds one mixture can hold
+MAX_STATUSES :: 2 // the status effects one hit can carry
+STATUS_MIN_SHARE :: f32(0.1) // a compound that is less than this share of a mixture gives no status
+STATUS_FULL_SHARE :: f32(0.5) // and one that is this much or more gives all of it
 MAX_STEPS :: 8 // the most reactions one `settle` runs, so a loop in the pages cannot hang the game
 ALL_UNLOCKED :: u64(0xFFFFFFFFFFFFFFFF)
 
@@ -33,6 +36,11 @@ Compound :: struct {
 	clarity:                      f32,
 	effect:                       Liquid_Effect,
 	strength:                     f32,
+	damage:                       f32, // hit points it does at a point blank, for a balloon of nothing else
+	status:                       Status, // what it does to a player on top of that, .None for nothing
+	status_power:                 f32, // from 0 to 1
+	status_seconds:               f32, // for as long as that
+	death:                        Death, // how a player goes who dies of it
 	forms, behaviors:             Span,
 }
 
@@ -499,6 +507,75 @@ settle :: proc(m: ^Mixture, station: Station, unlocked := ALL_UNLOCKED) -> (done
 		}
 		done.steps[done.count] = step
 		done.count += 1
+	}
+	return
+}
+
+// One status effect a hit carries: which, how strong from 0 to 1, and for how many seconds.
+Status_Hit :: struct {
+	status:  Status,
+	power:   f32,
+	seconds: f32,
+}
+
+// What a balloon of a mixture does to the player it hits, before the distance is taken into account.
+Harm :: struct {
+	damage:   f32, // hit points at a point blank
+	statuses: [MAX_STATUSES]Status_Hit,
+	count:    int, // how many of the statuses are in use
+	death:    Death, // how the player goes if it kills them
+}
+
+// What a mixture does to a player. The damage is the mean of the compounds' damage by volume, so a
+// balloon of one compound does what that compound's page says. A compound that is at least
+// STATUS_MIN_SHARE of the mixture gives its status, with the power of its page scaled up to its full
+// value at STATUS_FULL_SHARE, for the seconds of its page; two compounds with the same status add
+// their powers, to at most 1, and the longer time counts; the strongest MAX_STATUSES are kept. The
+// death effect is that of the compound that does the most of the damage, the share times its damage;
+// a tie goes to the one that went in first. An empty mixture does nothing.
+harm_of :: proc(m: ^Mixture) -> (harm: Harm) {
+	total := mix_volume(m)
+	if total <= 0 {
+		return
+	}
+	for i in 0 ..< m.count {
+		c := compound_of(m.items[i].compound)
+		share := m.items[i].ml / total
+		harm.damage += share * c.damage
+		if c.status != .None && share >= STATUS_MIN_SHARE {
+			power := c.status_power * min(share / STATUS_FULL_SHARE, 1)
+			at := -1
+			for k in 0 ..< harm.count {
+				if harm.statuses[k].status == c.status {
+					at = k
+				}
+			}
+			if at >= 0 {
+				harm.statuses[at].power = min(harm.statuses[at].power + power, 1)
+				harm.statuses[at].seconds = max(harm.statuses[at].seconds, c.status_seconds)
+			} else if harm.count < MAX_STATUSES {
+				harm.statuses[harm.count] = {c.status, power, c.status_seconds}
+				harm.count += 1
+			} else {
+				weakest := 0
+				for k in 1 ..< MAX_STATUSES {
+					if harm.statuses[k].power < harm.statuses[weakest].power {
+						weakest = k
+					}
+				}
+				if power > harm.statuses[weakest].power {
+					harm.statuses[weakest] = {c.status, power, c.status_seconds}
+				}
+			}
+		}
+	}
+	// The compound that does the most of the damage decides how the player goes.
+	most := f32(-1)
+	for i in 0 ..< m.count {
+		c := compound_of(m.items[i].compound)
+		if weight := m.items[i].ml / total * c.damage; weight > most {
+			most, harm.death = weight, c.death
+		}
 	}
 	return
 }
