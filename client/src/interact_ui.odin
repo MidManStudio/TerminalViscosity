@@ -279,10 +279,10 @@ draw_filler_readout :: proc(w, h: f32, f: ^carry.Filler, line: int) {
 	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), y, font, color)
 }
 
-// The button that sets how fast liquid runs, under the matrix button. Each press goes
+// The button that sets how fast liquid runs, under the book button. Each press goes
 // to the next speed. It is lit when it is not at normal speed.
 speed_button :: proc(w, h: f32) -> [4]f32 {
-	b := matrix_button(w, h)
+	b := book_button(w, h)
 	return {b.x, b.y + b.w + 12, b.z, b.w}
 }
 

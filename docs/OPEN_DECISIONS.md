@@ -57,7 +57,7 @@ None of this was specified. It was written so that the stand-in bot could be hur
 - **The bot.** Its distances, its timing, its aim error and its lead (see `bot.odin` in `client/docs/client.md`) are guesses. At the range it likes it hits a standing player about two times in three.
 - **The throw pad and the controls.** The throw pad turns the view by how far its finger moves, as the look finger does, instead of a rate stick. The first fire stick (fixed middle, squared response) was too sensitive to aim with, and the second (floating, straight-line response at 1.8 and 1.2 rad/s) was reported on the phone as still needing work on aiming and movement. The owner pointed at Tower-Of-Babylon, whose controls `touch.odin` follows: the walking stick floats in the left half with a ring 19 percent of the screen height and a dead zone of 0.08, the look finger is any finger on the right half, and the view cannot turn more than a fifth of the screen height in a frame. All these numbers are Tower-Of-Babylon's and none has been tried in this game on a phone. The view turns at the lab's `LOOK_SPEED` for every finger, which is also untried for aiming a throw.
 
-### Reactions by compound (the owner's idea, not built)
+### Reactions by compound (the owner's idea)
 
 The owner will rework the chemicals and the recipes himself, and proposed that instead of one general reaction matrix each compound gets its own page of reactions, that more than two compounds can be combined to make something else, and that the player buys or unlocks certain mixtures. Questions that the owner will have to settle when he does:
 
@@ -67,9 +67,9 @@ The owner will rework the chemicals and the recipes himself, and proposed that i
 - What an unlock is: a flag per reaction that the player holds, and what a mix the player has not unlocked does when it is made, whether it still happens, or is refused.
 - The server has an empty table, so volatility, and with it the damage a balloon does beyond its base, depend on how that is shared.
 
-Nothing of this is built. `carry.compound_density` is the one place a density would go, for the scale.
+The pages and the engine are built, and the book in the lab has a page for each compound. `carry.compound_density` is the one place a density would go, for the scale.
 
-The owner's plan for it is locked in `docs/DESIGN.md`, and a format for the pages that answers the questions above is proposed in `docs/REACTIONS.md`. The owner has seen it and asked for two things that are in it: a reaction level of at most two, and a base colour and shader seed for each liquid. What is still open: whether electrolysis counts as a level, whether a catalyst does, the shader itself, and the product pages beyond the first thirteen.
+The owner's plan for it is locked in `docs/DESIGN.md`, and a format for the pages that answers the questions above is proposed in `docs/REACTIONS.md`. The owner has seen it and asked for two things that are in it: a reaction level of at most two, and a base colour and shader seed for each liquid. What is still open: whether electrolysis counts as a level, whether a catalyst does, the shader itself, and the product pages beyond the first thirteen. The book is a first version that has not been seen on a phone, and open in it are whether it should show the real name and formula of a compound, whether a page should show only what the player has unlocked, and the eight lines to a spread.
 
 ### Lab equipment added (see `equipment.odin` and `gear.odin` in `client/docs/client.md`)
 

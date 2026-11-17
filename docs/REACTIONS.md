@@ -1,6 +1,6 @@
 # Compound pages: the format, and the rules of mixing
 
-**Status: proposed, and checked by the real compiler.** This is the format worked out for the design in `docs/DESIGN.md`. The `chemistry` package (`client/src/chemistry`) reads it, as tables that `scripts/gen_chem.py` writes from the pages, and implements the rules below with tests, but the lab does not use it yet: it still runs on the placeholder chemicals of the `chem` package. Every page below compiles with the DixScript compiler (the `midmanstudio-mdix` Python package) and passes `scripts/check_chem.py`, which also catches the mistakes listed under "What the checker checks". The numbers in the pages are drafts from a first pass at the chemistry, and the owner reworks the chemistry, so the numbers and the reactions are his to change. What is proposed is the shape.
+**Status: proposed, and checked by the real compiler.** This is the format worked out for the design in `docs/DESIGN.md`. The `chemistry` package (`client/src/chemistry`) reads it, as tables that `scripts/gen_chem.py` writes from the pages, and implements the rules below with tests, and the lab runs on it through `carry/mixing.odin`. The book in the lab (`client/src/menu_ui.odin`) reads the same tables. Every page below compiles with the DixScript compiler (the `midmanstudio-mdix` Python package) and passes `scripts/check_chem.py`, which also catches the mistakes listed under "What the checker checks". The numbers in the pages are drafts from a first pass at the chemistry, and the owner reworks the chemistry, so the numbers and the reactions are his to change. What is proposed is the shape.
 
 Two things in the first draft of the chemistry were wrong and are not in the pages. Acetic acid with sulfuric acid does not make acetic anhydride, which is made another way, so that pair is only a hot corrosive mix. And ethanol flashes at about 13 degrees Celsius, not at 365, which is its autoignition temperature.
 
@@ -68,7 +68,7 @@ This is proposed too.
 6. Running changes the temperature by `heat_c`, adds `unsafe` to the unsafe meter, and, if there are outputs, turns the inputs into them, with the same total volume split by the parts of the outputs.
 7. Above `over_c`, or when the unsafe meter reaches 1, the failure happens: its outcome, and the `.failure_outputs` in place of the `.outputs`.
 8. A band of purity is how one reaction can be written twice for one set of inputs, as the clean and the sink-water dilution of the acid are in the example.
-9. A reaction is written once, on the page of the compound that is first among its inputs. The book shows it on the page of every compound in it, and of its catalyst.
+9. A reaction is written once, on the page of the compound that is first among its inputs. The book shows it on the page of every compound in it: as an input, as an output, as an output when it goes wrong, and as its catalyst. An electrolysis is shown on the page of the compound it is done to and on the page of each compound it gives. `page_of` in `chemistry.odin` does this, and a compound that nothing makes and nothing uses has an empty page.
 10. A reaction that is not unlocked does not run. What the player sees then is open.
 11. A mix is drawn in the blend of its ingredients' colours by volume, with a pattern whose seed is made from the seeds of the ingredients.
 

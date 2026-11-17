@@ -139,6 +139,133 @@ color_of :: proc(id: Id) -> [3]f32 {
 	return {f32(c.color.r), f32(c.color.g), f32(c.color.b)} / 255
 }
 
+// How a compound takes part in something the book has a line for. A reaction is written once, on the page of its
+// first input, but the book shows it on the page of every compound in it, and electrolysis the same way.
+Page_Kind :: enum u8 {
+	Makes, // it is one of the outputs of a reaction
+	Fails_Into, // it is one of the outputs of a reaction when it goes wrong
+	Electrolysis_Makes, // it is one of the products of an electrolysis
+	Input, // it is one of the inputs of a reaction, and is used up
+	Catalyst, // it has to be there for a reaction, and is not used up
+	Electrolysed, // it is what an electrolysis is done to
+}
+
+// One line of a compound's page. `index` is into `reactions`, or into `electrolyses` for the two electrolysis kinds.
+Page_Entry :: struct {
+	index: u8,
+	kind:  Page_Kind,
+}
+
+// The most lines one page is given room for. The pages have 11 reactions and 9 electrolyses, and a reaction can be
+// on a page twice.
+MAX_PAGE_ENTRIES :: 32
+
+// The lines of the page of a compound, written into `out`, and how many there are: first the reactions that make
+// it, then the ones that make it when they go wrong, then the electrolyses that make it, then the reactions it
+// goes into, then the ones it helps as a catalyst, then the electrolyses of it, each kind in the order of the
+// pages. A reaction in which it is two things is on its page twice. Lines that do not fit in `out` are left out.
+// A compound that is none, or that nothing names, has no lines.
+page_of :: proc(id: Id, out: []Page_Entry) -> int {
+	n := 0
+	if id == .None {
+		return 0
+	}
+	for kind in Page_Kind {
+		count := is_electrolysis(kind) ? ELECTROLYSIS_COUNT : REACTION_COUNT
+		for i in 0 ..< count {
+			if n >= len(out) {
+				return n
+			}
+			if in_entry(id, kind, i) {
+				out[n] = {u8(i), kind}
+				n += 1
+			}
+		}
+	}
+	return n
+}
+
+// How many lines the page of a compound has, so that a list of the compounds can say it.
+page_count :: proc(id: Id) -> int {
+	lines: [MAX_PAGE_ENTRIES]Page_Entry
+	return page_of(id, lines[:])
+}
+
+// Whether a kind of line is about an electrolysis and not a reaction.
+is_electrolysis :: proc(kind: Page_Kind) -> bool {
+	return kind == .Electrolysis_Makes || kind == .Electrolysed
+}
+
+// Whether the compound is in reaction or electrolysis number `i` in that way.
+in_entry :: proc(id: Id, kind: Page_Kind, i: int) -> bool {
+	switch kind {
+	case .Makes:
+		return has_product(reactions[i].outputs, id)
+	case .Fails_Into:
+		return reactions[i].has_failure && has_product(reactions[i].failure_outputs, id)
+	case .Electrolysis_Makes:
+		return has_product(electrolyses[i].products, id)
+	case .Input:
+		r := &reactions[i]
+		for k in r.inputs.first ..< r.inputs.first + r.inputs.count {
+			if parts[k].compound == id {
+				return true
+			}
+		}
+	case .Catalyst:
+		return reactions[i].catalyst == id
+	case .Electrolysed:
+		return electrolyses[i].compound == id
+	}
+	return false
+}
+
+// Whether a list of outputs has the compound.
+has_product :: proc(span: Span, id: Id) -> bool {
+	for k in span.first ..< span.first + span.count {
+		if products[k].compound == id {
+			return true
+		}
+	}
+	return false
+}
+
+// The purity bands of a compound that a range of purity covers: `low` is the band that holds `purity_min` and
+// `high` the band that ends at or after `purity_max`, so that a range of 0 to 0.5 is the one band that ends at
+// 0.5 and not the one that starts there. They are the same band when the range is one band, and `ok` is false when
+// the compound has no bands, or none that holds the range.
+bands_of :: proc(id: Id, purity_min, purity_max: f32) -> (low, high: ^Form, ok: bool) {
+	c := compound_of(id)
+	if c == nil {
+		return
+	}
+	for i in c.forms.first ..< c.forms.first + c.forms.count {
+		f := &forms[i]
+		if low == nil && in_band(purity_min, f.purity_min, f.purity_max) {
+			low = f
+		}
+		if high == nil && f.purity_min < purity_max && purity_max <= f.purity_max {
+			high = f
+		}
+	}
+	return low, high, low != nil && high != nil
+}
+
+// The label of a band of a compound by the id that an electrolysis names it with, such as "Distilled water" for
+// water and "distilled", and "" when the compound has no band of that id.
+label_of :: proc(id: Id, band: string) -> string {
+	c := compound_of(id)
+	if c == nil {
+		return ""
+	}
+	for i in c.forms.first ..< c.forms.first + c.forms.count {
+		if forms[i].id == band {
+			return forms[i].label
+		}
+	}
+	return ""
+}
+
 // The number of the compound with this page id, such as "sulfuric_acid", or .None.
 id_of :: proc(page_id: string) -> Id {
 	for i in 0 ..< COMPOUND_COUNT {

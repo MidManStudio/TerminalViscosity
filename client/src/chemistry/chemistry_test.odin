@@ -752,3 +752,217 @@ every_compound_page_has_a_harm_within_the_limits :: proc(t: ^testing.T) {
 		testing.expect_value(t, c.status == .None, c.status_power == 0 && c.status_seconds == 0)
 	}
 }
+
+// The pages of the book: what each compound's page lists.
+
+// Whether the page of a compound has a line for that reaction or electrolysis in that way.
+page_has :: proc(id: Id, kind: Page_Kind, index: int) -> bool {
+	lines: [MAX_PAGE_ENTRIES]Page_Entry
+	n := page_of(id, lines[:])
+	for k in 0 ..< n {
+		if lines[k].kind == kind && int(lines[k].index) == index {
+			return true
+		}
+	}
+	return false
+}
+
+@(test)
+page_has_every_reaction_of_every_compound_in_it :: proc(t: ^testing.T) {
+	missing := 0
+	for i in 0 ..< REACTION_COUNT {
+		r := &reactions[i]
+		for k in r.inputs.first ..< r.inputs.first + r.inputs.count {
+			if !page_has(parts[k].compound, .Input, i) {
+				missing += 1
+			}
+		}
+		for k in r.outputs.first ..< r.outputs.first + r.outputs.count {
+			if !page_has(products[k].compound, .Makes, i) {
+				missing += 1
+			}
+		}
+		if r.has_failure {
+			for k in r.failure_outputs.first ..< r.failure_outputs.first + r.failure_outputs.count {
+				if !page_has(products[k].compound, .Fails_Into, i) {
+					missing += 1
+				}
+			}
+		}
+		if r.catalyst != .None && !page_has(r.catalyst, .Catalyst, i) {
+			missing += 1
+		}
+	}
+	for i in 0 ..< ELECTROLYSIS_COUNT {
+		e := &electrolyses[i]
+		if !page_has(e.compound, .Electrolysed, i) {
+			missing += 1
+		}
+		for k in e.products.first ..< e.products.first + e.products.count {
+			if !page_has(products[k].compound, .Electrolysis_Makes, i) {
+				missing += 1
+			}
+		}
+	}
+	testing.expect_value(t, missing, 0)
+}
+
+@(test)
+page_lines_are_about_the_compound_once_and_in_kind_order :: proc(t: ^testing.T) {
+	bad := 0
+	for c in 1 ..= COMPOUND_COUNT {
+		lines: [MAX_PAGE_ENTRIES]Page_Entry
+		n := page_of(Id(c), lines[:])
+		for k in 0 ..< n {
+			if !in_entry(Id(c), lines[k].kind, int(lines[k].index)) {
+				bad += 1
+			}
+			if k > 0 && lines[k].kind < lines[k - 1].kind {
+				bad += 1
+			}
+			for j in 0 ..< k {
+				if lines[j] == lines[k] {
+					bad += 1
+				}
+			}
+		}
+	}
+	testing.expect_value(t, bad, 0)
+}
+
+@(test)
+page_every_compound_has_a_page_with_room_to_spare :: proc(t: ^testing.T) {
+	empty, full := 0, 0
+	for c in 1 ..= COMPOUND_COUNT {
+		n := page_count(Id(c))
+		if n == 0 {
+			empty += 1
+		}
+		if n >= MAX_PAGE_ENTRIES {
+			full += 1
+		}
+	}
+	testing.expect_value(t, empty, 0)
+	testing.expect_value(t, full, 0)
+}
+
+@(test)
+page_numbers_of_the_pages_as_they_are :: proc(t: ^testing.T) {
+	testing.expect_value(t, page_count(.Water), 13)
+	testing.expect_value(t, page_count(.Sulfuric_Acid), 11)
+	testing.expect_value(t, page_count(.Ethanol), 8)
+	testing.expect_value(t, page_count(.Hydrogen), 7)
+	testing.expect_value(t, page_count(.Chlorine), 1)
+	testing.expect_value(t, page_count(.Ethyl_Hydrogen_Sulfate), 1)
+	testing.expect_value(t, page_count(.None), 0)
+}
+
+@(test)
+page_sulfur_dioxide_is_only_made_when_something_goes_wrong :: proc(t: ^testing.T) {
+	lines: [MAX_PAGE_ENTRIES]Page_Entry
+	n := page_of(.Sulfur_Dioxide, lines[:])
+	testing.expect_value(t, n, 2)
+	testing.expect_value(t, lines[0].kind, Page_Kind.Fails_Into)
+	testing.expect_value(t, lines[1].kind, Page_Kind.Fails_Into)
+	testing.expect_value(t, reactions[lines[0].index].id, "spirit_and_acids")
+	testing.expect_value(t, reactions[lines[1].index].id, "ethyl_acetate_synthesis")
+}
+
+@(test)
+page_sulfuric_acid_helps_as_a_catalyst_and_is_electrolysed :: proc(t: ^testing.T) {
+	lines: [MAX_PAGE_ENTRIES]Page_Entry
+	n := page_of(.Sulfuric_Acid, lines[:])
+	testing.expect_value(t, n, 11)
+	testing.expect_value(t, lines[8].kind, Page_Kind.Catalyst)
+	testing.expect_value(t, reactions[lines[8].index].id, "ethyl_acetate_synthesis")
+	testing.expect_value(t, lines[9].kind, Page_Kind.Electrolysed)
+	testing.expect_value(t, electrolyses[lines[9].index].form, "concentrated")
+	testing.expect_value(t, lines[0].kind, Page_Kind.Input)
+}
+
+@(test)
+page_hydrogen_is_made_by_electrolysis_and_by_nothing_else :: proc(t: ^testing.T) {
+	lines: [MAX_PAGE_ENTRIES]Page_Entry
+	n := page_of(.Hydrogen, lines[:])
+	testing.expect_value(t, n, 7)
+	for k in 0 ..< n {
+		testing.expect_value(t, lines[k].kind, Page_Kind.Electrolysis_Makes)
+	}
+}
+
+@(test)
+page_none_is_empty_and_a_small_buffer_keeps_the_first_lines :: proc(t: ^testing.T) {
+	lines: [3]Page_Entry
+	testing.expect_value(t, page_of(.None, lines[:]), 0)
+	n := page_of(.Water, lines[:])
+	testing.expect_value(t, n, 3)
+	full: [MAX_PAGE_ENTRIES]Page_Entry
+	page_of(.Water, full[:])
+	for k in 0 ..< 3 {
+		testing.expect_value(t, lines[k], full[k])
+	}
+	testing.expect_value(t, page_of(.Water, lines[:0]), 0)
+}
+
+@(test)
+page_only_the_two_electrolysis_kinds_index_electrolyses :: proc(t: ^testing.T) {
+	testing.expect(t, is_electrolysis(.Electrolysis_Makes))
+	testing.expect(t, is_electrolysis(.Electrolysed))
+	testing.expect(t, !is_electrolysis(.Makes))
+	testing.expect(t, !is_electrolysis(.Fails_Into))
+	testing.expect(t, !is_electrolysis(.Input))
+	testing.expect(t, !is_electrolysis(.Catalyst))
+}
+
+@(test)
+bands_of_names_the_purity_a_part_asks_for :: proc(t: ^testing.T) {
+	low, high, ok := bands_of(.Water, 0.5, 1)
+	testing.expect(t, ok)
+	testing.expect_value(t, low.label, "Distilled water")
+	testing.expect_value(t, high.label, "Ultra pure water")
+	low, high, ok = bands_of(.Water, 0, 0.5)
+	testing.expect(t, ok)
+	testing.expect_value(t, low.label, "Sink water")
+	testing.expect_value(t, high.label, "Sink water")
+	low, high, ok = bands_of(.Water, 0, 1)
+	testing.expect(t, ok)
+	testing.expect_value(t, low.label, "Sink water")
+	testing.expect_value(t, high.label, "Ultra pure water")
+	low, high, ok = bands_of(.Water, 0.2, 0.7)
+	testing.expect(t, ok)
+	testing.expect_value(t, low.label, "Sink water")
+	testing.expect_value(t, high.label, "Distilled water")
+	low, high, ok = bands_of(.Ethanol, 0.9, 1)
+	testing.expect(t, ok)
+	testing.expect_value(t, low.label, "Absolute")
+	testing.expect_value(t, high.label, "Absolute")
+}
+
+@(test)
+bands_of_has_nothing_for_a_compound_without_bands :: proc(t: ^testing.T) {
+	_, _, ok := bands_of(.Hydrogen, 0, 1)
+	testing.expect(t, !ok)
+	_, _, ok = bands_of(.None, 0, 1)
+	testing.expect(t, !ok)
+}
+
+@(test)
+bands_of_has_nothing_for_a_range_past_the_bands :: proc(t: ^testing.T) {
+	_, _, ok := bands_of(.Water, 0.2, 1.5)
+	testing.expect(t, !ok)
+}
+
+@(test)
+label_of_names_a_band_by_its_id :: proc(t: ^testing.T) {
+	testing.expect_value(t, label_of(.Water, "distilled"), "Distilled water")
+	testing.expect_value(t, label_of(.Water, "sink"), "Sink water")
+	testing.expect_value(t, label_of(.Sulfuric_Acid, "dilute"), "Dilute")
+	testing.expect_value(t, label_of(.Acetic_Acid, "dilute"), "Dilute, vinegar")
+}
+
+@(test)
+label_of_is_empty_for_what_has_no_such_band :: proc(t: ^testing.T) {
+	testing.expect_value(t, label_of(.Water, "glacial"), "")
+	testing.expect_value(t, label_of(.Hydrogen, "dilute"), "")
+	testing.expect_value(t, label_of(.None, "dilute"), "")
+}

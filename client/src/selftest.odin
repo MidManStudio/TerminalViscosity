@@ -84,6 +84,7 @@ selftest :: proc() -> int {
 	selftest_arena_layout(&failures)
 	selftest_lab_equipment(&failures)
 	selftest_paint_screen(&failures)
+	selftest_book(&failures)
 
 	fmt.printf("state_hash=%#016x\n", tv_world_state_hash(w))
 	if failures == 0 {
@@ -612,4 +613,95 @@ selftest_paint_screen :: proc(failures: ^int) {
 	check(failures, all_left, "and on the left half of the screen")
 	check(failures, all_fit, "and the whole balloon fits in the area")
 	check(failures, all_tall, "and from its tip to its bottom it is on the screen, down the screen")
+}
+
+// Checks the book of reactions on several screen shapes: its buttons and the tiles of the contents page are on
+// the screen, inside the panel, and none lies on another, so a thumb that lands on one cannot press two. Then the
+// pages: every compound has a first page that the contents page reaches, the back and next buttons stop at the
+// ends, and a press that is on nothing turns nothing.
+selftest_book :: proc(failures: ^int) {
+	check :: proc(failures: ^int, ok: bool, what: string) {
+		if ok {
+			fmt.printf("ok    %s\n", what)
+		} else {
+			fmt.printf("FAIL  %s\n", what)
+			failures^ += 1
+		}
+	}
+	screens := [?][2]f32{{1600, 720}, {1280, 720}, {1024, 600}, {800, 480}, {2400, 1080}, {1000, 1000}}
+	all_on, all_in, none_over := true, true, true
+	for s in screens {
+		w, h := s.x, s.y
+		panel := book_panel(w, h)
+		boxes: [chemistry.COMPOUND_COUNT + 4][4]f32
+		for k in 0 ..< chemistry.COMPOUND_COUNT {
+			boxes[k] = book_tile(w, h, k)
+		}
+		boxes[chemistry.COMPOUND_COUNT] = book_close_button(w, h)
+		boxes[chemistry.COMPOUND_COUNT + 1] = book_prev_button(w, h)
+		boxes[chemistry.COMPOUND_COUNT + 2] = book_contents_button(w, h)
+		boxes[chemistry.COMPOUND_COUNT + 3] = book_next_button(w, h)
+		for b, i in boxes {
+			if !box_on_screen(b, w, h) {
+				all_on = false
+			}
+			if b.x < panel.x || b.y < panel.y || b.x + b.z > panel.x + panel.z || b.y + b.w > panel.y + panel.w {
+				all_in = false
+			}
+			for c, j in boxes {
+				if i < j && boxes_overlap(b, c) {
+					none_over = false
+					fmt.printf("      %vx%v: box %d overlaps box %d\n", w, h, i, j)
+				}
+			}
+		}
+	}
+	check(failures, all_on, "every book button and tile is on the screen, on every screen shape")
+	check(failures, all_in, "and inside the panel of the book")
+	check(failures, none_over, "and none lies on another")
+
+	last := book_last_page()
+	check(failures, last == 19, "the book has the contents and 19 more pages, as the pages are")
+	id, part := book_at(0)
+	check(failures, id == .None && part == 0, "page 0 is the contents, of no compound")
+	id, part = book_at(1)
+	check(failures, id == .Water && part == 0, "page 1 is the first spread of water")
+	id, part = book_at(2)
+	check(failures, id == .Water && part == 1, "page 2 is the second spread of water, which has 13 lines")
+	id, part = book_at(3)
+	check(failures, id == .Acetic_Acid && part == 0, "page 3 is acetic acid")
+	id, part = book_at(last)
+	check(failures, id == .Persulfate && part == 0, "the last page is the last compound")
+	id, part = book_at(last + 40)
+	check(failures, id == .Persulfate && part == 0, "a page past the end is the last page")
+	id, part = book_at(-3)
+	check(failures, id == .None && part == 0, "and a page before the start is the contents")
+	check(failures, book_first_page(.Water) == 1 && book_first_page(.Acetic_Acid) == 3 && book_first_page(.Sulfuric_Acid) == 5 && book_first_page(.Dilute_Sulfuric_Acid) == 7, "the first pages follow the spreads of the compounds before")
+	roundtrip := true
+	for page in 1 ..= last {
+		who, which := book_at(page)
+		if book_first_page(who) + which != page || which >= book_parts(who) {
+			roundtrip = false
+		}
+	}
+	check(failures, roundtrip, "every page is the first page of its compound plus its spread")
+	check(failures, book_prev_page(0) == 0 && book_prev_page(1) == 0 && book_prev_page(7) == 6, "back stops at the contents")
+	check(failures, book_next_page(last) == last && book_next_page(last - 1) == last && book_next_page(0) == 1, "and next stops at the last page")
+
+	w, h := f32(1600), f32(720)
+	centre :: proc(b: [4]f32) -> [2]f32 {
+		return {b.x + b.z * 0.5, b.y + b.w * 0.5}
+	}
+	reached := true
+	for k in 0 ..< chemistry.COMPOUND_COUNT {
+		if book_press(0, centre(book_tile(w, h, k)), w, h) != book_first_page(chemistry.Id(k + 1)) {
+			reached = false
+		}
+	}
+	check(failures, reached, "a tile on the contents page opens the first page of its compound")
+	check(failures, book_press(5, centre(book_prev_button(w, h)), w, h) == 4 && book_press(5, centre(book_next_button(w, h)), w, h) == 6, "the back and next buttons turn one page")
+	check(failures, book_press(5, centre(book_contents_button(w, h)), w, h) == 0, "the contents button goes to the contents")
+	check(failures, book_press(0, centre(book_prev_button(w, h)), w, h) == 0 && book_press(last, centre(book_next_button(w, h)), w, h) == last, "back on the contents and next on the last page stay where they are")
+	check(failures, book_press(5, centre(book_tile(w, h, 9)), w, h) == 5, "a tile's place does nothing on a compound's page")
+	check(failures, book_press(5, {2, 2}, w, h) == 5 && book_press(0, {2, 2}, w, h) == 0, "a press on nothing turns nothing")
 }

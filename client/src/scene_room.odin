@@ -39,7 +39,8 @@ Room :: struct {
 	valve:       int, // the tap the held vessel is under, or -1
 	pour_target: int, // the vessel the crosshair is on while one is held, close enough to pour into, or -1
 	step_us:     f32, // how long one step of the liquid took lately, in microseconds
-	menu_open:   bool, // the reaction matrix is showing, and the lab is paused
+	menu_open:   bool, // the book of reactions is showing, and the lab is paused
+	menu_page:   int, // the page of the book it is open at, 0 for the contents
 	blast_flash: f32, // how white the screen is from a blast, fading
 	fx:          effects.Effects, // the look of blasts, spatters, and burst balloons
 	fx_view:     Effects_View,
@@ -408,11 +409,22 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 		return
 	}
 
-	// With the reaction matrix open the lab waits, and only its close button works.
+	// With the book open the lab waits, and only the book's own buttons work.
 	if room.menu_open {
-		closed := rl.IsMouseButtonPressed(.LEFT) && inside(platform_mouse_position(), matrix_close_button(w, h))
+		pointer := platform_mouse_position()
+		pressed := rl.IsMouseButtonPressed(.LEFT)
+		closed := pressed && inside(pointer, book_close_button(w, h))
+		if pressed {
+			room.menu_page = book_press(room.menu_page, pointer, w, h)
+		}
 		when ODIN_PLATFORM_SUBTARGET != .Android {
 			closed = closed || rl.IsKeyPressed(.R)
+			if rl.IsKeyPressed(.LEFT) {
+				room.menu_page = book_prev_page(room.menu_page)
+			}
+			if rl.IsKeyPressed(.RIGHT) {
+				room.menu_page = book_next_page(room.menu_page)
+			}
 		}
 		if closed {
 			room.menu_open = false
@@ -421,7 +433,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 		return
 	}
 
-	buttons := [8][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h), bench_button(w, h), pour_button(w, h), matrix_button(w, h), speed_button(w, h), arena_button(w, h)}
+	buttons := [8][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h), bench_button(w, h), pour_button(w, h), book_button(w, h), speed_button(w, h), arena_button(w, h)}
 	controls_update(&room.controls, &pointers, w, h, buttons[:])
 	if button_pressed(&room.controls, 0) {
 		game_switch(game, .Balloon_Lab)
@@ -721,12 +733,12 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 	}
 	draw_pour_button(w, h, label, ready, button_held(&room.controls, 4))
 	draw_bench_button(w, h)
-	draw_matrix_button(w, h)
+	draw_book_button(w, h)
 	draw_speed_button(w, h, carry.flow_speed(&room.props))
 	draw_arena_button(w, h)
 	controls_draw(&room.controls, w, h)
 	if room.menu_open {
-		draw_matrix_menu(w, h)
+		draw_book(w, h, room.menu_page)
 	}
 }
 
