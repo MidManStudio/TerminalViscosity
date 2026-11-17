@@ -870,16 +870,16 @@ a_tap_fills_the_vessel_under_it_with_its_own_liquid :: proc(t: ^testing.T) {
 	props_init(s.props)
 	props_add(s.props, s.l, .Beaker, 11.5, 0, 0, 0)
 	s.props.held = 0
-	nozzle := lab.dispenser_nozzle(2)
+	nozzle := lab.dispenser_nozzle(1)
 	s.props.items[0].pos = {nozzle.x, nozzle.y - 0.2 - kind_dims(.Beaker).height, nozzle.z}
 	events: [MAX_EVENTS]Mix_Result
 	for _ in 0 ..< 150 { // two and a half seconds
-		station_flow(&st, s.st, s.l, 2, 1.0 / 60)
+		station_flow(&st, s.st, s.l, 1, 1.0 / 60)
 		stream_step(s.st, 21)
 		stream_capture(s.st, s.props, {0, 1.6, 0}, &events)
 	}
 	v := s.props.items[0]
-	testing.expect_value(t, main_of(&v.mix), u16(chemistry.Id.Ethanol)) // the third tap
+	testing.expect_value(t, main_of(&v.mix), u16(chemistry.Id.Ethanol)) // the second tap, after acetic acid
 	testing.expectf(t, ml_of(&v.mix) > 200 && ml_of(&v.mix) < 300, "the vessel holds %v ml", ml_of(&v.mix))
 }
 
@@ -894,10 +894,10 @@ a_locked_tap_gives_nothing :: proc(t: ^testing.T) {
 		testing.expect(t, !station_flow(&st, s.st, s.l, 2, 1.0 / 60))
 	}
 	testing.expect_value(t, s.st.sim.count, 0)
-	testing.expect(t, station_flow(&st, s.st, s.l, 3, 1.0 / 60))
-	// The taps past the chemicals the lab starts with have nothing in them, and give nothing.
+	testing.expect(t, station_flow(&st, s.st, s.l, 1, 1.0 / 60))
+	// The taps past the chemicals of the bottle wall have nothing in them, and give nothing.
 	for _ in 0 ..< 30 {
-		testing.expect(t, !station_flow(&st, s.st, s.l, STOCK_COUNT, 1.0 / 60))
+		testing.expect(t, !station_flow(&st, s.st, s.l, STOCK_COUNT - WALL_FIRST + 1, 1.0 / 60))
 	}
 }
 
@@ -905,11 +905,11 @@ a_locked_tap_gives_nothing :: proc(t: ^testing.T) {
 the_bottles_are_the_color_of_their_liquid :: proc(t: ^testing.T) {
 	colors := station_colors()
 	for i in 0 ..< lab.DISPENSER_COUNT {
-		if i >= STOCK_COUNT {
+		if i >= STOCK_COUNT - WALL_FIRST + 1 {
 			testing.expect_value(t, colors[i], [4]u8{70, 74, 80, 255}) // a tap with nothing in it is grey
 			continue
 		}
-		c := chem.compound_color(u16(i + 1))
+		c := chem.compound_color(u16(i + WALL_FIRST))
 		testing.expect(t, abs(f32(colors[i].r) / 255 - c.r) < 0.01)
 		testing.expect(t, abs(f32(colors[i].b) / 255 - c.b) < 0.01)
 	}

@@ -495,10 +495,72 @@ first_drop_purity :: proc(i: int) -> f32 {
 }
 
 @(test)
-water_from_a_tap_is_tap_water_and_the_other_chemicals_are_pure :: proc(t: ^testing.T) {
-	testing.expect_value(t, first_drop_purity(0), SINK_PURITY) // water
-	testing.expect_value(t, first_drop_purity(1), STOCK_PURITY) // acetic acid
-	testing.expect_value(t, first_drop_purity(3), STOCK_PURITY) // sulfuric acid
+water_from_the_sink_is_tap_water_and_the_chemicals_of_the_wall_are_pure :: proc(t: ^testing.T) {
+	testing.expect_value(t, first_drop_purity(lab.SINK_TAP), SINK_PURITY) // water
+	testing.expect_value(t, first_drop_purity(0), STOCK_PURITY) // acetic acid
+	testing.expect_value(t, first_drop_purity(1), STOCK_PURITY) // ethanol
+	testing.expect_value(t, first_drop_purity(2), STOCK_PURITY) // sulfuric acid
+}
+
+@(test)
+water_is_not_on_the_bottle_wall_and_the_sink_gives_only_water :: proc(t: ^testing.T) {
+	st: Station
+	station_init(&st)
+	testing.expect_value(t, st.items[0].compound, u16(chemistry.Id.Acetic_Acid))
+	testing.expect_value(t, st.items[1].compound, u16(chemistry.Id.Ethanol))
+	testing.expect_value(t, st.items[2].compound, u16(chemistry.Id.Sulfuric_Acid))
+	for i in 0 ..< lab.DISPENSER_COUNT {
+		testing.expect(t, st.items[i].compound != u16(chemistry.Id.Water), "no tap of the wall has water")
+		testing.expect_value(t, st.items[i].unlocked, i < 3)
+	}
+	testing.expect_value(t, st.items[lab.SINK_TAP].compound, u16(chemistry.Id.Water))
+	testing.expect(t, st.items[lab.SINK_TAP].unlocked, "and the faucet runs")
+}
+
+@(test)
+a_vessel_held_under_the_faucet_is_found_and_filled_with_sink_water :: proc(t: ^testing.T) {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	st: Station
+	station_init(&st)
+	props_init(s.props)
+	props_add(s.props, s.l, .Beaker, 0, 0, 0, 0)
+	s.props.held = 0
+	n := lab.SINK_NOZZLE
+	s.props.items[0].pos = {n.x, n.y - 0.2 - kind_dims(.Beaker).height, n.z}
+	testing.expect_value(t, dispenser_under(&st, s.props), lab.SINK_TAP)
+	events: [MAX_EVENTS]Mix_Result
+	for _ in 0 ..< 150 { // two and a half seconds
+		station_flow_to(&st, s.st, s.l, lab.SINK_TAP, 1.0 / 60, tap_mouth(s.props), true, 1)
+		stream_step(s.st, 21)
+		stream_capture(s.st, s.props, {0, 1.6, 0}, &events)
+	}
+	v := s.props.items[0]
+	testing.expect_value(t, main_of(&v.mix), u16(chemistry.Id.Water))
+	testing.expect_value(t, v.mix.count, 1)
+	testing.expect_value(t, v.mix.items[0].purity, SINK_PURITY)
+	testing.expectf(t, ml_of(&v.mix) > 200 && ml_of(&v.mix) < 300, "the vessel holds %v ml", ml_of(&v.mix))
+}
+
+@(test)
+a_vessel_at_the_bottle_wall_is_not_under_the_faucet_and_the_other_way_round :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	st: Station
+	station_init(&st)
+	props_init(props)
+	props_add(props, l, .Beaker, 0, 0, 0, 0)
+	props.held = 0
+	w := lab.dispenser_nozzle(0)
+	props.items[0].pos = {w.x, w.y - 0.2 - kind_dims(.Beaker).height, w.z}
+	testing.expect_value(t, dispenser_under(&st, props), 0)
+	n := lab.SINK_NOZZLE
+	props.items[0].pos = {n.x, n.y - 0.2 - kind_dims(.Beaker).height, n.z}
+	testing.expect_value(t, dispenser_under(&st, props), lab.SINK_TAP)
+	props.items[0].pos = {n.x, n.y - 0.2 - kind_dims(.Beaker).height, n.z + 1.5} // along the counter, away from it
+	testing.expect_value(t, dispenser_under(&st, props), -1)
+	props.items[0].pos = {n.x, n.y + 0.5, n.z} // above the tip
+	testing.expect_value(t, dispenser_under(&st, props), -1)
 }
 
 @(test)

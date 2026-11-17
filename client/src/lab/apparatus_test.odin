@@ -347,3 +347,25 @@ the_incinerators_boxes_are_all_in_place :: proc(t: ^testing.T) {
 	}
 }
 
+
+@(test)
+the_faucet_is_a_tap_over_the_basin_with_room_under_it_and_is_built :: proc(t: ^testing.T) {
+	n := SINK_NOZZLE
+	testing.expect(t, in_rect(SINK_BASIN, n.x, n.z), "the tip is over the basin")
+	testing.expect(t, n.y > COUNTER_HEIGHT + 0.3 && n.y < 1.8, "with room for a flask under it, and in reach")
+	testing.expect_value(t, TAP_COUNT, DISPENSER_COUNT + 1)
+	testing.expect_value(t, SINK_TAP, DISPENSER_COUNT)
+	testing.expect_value(t, tap_nozzle(SINK_TAP), SINK_NOZZLE)
+	for i in 0 ..< DISPENSER_COUNT {
+		testing.expect_value(t, tap_nozzle(i), dispenser_nozzle(i))
+	}
+	l := new(Layout)
+	defer free(l)
+	build(l)
+	before := l.box_count
+	add_sink(l)
+	testing.expect_value(t, l.box_count, before + 10) // the steel floor, four rims, the drain, and the four parts of the faucet
+	for i in before ..< l.box_count {
+		testing.expect(t, l.boxes[i].size.y > 0, "every box has a height")
+	}
+}

@@ -690,7 +690,7 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 		draw_oven_readout(w, h, &room.oven, lines)
 	} else if room.first_aid.aimed && room.pour_target == -1 {
 		draw_first_aid_readout(w, h, &room.first_aid, &room.health, lines)
-	} else if on_plate := carry.scale_vessel(&room.props); room.pour_target == -1 && (room.scale.aimed || (on_plate != -1 && room.props.aimed == on_plate)) {
+	} else if room.pour_target == -1 && (room.scale.aimed || carry.scale_on(&room.props, room.props.aimed)) {
 		grams, loaded := carry.scale_reading(&room.scale, &room.props)
 		draw_scale_readout(w, h, grams, loaded, room.scale.tare > 0, lines)
 	} else if room.pour_target == -1 {

@@ -242,16 +242,131 @@ a_vessel_that_is_beside_the_plate_or_held_or_in_the_air_is_not_weighed :: proc(t
 	x, z := plate_middle()
 	props_add(props, l, .Beaker, x + 0.5, z, u16(chemistry.Id.Water), 100) // on the counter beside it
 	sc: Scale
-	testing.expect_value(t, scale_vessel(props), -1)
+	_, count := scale_load(props)
+	testing.expect_value(t, count, 0)
 	props_add(props, l, .Beaker, x, z, u16(chemistry.Id.Water), 100)
-	testing.expect_value(t, scale_vessel(props), 1)
+	_, count = scale_load(props)
+	testing.expect_value(t, count, 1)
 	props.held = 1
-	testing.expect_value(t, scale_vessel(props), -1)
+	_, count = scale_load(props)
+	testing.expect_value(t, count, 0)
 	props.held = -1
 	props.items[1].pos.y = 1.4 // not yet down
-	testing.expect_value(t, scale_vessel(props), -1)
+	_, count = scale_load(props)
+	testing.expect_value(t, count, 0)
 	_, loaded := scale_reading(&sc, props)
 	testing.expect(t, !loaded, "nothing is weighed")
+}
+
+// A beaker of 100 ml of water (160 g) and an empty flask (85 g) on either side of the middle of
+// the plate, which is 0.4 m wide.
+two_on_the_plate :: proc(l: ^lab.Layout, p: ^lab.Player, props: ^Props) {
+	x, z := plate_middle()
+	props_add(props, l, .Beaker, x - 0.1, z, u16(chemistry.Id.Water), 100)
+	props_add(props, l, .Flask, x + 0.1, z)
+	settle_for(props, l, p, 1)
+}
+
+@(test)
+every_vessel_on_the_plate_is_weighed_together :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	two_on_the_plate(l, p, props)
+	sc: Scale
+	grams, count := scale_load(props)
+	testing.expect_value(t, count, 2)
+	testing.expect(t, near(grams, 245, 0.01), "160 g and 85 g")
+	reading, loaded := scale_reading(&sc, props)
+	testing.expect(t, loaded, "something is on the plate")
+	testing.expect(t, near(reading, 245, 0.01), "the display reads both")
+	// A third one, a vial, in front of them.
+	x, z := plate_middle()
+	props_add(props, l, .Vial, x, z + 0.1, u16(chemistry.Id.Water), 10)
+	settle_for(props, l, p, 1)
+	grams, count = scale_load(props)
+	testing.expect_value(t, count, 3)
+	testing.expect(t, near(grams, 263, 0.01), "and 8 g of glass and 10 ml more")
+}
+
+@(test)
+a_vessel_that_is_held_or_beside_the_plate_is_left_out_of_the_load_of_the_others :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	two_on_the_plate(l, p, props)
+	x, z := plate_middle()
+	props_add(props, l, .Beaker, x + 0.5, z, u16(chemistry.Id.Water), 100)
+	settle_for(props, l, p, 1)
+	grams, count := scale_load(props)
+	testing.expect_value(t, count, 2)
+	testing.expect(t, near(grams, 245, 0.01), "the one beside the plate is not weighed")
+	props.held = 0
+	grams, count = scale_load(props)
+	testing.expect_value(t, count, 1)
+	testing.expect(t, near(grams, 85, 0.01), "the held one is lifted off, the flask stays")
+	testing.expect(t, !scale_on(props, 0), "the held one is not on the plate")
+	testing.expect(t, scale_on(props, 1), "the flask is")
+	testing.expect(t, !scale_on(props, 2), "and the one beside it is not")
+	testing.expect(t, !scale_on(props, -1), "no vessel is not on it")
+	testing.expect(t, !scale_on(props, props.count), "nor one past the list")
+}
+
+@(test)
+a_stale_slot_past_the_end_of_the_list_is_not_on_the_plate :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	two_on_the_plate(l, p, props)
+	// Taking the first vessel out shifts the list down and leaves the old last slot as it was, so
+	// slot 1 is now a stale copy of the flask that is still on the plate.
+	props_remove(props, 0)
+	testing.expect_value(t, props.count, 1)
+	testing.expect(t, scale_on(props, 0), "the flask is on the plate")
+	testing.expect(t, !scale_on(props, 1), "its stale copy past the end of the list is not")
+	_, count := scale_load(props)
+	testing.expect_value(t, count, 1)
+}
+
+@(test)
+zeroing_takes_the_whole_load_off_the_display_and_a_vessel_added_reads_alone :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	two_on_the_plate(l, p, props)
+	sc := Scale {
+		aimed = true,
+	}
+	testing.expect(t, scale_zero(&sc, props), "zeroed with two on it")
+	testing.expect(t, near(sc.tare, 245, 0.01), "at the weight of both")
+	reading, _ := scale_reading(&sc, props)
+	testing.expect(t, near(reading, 0, 0.01), "the display reads nothing")
+	// Pour 40 ml into the beaker: the display reads the 40.
+	fill_with(&props.items[0].mix, id(.Water), ml_of(&props.items[0].mix) + 40)
+	reading, _ = scale_reading(&sc, props)
+	testing.expect(t, near(reading, 40, 0.01), "what was added to either")
+	// A vial put on it reads its own weight on top.
+	x, z := plate_middle()
+	props_add(props, l, .Vial, x, z + 0.1)
+	settle_for(props, l, p, 1)
+	reading, _ = scale_reading(&sc, props)
+	testing.expect(t, near(reading, 48, 0.01), "40 ml and 8 g of glass")
+}
+
+@(test)
+taking_one_vessel_off_keeps_the_tare_and_taking_all_off_clears_it :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	two_on_the_plate(l, p, props)
+	sc := Scale {
+		aimed = true,
+	}
+	scale_zero(&sc, props)
+	props.items[0].pos.x += 0.6 // the beaker is taken off
+	scale_update(&sc, props)
+	testing.expect(t, near(sc.tare, 245, 0.01), "the flask is still on, so the tare is kept")
+	reading, loaded := scale_reading(&sc, props)
+	testing.expect(t, loaded, "the flask is weighed")
+	testing.expect(t, near(reading, -160, 0.01), "and the display reads 160 g less than nothing")
+	props.items[1].pos.x += 0.6 // and the flask
+	scale_update(&sc, props)
+	testing.expect_value(t, sc.tare, f32(0))
 }
 
 @(test)

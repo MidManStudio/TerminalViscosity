@@ -22,6 +22,23 @@ SINK_BASIN :: Rect {
 }
 SINK_DRAIN_TOP :: COUNTER_HEIGHT + 0.10
 
+// The tip of the faucet over the middle of the basin. A vessel held under it is filled with water,
+// the sink's own, which is what the sink is for: water has no tap on the bottle wall.
+SINK_NOZZLE :: Vec3{-11.63, COUNTER_HEIGHT + 0.42, -4.2}
+
+// The faucet counts as one more tap after the ten of the bottle wall, so that a vessel is found under
+// it, and filled from it, in the same way.
+TAP_COUNT :: DISPENSER_COUNT + 1
+SINK_TAP :: DISPENSER_COUNT
+
+// Where the tip of tap `i` is: a nozzle of the bottle wall, or the faucet of the sink.
+tap_nozzle :: proc(i: int) -> Vec3 {
+	if i == SINK_TAP {
+		return SINK_NOZZLE
+	}
+	return dispenser_nozzle(i)
+}
+
 // The floor of the fume hood and how high it reaches. A vessel whose middle is
 // inside this footprint and under the top is in the hood.
 HOOD :: Rect {
@@ -166,6 +183,15 @@ add_sink :: proc(l: ^Layout) {
 	add_box(l, {cx, top + rim * 0.5, b.min_z - 0.02}, {w, rim, 0.04}, COLOR_METAL, 0, 0.6)
 	add_box(l, {cx, top + rim * 0.5, b.max_z + 0.02}, {w, rim, 0.04}, COLOR_METAL, 0, 0.6)
 	add_box(l, {cx, top + 0.016, cz}, {0.1, 0.016, 0.1}, {24, 28, 34, 255})
+	// The faucet: a pipe up the back of the basin, a spout out from its top to over the middle, a tip
+	// that the water comes from, and a handle.
+	n := SINK_NOZZLE
+	back := b.min_x + 0.04
+	pipe := n.y - top + 0.04
+	add_box(l, {back, top + pipe * 0.5, cz}, {0.04, pipe, 0.04}, COLOR_STEEL, 0, 0.9)
+	add_box(l, {(back + n.x) * 0.5, n.y + 0.02, cz}, {n.x - back + 0.04, 0.04, 0.04}, COLOR_STEEL, 0, 0.9)
+	add_box(l, {n.x, n.y - 0.01, cz}, {0.03, 0.04, 0.03}, COLOR_STEEL, 0, 0.9)
+	add_box(l, {back, top + pipe + 0.015, cz}, {0.05, 0.03, 0.12}, COLOR_METAL, 0, 0.6)
 }
 
 add_hood :: proc(l: ^Layout) {

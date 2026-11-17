@@ -85,38 +85,48 @@ vessel_grams :: proc(pr: Prop) -> f32 {
 	return grams
 }
 
-// The scale reads the vessel on its plate, less the tare: the weight that was on it when it was
-// zeroed. Taking the vessel off clears the tare.
+// The scale reads everything that stands on its plate, less the tare: the weight that was on it
+// when it was zeroed. The tare is kept until the plate is empty, so a vessel taken off a zeroed
+// scale makes the display read less than nothing, as a real scale does.
 Scale :: struct {
 	tare:  f32, // grams the display has been zeroed at
 	aimed: bool,
 }
 
-// The index of the vessel standing on the plate of the scale, or -1: one that is not held, whose
-// middle is over the plate, and that is resting on it.
-scale_vessel :: proc(props: ^Props) -> int {
-	rest := lab.COUNTER_HEIGHT + lab.SCALE_PLATE_TOP
-	for i in 0 ..< props.count {
-		pr := props.items[i]
-		if i != props.held && lab.in_rect(lab.SCALE_PLATE, pr.pos.x, pr.pos.z) && pr.pos.y <= rest + 0.01 {
-			return i
-		}
+// Whether vessel `i` is standing on the plate of the scale: not held, with its middle over the
+// plate, and resting on it.
+scale_on :: proc(props: ^Props, i: int) -> bool {
+	if i < 0 || i >= props.count || i == props.held {
+		return false
 	}
-	return -1
+	pr := props.items[i]
+	rest := lab.COUNTER_HEIGHT + lab.SCALE_PLATE_TOP
+	return lab.in_rect(lab.SCALE_PLATE, pr.pos.x, pr.pos.z) && pr.pos.y <= rest + 0.01
 }
 
-// What the display shows, in grams, and whether there is a vessel on the plate.
+// The mass in grams of every vessel on the plate, and how many there are.
+scale_load :: proc(props: ^Props) -> (grams: f32, count: int) {
+	for i in 0 ..< props.count {
+		if scale_on(props, i) {
+			grams += vessel_grams(props.items[i])
+			count += 1
+		}
+	}
+	return
+}
+
+// What the display shows, in grams, and whether there is anything on the plate.
 scale_reading :: proc(sc: ^Scale, props: ^Props) -> (grams: f32, loaded: bool) {
-	i := scale_vessel(props)
-	if i == -1 {
+	load, count := scale_load(props)
+	if count == 0 {
 		return 0, false
 	}
-	return vessel_grams(props.items[i]) - sc.tare, true
+	return load - sc.tare, true
 }
 
 // Clears the tare when the plate is empty. Call it every frame.
 scale_update :: proc(sc: ^Scale, props: ^Props) {
-	if scale_vessel(props) == -1 {
+	if _, count := scale_load(props); count == 0 {
 		sc.tare = 0
 	}
 }
@@ -140,7 +150,7 @@ scale_zero :: proc(sc: ^Scale, props: ^Props) -> bool {
 	if !scale_zero_ready(sc, props) {
 		return false
 	}
-	sc.tare = vessel_grams(props.items[scale_vessel(props)])
+	sc.tare, _ = scale_load(props)
 	return true
 }
 
