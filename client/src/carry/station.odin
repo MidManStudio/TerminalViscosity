@@ -103,6 +103,7 @@ station_flow_to :: proc(st: ^Station, stream: ^Stream, l: ^lab.Layout, i: int, d
 	drop := DROP_ML * speed
 	st.flow_acc = min(st.flow_acc + DISPENSER_FLOW * speed * dt, 2 * drop)
 	nozzle := lab.tap_nozzle(i)
+	stream_mouth(stream, nozzle)
 	vel := Vec3{0, -0.5, 0}
 	if has_mouth {
 		vel = arc_to(nozzle, mouth)

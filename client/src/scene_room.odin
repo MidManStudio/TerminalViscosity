@@ -641,7 +641,7 @@ room_draw :: proc(game: ^Game, state: rawptr) {
 		hands_draw(&room.meshes, room.mesh.material, placed[:count])
 	}
 	props_draw_caps(&room.meshes, room.mesh.material, &room.props)
-	stream_draw(&room.stream)
+	stream_draw(&room.stream, carry.view_of(&room.player).eye)
 	props_draw_liquids(&room.meshes, &room.props, camera.position)
 	filler_view_draw(&room.filler_view, &room.filler, camera.position)
 	room.loadout_view.paint.view.art_turn = room.paint_turn

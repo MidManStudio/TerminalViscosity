@@ -33,6 +33,10 @@ Stream :: struct {
 	ml:        [MAX_STREAM]f32, // the liquid the particle stands for, DROP_ML at normal speed
 	purity:    [MAX_STREAM]f32, // how pure the compound is, from 0 to 1
 	heat:      [MAX_STREAM]f32, // its temperature in degrees, from the vessel it was poured from
+	seq:       [MAX_STREAM]u32, // the order the particles were made in, the oldest first, which the swaps of removing do not change
+	next_seq:  u32,
+	mouth:     Vec3, // where liquid last came out: the lip of the vessel being poured, or the tip of a tap
+	mouth_age: f32, // seconds since then
 	origin:    Vec3, // where the corner of the box is in the world
 	air_floor: bool, // the box floor is above the real floor, so a particle reaching it falls out
 }
@@ -46,6 +50,7 @@ stream_init :: proc(st: ^Stream) {
 		gravity = -9.8,
 	}
 	mpm.sim_init(&st.sim, params, STREAM_GRID, MAX_STREAM)
+	st.mouth_age = JET_NEVER
 }
 
 stream_destroy :: proc(st: ^Stream) {
@@ -54,7 +59,7 @@ stream_destroy :: proc(st: ^Stream) {
 
 stream_remove :: proc(st: ^Stream, i: int) {
 	last := st.sim.count - 1
-	st.compound[i], st.age[i], st.rest[i], st.ml[i], st.purity[i], st.heat[i] = st.compound[last], st.age[last], st.rest[last], st.ml[last], st.purity[last], st.heat[last]
+	st.compound[i], st.age[i], st.rest[i], st.ml[i], st.purity[i], st.heat[i], st.seq[i] = st.compound[last], st.age[last], st.rest[last], st.ml[last], st.purity[last], st.heat[last], st.seq[last]
 	mpm.sim_remove_particle(&st.sim, i)
 }
 
@@ -97,7 +102,15 @@ stream_spawn_ml :: proc(st: ^Stream, l: ^lab.Layout, world, vel: Vec3, compound:
 		return false
 	}
 	st.compound[i], st.age[i], st.rest[i], st.ml[i], st.purity[i], st.heat[i] = compound, 0, 0, ml, purity, heat
+	st.seq[i] = st.next_seq
+	st.next_seq += 1
 	return true
+}
+
+// Notes that liquid is coming out at `pos` this frame: the lip of a vessel being poured, or the tip of a
+// tap. The jet that is drawn is joined to it for as long as liquid keeps coming.
+stream_mouth :: proc(st: ^Stream, pos: Vec3) {
+	st.mouth, st.mouth_age = pos, 0
 }
 
 // Where particle `i` is in the world.
@@ -108,6 +121,7 @@ stream_position :: proc(st: ^Stream, i: int) -> Vec3 {
 // Runs the simulation `steps` substeps, then wipes away what has fallen out of
 // the box, lain still too long, or lived too long.
 stream_step :: proc(st: ^Stream, steps: int) {
+	st.mouth_age += f32(steps) * STREAM_DT
 	if st.sim.count == 0 {
 		return
 	}
@@ -276,6 +290,9 @@ pour_flow_to :: proc(props: ^Props, st: ^Stream, l: ^lab.Layout, dt: f32, mouth:
 			break
 		}
 		pr.flow_acc -= taken.ml
+	}
+	if count > 0 || pr.flow_acc > 0.2 {
+		stream_mouth(st, lip)
 	}
 	// The last of a pour goes as one smaller drop, so none of it is lost.
 	if count == 0 && ml_of(&pr.mix) < 0.05 + pr.flow_acc && pr.flow_acc > 0.2 {

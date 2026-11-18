@@ -283,6 +283,7 @@ oven_flow :: proc(o: ^Oven, st: ^Stream, l: ^lab.Layout, dt: f32, mouth: Vec3, s
 	drop := DROP_ML * speed
 	o.flow_acc = min(o.flow_acc + OVEN_SPOUT_FLOW * speed * dt, 2 * drop)
 	nozzle := lab.MIXER_SPOUT
+	stream_mouth(st, nozzle)
 	vel := arc_to(nozzle, mouth)
 	for n in 0 ..< 2 {
 		amount := min(drop, ml_of(&o.tank))

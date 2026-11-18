@@ -267,7 +267,7 @@ A vial has the inside of a beaker.
 **Tests:** `carry_test.odin`, and `stations_test.odin` for the balloon.
 
 ### `stream.odin`
-**What it does:** Liquid in the air: poured from a vessel or let out of a tap, falling, splashing, and either landing in a vessel, which takes it, or on a surface, where it is wiped away after a moment. Each drop is a particle of the liquid simulation, standing for 3.4 ml, in a box of 44 cells of 3 cm that is set in the world when the first drop is made, with its floor on whatever is under it. `pour_flow` lets the held vessel pour, `pour_flow_to` does the same and aims at a given mouth when no vessel is under the crosshair, which is how a pour goes into the funnel of the fill station, `stream_step` runs the simulation, and `stream_capture` hands drops to the vessels they have fallen into. Each drop knows how much liquid it stands for. `stream_spawn_ml` makes one that stands for a given amount, and `stream_spawn` one that stands for 3.4 ml. `SPEEDS`, `flow_speed`, and `speed_cycle` are the speed setting. A drop is one compound, with its purity and its temperature in degrees: the temperature of the vessel it was poured from, and the room's from a tap. A pour from a mixture is made of drops drawn from it in the proportions of the mixture (`chemistry.mix_draw`), so what lands is what was poured.
+**What it does:** Liquid in the air: poured from a vessel or let out of a tap, falling, splashing, and either landing in a vessel, which takes it, or on a surface, where it is wiped away after a moment. Each drop is a particle of the liquid simulation, standing for 3.4 ml, in a box of 44 cells of 3 cm that is set in the world when the first drop is made, with its floor on whatever is under it. `pour_flow` lets the held vessel pour, `pour_flow_to` does the same and aims at a given mouth when no vessel is under the crosshair, which is how a pour goes into the funnel of the fill station, `stream_step` runs the simulation, and `stream_capture` hands drops to the vessels they have fallen into. Each drop knows how much liquid it stands for. `stream_spawn_ml` makes one that stands for a given amount, and `stream_spawn` one that stands for 3.4 ml. `SPEEDS`, `flow_speed`, and `speed_cycle` are the speed setting. A drop is one compound, with its purity and its temperature in degrees: the temperature of the vessel it was poured from, and the room's from a tap. A pour from a mixture is made of drops drawn from it in the proportions of the mixture (`chemistry.mix_draw`), so what lands is what was poured. Each drop also has a `seq`, the order it was made in, which survives the swaps of removing one, and `stream_mouth` notes where liquid last came out (the lip of the vessel being poured, the tip of a tap, or the oven's spout), with `mouth_age` the seconds since, for the jets that `jet.odin` makes.
 
 **Decisions:**
 - The cell size comes from the first phone benchmark. At 4.3 microseconds a particle each step, a 3 cm cell lets a pour of about twenty drops in flight run in a few milliseconds, and a finer cell does not fit. A pour never has more than 96 drops in flight. When the stream is full, the liquid waits at the lip, so a pour slows down and the frame does not.
@@ -443,10 +443,30 @@ A vial lets out at most 25 ml a second, a narrow neck being slow.
 - A drawing that is half made when the game is stopped is not saved, only a finished one.
 - The path is the one the file functions of the client use, which on the phone is the private storage of the game.
 
-### `stream_view.odin`
-**What it does:** Draws the liquid in the air as small diamonds in the color of the liquid, lighter on top and darker underneath. They are drawn by the batch renderer with no lighting, without back-face culling.
+### `jet.odin`
+**What it does:** Turns the drops in the air into what the view draws. A drop's `seq` gives the order the drops were made in, oldest first (`jet_order`). Drops that follow one another in that order, are in the air and moving, go the same way, and are no further apart than the time between them allows (`jet_joined`) form a jet. `jet_build` makes a smooth curve through each (Catmull-Rom, with the ends carried on the way the line was going), as wide as the liquid in it (`jet_radius`: the width of a stream that would hold it, made 1.4 times thicker, kept between 5 mm and 2 cm) and drawn thinner at the ends. The newest end is joined to the mouth, the lip being poured from or the tip of a tap, while liquid has come out of it in the last 0.12 s and the newest drop is within 30 cm of it. Drops in no jet are marked loose, and the view draws them as beads. Nothing is allocated: a `Jet` has room for 193 points, which is 96 drops with a point between each pair and the mouth.
 
-**Decisions:** A diamond is eight triangles, so a full stream of 96 is under 2300 vertices, which is cheap on a phone. Spheres drawn one at a time would not be.
+**Decisions:**
+- The jet is built from the drops that the simulation really moves, and not from an arc of its own, so the stream goes where the liquid goes and the vessels still take what falls into them.
+- Drops are one jet when they move together. A splash scatters drops every way, so they fail the test of going the same way and are drawn as beads, which is what spray looks like.
+- The jet is joined to the mouth only while liquid leaves it, so that when a pour stops the tail breaks off from the lip and falls.
+- The width is drawn thicker than the liquid would be, because a stream as thin as the liquid would be is hard to see on a phone. The 1.4 is a first guess, like the limits and the 0.7 of the ends.
+
+**Tests:** `jet_test.odin`.
+
+### `jet_test.odin`
+**What it does:** Tests the order of the drops, which stays right after drops are removed, and the test of whether two drops are one jet at both edges of each limit (slow, resting, going another way, too far, the faster one setting the reach, made at the same moment, ages the wrong way round). It checks that a run of drops is one smooth jet from the oldest to the newest that never doubles back, thinner at the ends, with points halfway between drops on a line at both ends; that separate runs are separate jets and a lone drop is loose; that a splash is not a jet; that the mouth joins only the jet with the newest drop, only while liquid leaves and only when near; the widths; the curve; and that a pour, a tap and the oven's spout note their mouth, and a pour lets go of it when nothing leaves.
+
+**Decisions:** The drops of a test are made 0.6 m over the island in the middle of the lab, because the box of the stream gets its floor from whatever is under the first drop, and a drop lower than the top of the island would be outside it.
+
+### `stream_view.odin`
+**What it does:** Draws the liquid in the air. Drops that are part of a stream (`carry.jet_build`) are drawn as one smooth tube through them, six sided, joined to the lip or the tap they came from, in the color of the liquid, with the lighting worked out for each vertex: lighter on the side to the light, a sharp highlight along it, and a glow at the edges, where clear liquid is brighter. It is a little see-through. The oldest end is rounded off, and so is the newest when no liquid is coming out. Drops in no stream, such as the spray of a splash, are drawn as small diamonds as wide as the liquid they stand for. They are drawn by the batch renderer without back-face culling, so the winding does not matter.
+
+**Decisions:**
+- A stream of 96 drops is at most 7000 vertices (a diamond is 24, a stretch of tube between two points 36, a cap 18), and the drawing stops at that, which the smallest batch of raylib holds. It is flushed before and after so that it does not mix with the rest.
+- The tube is turned along the curve by carrying one side direction forward and taking out what lies along the curve, so that it does not twist.
+- The eye is passed in for the highlight. The light is a fixed direction from above.
+- Water is not refracted, and nothing is drawn where the stream hits a surface. A screen-space surface, at half size, would be the next step, and has not been tried.
 
 ### `effects_view.odin`
 **What it does:** Draws the effects and gives the room shaders the light of a blast. Two small textures, a soft dot and a ring, are made in code. Particles are squares that face the viewer. Smoke, liquid, and mist are blended over the picture first. Fire, sparks, and the rings are added to it afterwards, so they glow. Nothing writes depth, so particles overlap without cutting each other, and the room still hides them. `blast_light_set` gives a shader the place and reach of the flash, its color, and its brightness, which `lab.fs` and `vessel.fs` add to their lighting. With no blast going the reach and brightness are zero.
@@ -1139,6 +1159,7 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - The first speed setting would have meant more drops, and the liquid simulation is the most expensive thing in the lab, so the drops carry more liquid instead. A drop at speed 8 is 27 ml, a big drop to look at, and how that looks has not been seen.
 
 - None recorded yet for the vial and the equipment.
+- The drops got a `seq` and the stream a mouth, so that the view can join the drops of a pour into one stream and join it to the lip. The mouth is noted by the pour, by a tap and by the oven's spout, each only while liquid comes out, and tested with deliberate changes together with `jet.odin`.
 
 ### `station.odin`
 - The bottle wall has four stocked taps and six empty ones, where it had ten liquids. The empty ones are locked and grey. The six bottles above them look empty, and what the wall is for after the shop comes is not decided.
@@ -1146,8 +1167,16 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - Every tap is unlocked, and nothing takes a cost for the liquid.
 - Water was the first tap of the bottle wall, which is not what the design says. The wall has three taps now and the faucet of the sink has the water. The tests that took tap 0 for water, tap 2 for ethanol and tap 3 for sulfuric acid were moved to the new places. Twelve deliberate changes to the taps and the faucet were made one at a time, in a copy of the tree, and all twelve were caught: the faucet not found, not unlocked, giving the wrong liquid or not a tap, water back on the wall, the wall one tap short or its bottles coloured from the old numbers, and the faucet too low, off the basin or counted wrongly. The faucet has not been seen or used on a phone.
 
+### `jet.odin`
+- New, and not seen on a phone or a screen. How the stream looks, its width, its shading and the highlight along it, is for the owner to judge. A throwaway build that made a scripted jet in front of the player drew it without a crash at 1600 by 720 and changed thousands of pixels against a control, which shows only that something was drawn.
+- Tested with 30 deliberate changes, one at a time, in a copy of the tree. Twenty-nine were caught in the end. Four were not at first: the faster of two drops setting the reach, which a test had put exactly on both limits; the free end being drawn thinner, which a comparison passed by rounding; the last stretch of a jet leaning on a drop that is not there; and the oldest end. The tests were tightened for each. The thirtieth, taking away the guard against drops on top of each other, makes no difference, because the clamp on the width gives the same answer.
+
+### `jet_test.odin`
+- The first drafts of the tests made drops at 1.0 m, which is under the top of the island in the middle of the lab, so none could be made. They are made 0.6 m higher.
+
 ### `stream_view.odin`
-- None recorded yet.
+- The diamonds were replaced by the jets after the owner said the pouring looked bad and the liquid sitting in vessels did not. Not seen on a phone or a screen: the shading numbers (0.55 and 0.45 for the light, 24 and 0.6 for the highlight, 3 and 0.3 for the edges, 225 of 255 for how solid it is) are first guesses.
+- The frame cost of the tube has not been measured on a phone. It is at most 7000 vertices and no allocation, and the simulation has not changed.
 
 ### `menu_ui.odin`
 - The matrix of ten liquids is now a list of reactions. It was rewritten without being seen: only the size of the text and the fit of 11 rows were reasoned about, and a row's text may be too long for a narrow phone screen, which `draw_text_fit` shrinks.
