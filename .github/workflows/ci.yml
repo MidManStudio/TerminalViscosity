@@ -103,6 +103,10 @@ jobs:
         run: odin test client/src/arena -vet -strict-style
       - name: Touch tests
         run: odin test client/src/touch -vet -strict-style
+      - name: Inventory tests
+        run: odin test client/src/inventory -vet -strict-style
+      - name: Drag and drop tests
+        run: odin test client/src/dragdrop -vet -strict-style
       - name: Character tests
         run: odin test client/src/character -vet -strict-style
       - name: Liquid simulation tests
