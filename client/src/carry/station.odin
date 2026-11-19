@@ -6,6 +6,7 @@
 package carry
 
 import "../chemistry"
+import "../inventory"
 import "../lab"
 
 STOCK_COUNT :: 4 // the chemicals the lab starts with: water, acetic acid, ethanol and sulfuric acid, numbers 1 to 4
@@ -30,23 +31,21 @@ Station :: struct {
 	flow_acc: f32, // liquid let out and not yet made into drops, in ml
 }
 
+// The taps as the lab starts: those of the wall as it starts, and the faucet.
 station_init :: proc(st: ^Station) {
 	st^ = {}
-	for i in 0 ..< min(STOCK_COUNT - WALL_FIRST + 1, lab.DISPENSER_COUNT) {
-		st.items[i] = {compound = u16(i + WALL_FIRST), unlocked = true}
-	}
+	wall: inventory.Container
+	wall_default(&wall)
+	station_sync(st, &wall)
 	st.items[lab.SINK_TAP] = {compound = u16(chemistry.Id.Water), unlocked = true}
 }
 
-// The color of the bottle above each tap, from the liquid it holds. A tap with nothing in it has a grey one.
+// The color of the bottle above each mount of the wall as it starts, from the liquid it holds, and which mounts
+// have a dispenser. A mount with none has a grey color that is not used.
 station_colors :: proc() -> [lab.DISPENSER_COUNT][4]u8 {
-	colors: [lab.DISPENSER_COUNT][4]u8
-	for i in 0 ..< lab.DISPENSER_COUNT {
-		colors[i] = {70, 74, 80, 255}
-		if c := chemistry.compound_of(chemistry.Id(i + WALL_FIRST)); c != nil && i < STOCK_COUNT - WALL_FIRST + 1 {
-			colors[i] = {c.color.r, c.color.g, c.color.b, 255}
-		}
-	}
+	wall: inventory.Container
+	wall_default(&wall)
+	colors, _ := wall_look(&wall)
 	return colors
 }
 

@@ -9,6 +9,7 @@ import rl "vendor:raylib"
 import rlgl "vendor:raylib/rlgl"
 import "carry"
 import "chem"
+import "dragdrop"
 import "chemistry"
 import "core:fmt"
 import "core:math"
@@ -42,6 +43,9 @@ Room :: struct {
 	pour_target: int, // the vessel the crosshair is on while one is held, close enough to pour into, or -1
 	step_us:     f32, // how long one step of the liquid took lately, in microseconds
 	menu_open:   bool, // the book of reactions is showing, and the lab is paused
+	stock:       carry.Stock, // the bag, and what is mounted on the bottle wall
+	stock_ui:    Stock_Ui,
+	stock_open:  bool, // the bag and the wall are showing, and the lab is paused
 	menu_page:   int, // the page of the book it is open at, 0 for the contents
 	blast_flash: f32, // how white the screen is from a blast, fading
 	fx:          effects.Effects, // the look of blasts, spatters, and burst balloons
@@ -64,6 +68,7 @@ Room :: struct {
 	burn_vent:   f32, // time since the last puff from the chimney
 	burn_timer:  f32, // seconds the incinerator has left to burn, with smoke from its chimney
 	first_aid:   carry.First_Aid, // the cabinet on the north wall
+	soap:        carry.Soap, // the soap by the sink
 	scale:       carry.Scale, // the scale on the north counter
 }
 
@@ -93,6 +98,7 @@ room_reset :: proc(room: ^Room) {
 	room.spout = false
 	room.spout_rest = -1
 	room.first_aid = {}
+	room.soap = {}
 	room.scale = {}
 }
 
@@ -323,13 +329,32 @@ room_stream_step :: proc(room: ^Room, dt: f32) {
 	room.step_us += (elapsed / f32(steps) - room.step_us) * 0.2
 }
 
-room_load :: proc(game: ^Game) -> rawptr {
-	room := new(Room)
+// Builds the lab from nothing: the room, the bottle wall with the dispensers that are mounted on it, the
+// apparatus and the shelves. It is called when the lab is loaded, and again when a dispenser has been moved.
+room_build_layout :: proc(room: ^Room) {
 	lab.build(&room.layout)
-	lab.add_dispensers(&room.layout, carry.station_colors())
+	colors, present := carry.wall_look(&room.stock.wall)
+	lab.add_dispensers_with(&room.layout, colors, present)
 	lab.add_apparatus(&room.layout)
 	shelf_colors := carry.shelf_colors()
 	lab.add_shelves(&room.layout, shelf_colors[:])
+}
+
+// What follows when the contents of the bag or the wall changed: the taps follow what is mounted, the lab and its
+// mesh are made again so that the bottles are where the dispensers are, and the stock is saved.
+room_stock_changed :: proc(room: ^Room) {
+	carry.station_sync(&room.station, &room.stock.wall)
+	room_build_layout(room)
+	lab_mesh_rebuild(&room.mesh, &room.layout)
+	stock_save(&room.stock)
+}
+
+room_load :: proc(game: ^Game) -> rawptr {
+	room := new(Room)
+	carry.stock_init(&room.stock)
+	stock_ui_init(&room.stock_ui)
+	stock_load(&room.stock)
+	room_build_layout(room)
 	lab.player_init(&room.player, &room.layout)
 	shader, ok := load_lab_shader()
 	lab_mesh_init(&room.mesh, &room.layout, shader, ok)
@@ -337,6 +362,7 @@ room_load :: proc(game: ^Game) -> rawptr {
 	carry.props_place_defaults(&room.props, &room.layout)
 	carry.stream_init(&room.stream)
 	carry.station_init(&room.station)
+	carry.station_sync(&room.station, &room.stock.wall)
 	prop_meshes_init(&room.meshes)
 	carry.health_init(&room.health)
 	carry.filler_init(&room.filler)
@@ -369,6 +395,7 @@ room_unload :: proc(game: ^Game, state: rawptr) {
 	rlgl.SetClipPlanes(0.05, 4000)
 	game.heat_strength = 0
 	loadout_save(game)
+	stock_save(&room.stock)
 	free(room.paint)
 	loadout_view_unload(&room.loadout_view)
 	filler_view_unload(&room.filler_view)
@@ -441,7 +468,26 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 		return
 	}
 
-	buttons := [8][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h), bench_button(w, h), pour_button(w, h), book_button(w, h), speed_button(w, h), arena_button(w, h)}
+	// With the bag and the wall open the lab waits as well. A press on a stack that can be moved starts a drag, and
+	// letting go moves it where it can go.
+	if room.stock_open {
+		pointer := platform_mouse_position()
+		pressed := rl.IsMouseButtonPressed(.LEFT)
+		closed := pressed && inside(pointer, book_close_button(w, h))
+		when ODIN_PLATFORM_SUBTARGET != .Android {
+			closed = closed || rl.IsKeyPressed(.B)
+		}
+		if closed {
+			dragdrop.cancel(&room.stock_ui.drag)
+			room.stock_open = false
+			controls_init(&room.controls, &pointers) // the finger that closed it must not start walking
+		} else if stock_update(&room.stock_ui, &room.stock, pointer, pressed, rl.IsMouseButtonReleased(.LEFT), w, h) {
+			room_stock_changed(room)
+		}
+		return
+	}
+
+	buttons := [9][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h), bench_button(w, h), pour_button(w, h), book_button(w, h), speed_button(w, h), arena_button(w, h), bag_button(w, h)}
 	controls_update(&room.controls, &pointers, w, h, buttons[:])
 	if button_pressed(&room.controls, 0) {
 		game_switch(game, .Balloon_Lab)
@@ -461,6 +507,14 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	speed_pressed := button_pressed(&room.controls, 6)
 	if button_pressed(&room.controls, 5) {
 		room.menu_open = true
+		return
+	}
+	bag_pressed := button_pressed(&room.controls, 8)
+	when ODIN_PLATFORM_SUBTARGET != .Android {
+		bag_pressed = bag_pressed || rl.IsKeyPressed(.B)
+	}
+	if bag_pressed {
+		room.stock_open = true
 		return
 	}
 
@@ -529,6 +583,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	carry.filler_aim(&room.filler, &room.props, carry.view_of(&room.player))
 	carry.loadout_aim(&game.loadout, &room.filler, &room.props, carry.view_of(&room.player))
 	carry.first_aid_aim(&room.first_aid, &room.props, carry.view_of(&room.player))
+	carry.soap_aim(&room.soap, &room.props, carry.view_of(&room.player))
 	carry.scale_aim(&room.scale, &room.props, carry.view_of(&room.player))
 	if grab_pressed {
 		action := carry.balloon_action(&game.loadout, &room.filler, &room.props)
@@ -550,6 +605,8 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 		case carry.scale_zero_ready(&room.scale, &room.props):
 			carry.scale_zero(&room.scale, &room.props)
 			room_toast(room, "scale zeroed")
+		case carry.soap_use_ready(&room.soap, &room.props):
+			carry.soap_use(&room.soap)
 		case room.props.held != -1:
 			carry.release(&room.props)
 		case:
@@ -606,6 +663,9 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 
 	carry.health_update(&room.health, dt)
 	carry.first_aid_update(&room.first_aid, dt)
+	if carry.soap_update(&room.soap, dt) {
+		room_toast(room, "hands washed")
+	}
 	carry.scale_update(&room.scale, &room.props)
 	room.blast_flash *= 1 - min(dt * 4, 1)
 	room.toast_timer = max(room.toast_timer - dt, 0)
@@ -698,6 +758,8 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 		draw_oven_readout(w, h, &room.oven, lines)
 	} else if room.first_aid.aimed && room.pour_target == -1 {
 		draw_first_aid_readout(w, h, &room.first_aid, &room.health, lines)
+	} else if room.soap.aimed && room.pour_target == -1 {
+		draw_soap_readout(w, h, &room.soap, lines)
 	} else if room.pour_target == -1 && (room.scale.aimed || carry.scale_on(&room.props, room.props.aimed)) {
 		grams, loaded := carry.scale_reading(&room.scale, &room.props)
 		draw_scale_readout(w, h, grams, loaded, room.scale.tare > 0, lines)
@@ -720,6 +782,9 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 		draw_station_button(w, h, label, ready)
 	case room.scale.aimed && room.props.held == -1:
 		draw_station_button(w, h, "zero", carry.scale_zero_ready(&room.scale, &room.props))
+	case room.soap.aimed && room.props.held == -1:
+		label, ready := soap_label(&room.soap)
+		draw_station_button(w, h, label, ready)
 	case:
 		draw_grab_button(w, h, state)
 	}
@@ -744,9 +809,13 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 	draw_book_button(w, h)
 	draw_speed_button(w, h, carry.flow_speed(&room.props))
 	draw_arena_button(w, h)
+	draw_bag_button(w, h)
 	controls_draw(&room.controls, w, h)
 	if room.menu_open {
 		draw_book(w, h, room.menu_page)
+	}
+	if room.stock_open {
+		draw_stock(w, h, &room.stock, &room.stock_ui, platform_mouse_position())
 	}
 }
 

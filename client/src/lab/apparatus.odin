@@ -26,6 +26,12 @@ SINK_DRAIN_TOP :: COUNTER_HEIGHT + 0.10
 // the sink's own, which is what the sink is for: water has no tap on the bottle wall.
 SINK_NOZZLE :: Vec3{-11.63, COUNTER_HEIGHT + 0.42, -4.2}
 
+// The soap beside the basin: a bottle with a pump, standing on the counter at the far end of the basin from the
+// wall. The box is what the crosshair has to be on to use it.
+SOAP_AT :: Vec3{-11.63, COUNTER_HEIGHT, -3.5}
+SOAP_AIM_LOW :: Vec3{-11.7, COUNTER_HEIGHT, -3.57}
+SOAP_AIM_HIGH :: Vec3{-11.56, COUNTER_HEIGHT + 0.25, -3.43}
+
 // The faucet counts as one more tap after the ten of the bottle wall, so that a vessel is found under
 // it, and filled from it, in the same way.
 TAP_COUNT :: DISPENSER_COUNT + 1
@@ -192,6 +198,11 @@ add_sink :: proc(l: ^Layout) {
 	add_box(l, {(back + n.x) * 0.5, n.y + 0.02, cz}, {n.x - back + 0.04, 0.04, 0.04}, COLOR_STEEL, 0, 0.9)
 	add_box(l, {n.x, n.y - 0.01, cz}, {0.03, 0.04, 0.03}, COLOR_STEEL, 0, 0.9)
 	add_box(l, {back, top + pipe + 0.015, cz}, {0.05, 0.03, 0.12}, COLOR_METAL, 0, 0.6)
+	// The soap: a bottle, a neck, and a pump head that points over the basin.
+	s := SOAP_AT
+	add_box(l, {s.x, s.y + 0.08, s.z}, {0.07, 0.16, 0.07}, {214, 160, 196, 255}, 0, 0.4)
+	add_box(l, {s.x, s.y + 0.185, s.z}, {0.02, 0.05, 0.02}, {236, 238, 242, 255}, 0, 0.5)
+	add_box(l, {s.x, s.y + 0.22, s.z - 0.02}, {0.025, 0.02, 0.07}, {236, 238, 242, 255}, 0, 0.5)
 }
 
 add_hood :: proc(l: ^Layout) {

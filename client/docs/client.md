@@ -285,7 +285,7 @@ A vial has the inside of a beaker.
 A vial lets out at most 25 ml a second, a narrow neck being slow.
 
 ### `station.odin`
-**What it does:** The taps of the lab. The bottle wall has a tap for each of the chemicals the lab starts with except water, in the order of their numbers (acetic acid, ethanol, sulfuric acid), and the seven taps after those locked, with nothing in them. The faucet of the sink is one more tap, the eleventh, and it gives water. `dispenser_under` finds the tap the held vessel is near enough to be filled from: upright, with room in it, within half a metre of the nozzle sideways, and its top not more than 35 cm over the tip or 90 cm under it. When two taps are near, the nearer one is it. `station_flow_to` lets 110 ml a second out of the nozzle as drops, times the speed, aimed into the mouth of the vessel with `tap_mouth`, and `station_flow` is the same straight down at normal speed. `station_colors` gives the colors of the bottles, from the liquids in them, and grey for a tap with nothing in it.
+**What it does:** The taps of the lab. The bottle wall has a mount for each of ten taps, and a tap gives liquid when a dispenser with a compound in it is mounted there (`station_sync`, in `stock.odin`). The lab starts with a dispenser of each of the chemicals it starts with except water on the first three mounts, in the order of their numbers (acetic acid, ethanol, sulfuric acid), and the other seven mounts empty. The faucet of the sink is one more tap, the eleventh, and it gives water. `dispenser_under` finds the tap the held vessel is near enough to be filled from: upright, with room in it, within half a metre of the nozzle sideways, and its top not more than 35 cm over the tip or 90 cm under it. When two taps are near, the nearer one is it. `station_flow_to` lets 110 ml a second out of the nozzle as drops, times the speed, aimed into the mouth of the vessel with `tap_mouth`, and `station_flow` is the same straight down at normal speed. `station_colors` gives the colors of the bottles, from the liquids in them, and grey for a tap with nothing in it.
 
 **Decisions:**
 - The supply is endless. Each tap has an `unlocked` flag that stops it giving anything, as the hook for the progression the lab is meant to have, where not everything is open from the start. The first three taps of the wall and the faucet are unlocked, and the rest have no compound and give nothing. Water from the faucet is tap water, at a purity of 0.25, and the chemicals of the wall come pure.
@@ -472,6 +472,67 @@ A vial lets out at most 25 ml a second, a narrow neck being slow.
 - One shader for both, so that a puddle's alpha can be its life and a bead's its opacity without a uniform changing between them.
 - Noise is a hash of a sine, which needs no texture. The highp precision is asked for where the device has it, since the hash loses itself in mediump.
 - Written to compile as GLSL 330 and as GLSL ES 100, with no derivatives and no loops.
+
+### `inventory.odin`
+**What it does:** The containers that hold things, ported from the inventorizz package of unity-chem-sim in the parts the game needs now. An `Item` is a kind (only the dispenser so far) and an `arg`, which for a dispenser is the number of the compound in it, 0 for none; two stack only when both are the same, and a dispenser does not stack (`max_stack` 1). Items have tags (`Mountable`), and a container takes only items that have all the tags it asks for (`requires`): the wall asks for `Mountable`, the bag asks for none. A `Container` is up to 16 slots, can be locked, and has a `version` that goes up with every change, which the lab reads to know that the wall has changed. `add` puts as many as fit, on top of stacks and then into empty slots, and says how many; `remove` takes all or none; `take` and `put` work on one slot; `can_move` and `move` take the stack in one slot to a slot of another container, or the same, into an empty place or on top of the same item, and never swap; `transfer` moves wherever there is room, all or nothing, and leaves both as they were if it cannot. `serialize` and `deserialize` write and read containers by name as plain text, one line for each container and each stack.
+
+**Decisions:**
+- Weight limits and the four capacity kinds of inventorizz are not ported: no item has a weight yet. Slots and a lock are enough for the bag and the wall.
+- Tags and `requires` are the inventorizz rule that decides what a container takes, so that a wall takes things that can be mounted and a later container could take other things.
+- A move never swaps, as in inventorizz: dropping a dispenser on another does nothing, so nothing is lost by a slip of the thumb.
+- Reading the text is forgiving: a line that is wrong is skipped, and a container named in the text is emptied first so that the text is what it holds. Text without the header is not read, so a file that is not ours cannot empty the wall.
+- A move that puts a stack back where it came from counts as a success and changes nothing, not even the version.
+
+**Tests:** `inventory_test.odin`.
+
+### `inventory_test.odin`
+**What it does:** Tests the sizes; what a container takes by its tags; adding to empty slots, stopping when full, and not stacking identical dispensers; that adding to a full or locked container changes nothing, not even the version; removing all or nothing, from the first slots; `take` and `put` at their edges; moving into an empty place, between containers and within one, never swapping, from and to places that do not exist, and with either end locked; putting a stack back; transfers, which undo themselves; free room; and the text, which comes back as it was, leaves containers it does not name alone, skips every kind of bad line and keeps the rest, and is not read without its header.
+
+### `dragdrop.odin`
+**What it does:** One drag at a time, ported from the dragndrop package of unity-chem-sim as its controller, without the pointer and the pictures. `begin` starts a drag with a payload that the controller never looks at, `set_hover` says which target it is over (or none), and the target says whether it takes the payload, `end` says whether the drag ended over a target that takes it and which, and `cancel` ends it with nothing dropped. The owner makes the move.
+
+**Decisions:** The controller does not know about the pointer or the screen. Whoever draws the places to drop finds the one under the pointer and passes it in, which is what makes the controller the same on a phone, with a mouse, and in a test.
+
+**Tests:** `dragdrop_test.odin`.
+
+### `dragdrop_test.odin`
+**What it does:** Tests that it starts idle over nothing, that only one drag begins at a time, the hover with a rule, with no rule and with data, that hovering does nothing without a drag, ending over a place that takes it, over one that does not, over nothing and with no drag, and that a cancel leaves it ready for a new one.
+
+### `stock.odin`
+**What it does:** What the player has to put on the bottle wall: a `Stock` of the bag (12 slots) and the wall (a mount for each of the ten taps, taking only things that can be mounted). `wall_default` is the wall as the lab starts. `station_sync` sets the taps from the wall: a mounted dispenser with a compound in it that exists gives that compound, and every other mount, empty or with a dispenser with nothing in it, gives nothing; the faucet is left alone. `wall_look` gives the color of the bottle at each mount, from the liquid in its dispenser, and which mounts have a dispenser at all.
+
+**Decisions:**
+- The wall is the source of what the taps give, and the taps are never edited on their own, so the bottle that is drawn and the tap that works cannot disagree.
+- A dispenser with nothing in it is drawn grey and gives nothing. Filling one, a gauge on it, and buying them are for the shop, which is not built.
+- An unknown compound in a dispenser, from a damaged file, gives no tap.
+
+**Tests:** `stock_test.odin`.
+
+### `stock_test.odin`
+**What it does:** Tests the wall as the lab starts, that the taps follow what is mounted when stacks are moved, that a dispenser with nothing in it or an unknown compound gives nothing, that syncing clears what was there, a wall with fewer mounts than taps, that the taps at the start are those of the default wall, and the look of the wall and its colors.
+
+### `stock_ui.odin`
+**What it does:** The screen of the bag and the bottle wall, opened by the bag button, to the left of the book button, or B on a desktop. It is a panel over the lab, with a close button, like the book: the wall on the left as ten mounts in two rows of five, numbered, and the bag on the right as twelve slots in three rows of four. A slot that holds a dispenser shows a bottle in the color of its liquid with the name under it, or grey with "empty". A press on a dispenser starts a drag, a bottle follows the pointer, the slots that take it have a green edge, the one the pointer is over a brighter one, red if it does not take it, and the slot it came from is dimmed; letting go over a slot that takes it moves it there, and anywhere else cancels. The logic of the screen (`stock_update`, `stock_slot_box`, `stock_slot_at`) is plain procedures that `selftest_stock` runs without a window. While the screen is open the lab is paused, and when a stack has moved the room syncs the taps, makes the lab and its mesh again so that the bottles are where the dispensers are, and saves.
+
+**Decisions:**
+- Large tiles in two grids and not a free canvas, since the wall has ten mounts and a thumb has to hit one.
+- The pointer is the mouse, which raylib makes of the first finger on a phone, as for the book, so a drag is one finger.
+- A drag cannot start from a locked container, and a locked one takes nothing, though nothing locks either yet.
+- Moving a dispenser to the bag takes its bottle off the wall and its tap stops. Mounting a dispenser from the bag, wherever there is an empty mount, brings it back with its liquid.
+- The first pass has dispensers and the bag only. Buying them, filling them, a gauge, blueprints, placing other mountable things, and picking up workstations are not built, and the world has no placement yet beyond the ten mounts.
+
+### `stock_file.odin`
+**What it does:** Reads and writes `tv_stock.txt`, the bag and the wall as text from `inventory.serialize`, through the same file functions as the loadout. It is read when the lab is loaded and written when a stack moves and when the lab is left. A missing file is the first run, a damaged one gives back what could be read, and a failed write is a line on the error output.
+
+### `sink.odin`
+**What it does:** The soap by the sink, and washing hands. The soap is aimed at like the first aid cabinet, with the crosshair within reach and nothing nearer; with the hands empty the grab button begins washing, which takes 2.5 s, shows its progress as a line under the crosshair, and ends with the toast "hands washed".
+
+**Decisions:** Washing hands has no effect on anything. The owner said the soap is for washing hands, just because. If it should do something, that is for him to say.
+
+**Tests:** `sink_test.odin`.
+
+### `sink_test.odin`
+**What it does:** Tests that the soap is aimed at when the crosshair is on it within reach and not beside it, too far or looking away, that a vessel under the crosshair comes first, that it can be used only when aimed at with empty hands and not while washing, and that washing takes its time, ends once, and can be done again.
 
 ### `jet.odin`
 **What it does:** Turns the drops in the air into what the view draws. A drop's `seq` gives the order the drops were made in, oldest first (`jet_order`). Drops that follow one another in that order, are in the air and moving, go the same way, and are no further apart than the time between them allows (`jet_joined`) form a jet. `jet_build` makes a smooth curve through each (Catmull-Rom, with the ends carried on the way the line was going), as wide as the liquid in it (`jet_radius`: the width of a stream that would hold it, made 1.4 times thicker, kept between 5 mm and 2 cm) and drawn thinner at the ends. The newest end is joined to the mouth, the lip being poured from or the tip of a tap, while liquid has come out of it in the last 0.12 s and the newest drop is within 30 cm of it. Drops in no jet are marked loose, and the view draws them as beads. Nothing is allocated: a `Jet` has room for 193 points, which is 96 drops with a point between each pair and the mouth.
@@ -1198,8 +1259,9 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 ### `station.odin`
 - The bottle wall has four stocked taps and six empty ones, where it had ten liquids. The empty ones are locked and grey. The six bottles above them look empty, and what the wall is for after the shop comes is not decided.
 - The taps did not work for the first player to try them. They needed the held vessel within about 12 cm of the point under the nozzle, which at a normal standing place is a band of about 19 cm for the player to stand in, and the button did not light until it was pressed. A probe that stood a player at the counter and moved sideways found the band. The window is now half a metre and the stream is aimed into the vessel.
-- Every tap is unlocked, and nothing takes a cost for the liquid.
+- Every tap that has a dispenser is unlocked, and nothing takes a cost for the liquid.
 - Water was the first tap of the bottle wall, which is not what the design says. The wall has three taps now and the faucet of the sink has the water. The tests that took tap 0 for water, tap 2 for ethanol and tap 3 for sulfuric acid were moved to the new places. Twelve deliberate changes to the taps and the faucet were made one at a time, in a copy of the tree, and all twelve were caught: the faucet not found, not unlocked, giving the wrong liquid or not a tap, water back on the wall, the wall one tap short or its bottles coloured from the old numbers, and the faucet too low, off the basin or counted wrongly. The faucet has not been seen or used on a phone.
+- The taps used to be set from the number of the chemicals the lab starts with, and the empty ones had grey bottles. They are now set from the wall (`station_init` makes the wall as the lab starts and syncs from it, and `station_colors` is its colors), so that moving a dispenser moves the tap. The empty mounts are drawn as dark plates, not grey bottles.
 
 ### `spill.odin`
 - New, and not seen on a phone. Tested with 20 deliberate changes, one at a time, in a copy of the tree, and all 20 were caught in the end. One was not at first: the dissolve tests read the puddle after it had been removed, and a removed puddle's data stays in the array, so a puddle taken away too early passed. The tests now check that it is still counted. One change did not compile, because it left the math import unused, and was written again.
@@ -1212,6 +1274,36 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 
 ### `spill.fs`
 - None recorded yet. Validated with glslang for both GLSL versions, and the desktop version drew puddles in a headless run. How it looks, the lobes, the glint and the dissolve grain, has not been seen on a screen, and the GLES 2 version has not run on a phone.
+
+### `inventory.odin`
+- New. Tested with 34 deliberate changes to it, the drag and drop controller, the wall and the soap, one at a time, in a copy of the tree. Thirty-two were caught in the end. One was not at first, a wall read from slots past its end, because no test had a dispenser in such a slot, and a test was written. Two make no difference while the dispenser is the only kind of item: the check that a container takes an item when reading text, since every item is mountable and a kind that is not an item fails the stack limit as well, and an empty slot counted as holding a dispenser, since an empty slot is of no kind. Three did not compile at first and were written again.
+
+### `inventory_test.odin`
+- None recorded yet.
+
+### `dragdrop.odin`
+- New, and tested with the deliberate changes of `inventory.odin`.
+
+### `dragdrop_test.odin`
+- None recorded yet.
+
+### `stock.odin`
+- New. The look of the wall is not seen on a phone.
+
+### `stock_test.odin`
+- None recorded yet.
+
+### `stock_ui.odin`
+- New, and not seen on a phone or a screen. The layout and the drags are checked by `selftest_stock` (every slot and the close button on the screen, inside the panel, at least 44 pixels across and not on one another, on six screen shapes; picking up, carrying, dropping, not swapping, cancelling, locked containers and the taps following the wall). How it looks and how a drag feels under a thumb are for the owner to judge. A drag is one finger and the screen has no scrolling. Eight deliberate changes to it were each built and run through the self-test, in a copy of the tree, and all eight were caught: a drag starting on an empty slot, dropping without letting go, every slot taking everything, the target container misread, columns overlapping, the bag out of reach of the pointer, tiles too big, and a locked container that could be dragged from.
+
+### `stock_file.odin`
+- New. The file has not been written or read on a phone.
+
+### `sink.odin`
+- New, and not seen on a phone. The soap bottle's place beside the basin and its size are a first guess.
+
+### `sink_test.odin`
+- None recorded yet.
 
 ### `jet.odin`
 - New, and not seen on a phone or a screen. How the stream looks, its width, its shading and the highlight along it, is for the owner to judge. A throwaway build that made a scripted jet in front of the player drew it without a crash at 1600 by 720 and changed thousands of pixels against a control, which shows only that something was drawn.
@@ -1282,6 +1374,7 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - The toasts say what was made, `mixed` when nothing was made, and, for a spatter, what went wrong: a splash, fumes, a fire, or that water went into the acid. The heat events are shown by `room_heat_events`. None of it has been seen.
 - The burn was checked by counting pixels in a headless run, with a control that looked the other way. Looking at the incinerator, with the burn forced at frame 40 by the same procedure the grab button uses: the balloon was gone from the hand, the picture changed over most of the screen at the flash and kept changing for as long as the smoke rose, and looking away it changed by a few hundred pixels at most. How it looks and sounds on a phone has not been seen. There is no sound.
 - The arena button is the eighth button of the lab, and a press of it is index 7. Only the button list and the handler changed.
+- The room has the bag and the wall: the bag button (index 8 of the lab's buttons), the screen with its drag, and `room_stock_changed`, which syncs the taps, builds the lab again with `room_build_layout`, makes the mesh again and saves. The lab is built from the wall as it is, so loading it builds the same way. The soap is aimed at with the crosshair, washes hands with the grab button and says so with a toast. Not seen on a phone.
 - The room loads the shader of puddles and beads, steps the puddles every frame in real time, even with no drops in the air, and passes the camera view to the stream's drawing. Not seen on a phone.
 - The reactions menu became the book: the room keeps the page it is open at, the press goes to `book_press`, and the arrows turn pages on a desktop. The button list is the same size, and the old matrix button is now the book button at the same place. Not seen on a phone.
 - A first check that forced blasts, oven runs, and balloons into the scene put the forcing in the loading code and not the update, because the two have the same lines, so it never ran those paths. It was redone in the update, with a control run that had no drawing and no blasts: that had no red pixels on the screen where the run with the drawing had tens of thousands.

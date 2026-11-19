@@ -8,6 +8,8 @@ package main
 import "arena"
 import "carry"
 import "chemistry"
+import "dragdrop"
+import "inventory"
 import "lab"
 import "core:math"
 import "core:math/linalg"
@@ -85,6 +87,7 @@ selftest :: proc() -> int {
 	selftest_lab_equipment(&failures)
 	selftest_paint_screen(&failures)
 	selftest_book(&failures)
+	selftest_stock(&failures)
 
 	fmt.printf("state_hash=%#016x\n", tv_world_state_hash(w))
 	if failures == 0 {
@@ -704,4 +707,124 @@ selftest_book :: proc(failures: ^int) {
 	check(failures, book_press(0, centre(book_prev_button(w, h)), w, h) == 0 && book_press(last, centre(book_next_button(w, h)), w, h) == last, "back on the contents and next on the last page stay where they are")
 	check(failures, book_press(5, centre(book_tile(w, h, 9)), w, h) == 5, "a tile's place does nothing on a compound's page")
 	check(failures, book_press(5, {2, 2}, w, h) == 5 && book_press(0, {2, 2}, w, h) == 0, "a press on nothing turns nothing")
+}
+
+// Checks the screen of the bag and the bottle wall: on six screen shapes its close button and all 22 slots are on
+// the screen, inside the panel, none lies on another, and each slot is big enough to press with a thumb. Then the
+// drags, without a window: a stack is picked up, carried over a slot and dropped, and what may not move does not.
+selftest_stock :: proc(failures: ^int) {
+	check :: proc(failures: ^int, ok: bool, what: string) {
+		if ok {
+			fmt.printf("ok    %s\n", what)
+		} else {
+			fmt.printf("FAIL  %s\n", what)
+			failures^ += 1
+		}
+	}
+	screens := [?][2]f32{{1600, 720}, {1280, 720}, {1024, 600}, {800, 480}, {2400, 1080}, {1000, 1000}}
+	all_on, all_in, none_over, big_enough := true, true, true, true
+	for s in screens {
+		w, h := s.x, s.y
+		panel := book_panel(w, h)
+		boxes: [22 + 2][4]f32
+		n := 0
+		for c in 0 ..< 2 {
+			for slot in 0 ..< stock_slot_count(c) {
+				boxes[n] = stock_slot_box(w, h, c, slot)
+				n += 1
+			}
+		}
+		boxes[n] = book_close_button(w, h)
+		boxes[n + 1] = bag_button(w, h)
+		for b, i in boxes {
+			if i < n && b.z < 44 {
+				big_enough = false
+			}
+			if !box_on_screen(b, w, h) {
+				all_on = false
+			}
+			if i <= n && (b.x < panel.x || b.y < panel.y || b.x + b.z > panel.x + panel.z || b.y + b.w > panel.y + panel.w) {
+				all_in = false
+			}
+			for c, j in boxes {
+				if i < j && j <= n && boxes_overlap(b, c) {
+					none_over = false
+					fmt.printf("      %vx%v: box %d overlaps box %d\n", w, h, i, j)
+				}
+			}
+		}
+		// The bag button sits beside the book button and on none of the others of the lab.
+		bag := bag_button(w, h)
+		others := [7][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h), bench_button(w, h), pour_button(w, h), book_button(w, h), speed_button(w, h)}
+		for o in others {
+			if boxes_overlap(bag, o) {
+				none_over = false
+				fmt.printf("      %vx%v: the bag button overlaps another button\n", w, h)
+			}
+		}
+		if boxes_overlap(bag, arena_button(w, h)) {
+			none_over = false
+		}
+	}
+	check(failures, all_on, "every slot of the bag and the wall, and the close button, is on the screen, on every screen shape")
+	check(failures, all_in, "and inside the panel")
+	check(failures, none_over, "and none lies on another, nor does the bag button lie on another button")
+	check(failures, big_enough, "and every slot is at least 44 pixels across")
+
+	w, h := f32(1600), f32(720)
+	centre :: proc(w, h: f32, container, slot: int) -> [2]f32 {
+		b := stock_slot_box(w, h, container, slot)
+		return {b.x + b.z * 0.5, b.y + b.w * 0.5}
+	}
+	st: carry.Stock
+	carry.stock_init(&st)
+	ui: Stock_Ui
+	stock_ui_init(&ui)
+	ethanol := inventory.Item{.Dispenser, u16(chemistry.Id.Ethanol)}
+	acid := inventory.Item{.Dispenser, u16(chemistry.Id.Sulfuric_Acid)}
+
+	changed := stock_update(&ui, &st, centre(w, h, STOCK_WALL, 1), true, false, w, h)
+	check(failures, !changed && dragdrop.is_dragging(&ui.drag), "a press on a dispenser starts a drag and changes nothing")
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_BAG, 0), false, false, w, h)
+	check(failures, !changed && ui.drag.hover == STOCK_BAG * inventory.MAX_SLOTS && ui.drag.hover_ok, "carried over an empty slot of the bag, the drag is over it and it takes the dispenser")
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_BAG, 0), false, true, w, h)
+	check(failures, changed && !dragdrop.is_dragging(&ui.drag) && st.wall.slots[1].count == 0 && st.bag.slots[0] == (inventory.Slot{ethanol, 1}), "letting go over it moves the dispenser from the wall to the bag")
+
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_WALL, 5), true, false, w, h)
+	check(failures, !changed && !dragdrop.is_dragging(&ui.drag), "a press on an empty slot starts no drag")
+	stock_update(&ui, &st, centre(w, h, STOCK_WALL, 5), false, true, w, h)
+
+	stock_update(&ui, &st, centre(w, h, STOCK_BAG, 0), true, false, w, h)
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_WALL, 6), false, true, w, h)
+	check(failures, changed && st.bag.slots[0].count == 0 && st.wall.slots[6] == (inventory.Slot{ethanol, 1}), "from the bag to another mount of the wall")
+
+	stock_update(&ui, &st, centre(w, h, STOCK_WALL, 0), true, false, w, h)
+	stock_update(&ui, &st, centre(w, h, STOCK_WALL, 2), false, false, w, h)
+	check(failures, ui.drag.hover == STOCK_WALL * inventory.MAX_SLOTS + 2 && !ui.drag.hover_ok, "over a slot that holds another dispenser, the drag is over it and it does not take it")
+	acetic := st.wall.slots[0]
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_WALL, 2), false, true, w, h)
+	check(failures, !changed && st.wall.slots[0] == acetic && st.wall.slots[2].item == acid && !dragdrop.is_dragging(&ui.drag), "and letting go there changes nothing and swaps nothing")
+
+	stock_update(&ui, &st, centre(w, h, STOCK_WALL, 0), true, false, w, h)
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_WALL, 0), false, true, w, h)
+	check(failures, !changed && st.wall.slots[0] == acetic, "letting go on the slot it came from changes nothing")
+
+	stock_update(&ui, &st, centre(w, h, STOCK_WALL, 0), true, false, w, h)
+	changed = stock_update(&ui, &st, {2, 2}, false, true, w, h)
+	check(failures, !changed && st.wall.slots[0] == acetic && !dragdrop.is_dragging(&ui.drag), "letting go away from every slot cancels the drag")
+
+	st.bag.locked = true
+	stock_update(&ui, &st, centre(w, h, STOCK_WALL, 0), true, false, w, h)
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_BAG, 3), false, true, w, h)
+	check(failures, !changed && st.wall.slots[0] == acetic, "a locked bag takes nothing")
+	st.bag.locked = false
+	st.wall.locked = true
+	stock_update(&ui, &st, centre(w, h, STOCK_WALL, 0), true, false, w, h)
+	check(failures, !dragdrop.is_dragging(&ui.drag), "and nothing can be taken from a locked wall")
+	st.wall.locked = false
+
+	station: carry.Station
+	carry.station_init(&station)
+	carry.station_sync(&station, &st.wall)
+	check(failures, station.items[1].compound == 0 && station.items[6].compound == u16(chemistry.Id.Ethanol) && station.items[0].compound == u16(chemistry.Id.Acetic_Acid), "the taps follow the wall: the ethanol tap is now at mount 7")
 }

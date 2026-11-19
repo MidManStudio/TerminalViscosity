@@ -364,8 +364,50 @@ the_faucet_is_a_tap_over_the_basin_with_room_under_it_and_is_built :: proc(t: ^t
 	build(l)
 	before := l.box_count
 	add_sink(l)
-	testing.expect_value(t, l.box_count, before + 10) // the steel floor, four rims, the drain, and the four parts of the faucet
+	testing.expect_value(t, l.box_count, before + 13) // the steel floor, four rims, the drain, the four parts of the faucet and the three of the soap
 	for i in before ..< l.box_count {
 		testing.expect(t, l.boxes[i].size.y > 0, "every box has a height")
 	}
+}
+
+@(test)
+the_wall_has_a_dispenser_only_at_the_mounts_that_have_one :: proc(t: ^testing.T) {
+	l := new(Layout)
+	defer free(l)
+	build(l)
+	colors: [DISPENSER_COUNT][4]u8
+	all: [DISPENSER_COUNT]bool
+	for &p in all {
+		p = true
+	}
+	before := l.box_count
+	add_dispensers_with(l, colors, all)
+	testing.expect_value(t, l.box_count - before, 1 + 4 * DISPENSER_COUNT)
+	build(l)
+	before = l.box_count
+	none: [DISPENSER_COUNT]bool
+	add_dispensers_with(l, colors, none)
+	testing.expect_value(t, l.box_count - before, 1 + DISPENSER_COUNT) // the board, and a plate at each mount
+	build(l)
+	before = l.box_count
+	some := none
+	some[2], some[7] = true, true
+	add_dispensers_with(l, colors, some)
+	testing.expect_value(t, l.box_count - before, 1 + 2 * 4 + (DISPENSER_COUNT - 2))
+	build(l)
+	before = l.box_count
+	add_dispensers(l, colors)
+	testing.expect_value(t, l.box_count - before, 1 + 4 * DISPENSER_COUNT) // as before: all of them
+}
+
+@(test)
+the_soap_stands_on_the_counter_beside_the_basin_within_its_aim_box :: proc(t: ^testing.T) {
+	s := SOAP_AT
+	testing.expect_value(t, s.y, COUNTER_HEIGHT)
+	testing.expect(t, !in_rect(SINK_BASIN, s.x, s.z), "not in the basin")
+	testing.expect(t, s.z > SINK_BASIN.max_z && s.z < SINK_BASIN.max_z + 0.4, "just past the end of it")
+	testing.expect(t, s.x >= SINK_BASIN.min_x && s.x <= SINK_BASIN.max_x, "along the middle of it")
+	testing.expect(t, SOAP_AIM_LOW.x < s.x && s.x < SOAP_AIM_HIGH.x, "inside the aim box across")
+	testing.expect(t, SOAP_AIM_LOW.z < s.z && s.z < SOAP_AIM_HIGH.z, "and along")
+	testing.expect(t, SOAP_AIM_LOW.y <= s.y && SOAP_AIM_HIGH.y > s.y + 0.2, "and the box covers the bottle and its pump")
 }

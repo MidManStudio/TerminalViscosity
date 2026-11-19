@@ -31,7 +31,8 @@ BOX_FACES :: [6][3]lab.Vec3 {
 	{{0, 0, -1}, {0, 1, 0}, {1, 0, 0}},
 }
 
-lab_mesh_init :: proc(m: ^Lab_Mesh, l: ^lab.Layout, shader: rl.Shader, lit: bool) {
+// Makes the mesh of all the boxes of the layout and sends it to the graphics card.
+lab_mesh_build :: proc(l: ^lab.Layout) -> rl.Mesh {
 	verts := l.box_count * 24
 	mesh: rl.Mesh
 	mesh.vertexCount = i32(verts)
@@ -68,8 +69,18 @@ lab_mesh_init :: proc(m: ^Lab_Mesh, l: ^lab.Layout, shader: rl.Shader, lit: bool
 			mesh.indices[at + 3], mesh.indices[at + 4], mesh.indices[at + 5] = base, base + 2, base + 3
 		}
 	}
-	m.mesh = mesh
-	rl.UploadMesh(&m.mesh, false)
+	rl.UploadMesh(&mesh, false)
+	return mesh
+}
+
+// Changes the mesh to match the layout again, for when a part of the lab has been moved: the old one is let go.
+lab_mesh_rebuild :: proc(m: ^Lab_Mesh, l: ^lab.Layout) {
+	rl.UnloadMesh(m.mesh)
+	m.mesh = lab_mesh_build(l)
+}
+
+lab_mesh_init :: proc(m: ^Lab_Mesh, l: ^lab.Layout, shader: rl.Shader, lit: bool) {
+	m.mesh = lab_mesh_build(l)
 
 	m.material.shader = shader
 	m.material.maps = cast([^]rl.MaterialMap)rl_alloc(MAX_MATERIAL_MAPS * size_of(rl.MaterialMap))

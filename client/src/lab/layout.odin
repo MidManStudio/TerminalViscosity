@@ -93,11 +93,25 @@ dispenser_nozzle :: proc(i: int) -> Vec3 {
 // in the color of its liquid, an arm, and a nozzle. The colors are given so the
 // bottles match what comes out of them.
 add_dispensers :: proc(l: ^Layout, colors: [DISPENSER_COUNT][4]u8) {
+	all: [DISPENSER_COUNT]bool
+	for &p in all {
+		p = true
+	}
+	add_dispensers_with(l, colors, all)
+}
+
+// The same, with a dispenser only at the mounts that have one. A mount with none has a dark plate where it would
+// be, so that the player can see where one goes.
+add_dispensers_with :: proc(l: ^Layout, colors: [DISPENSER_COUNT][4]u8, present: [DISPENSER_COUNT]bool) {
 	x_wall := ROOM_W * 0.5
 	add_box(l, {x_wall - 0.04, 1.9, 0}, {0.08, 1.8, 9.7}, COLOR_COUNTER)
 	metal := [4]u8{70, 78, 90, 255}
 	for i in 0 ..< DISPENSER_COUNT {
 		z := dispenser_nozzle(i).z
+		if !present[i] {
+			add_box(l, {x_wall - 0.09, 2.15, z}, {0.02, 0.5, 0.2}, {44, 50, 60, 255}, 0, 0.3) // an empty mount
+			continue
+		}
 		add_box(l, {x_wall - 0.14, 2.15, z}, {0.2, 0.5, 0.2}, colors[i], 0.3, 0.5) // the bottle
 		add_box(l, {x_wall - 0.14, 2.43, z}, {0.12, 0.06, 0.12}, metal, 0, 0.5) // its cap
 		add_box(l, {(x_wall - 0.14 + DISPENSER_NOZZLE_X) * 0.5, 1.84, z}, {x_wall - 0.14 - DISPENSER_NOZZLE_X, 0.05, 0.05}, metal, 0, 0.5) // the arm

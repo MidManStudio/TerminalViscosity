@@ -438,6 +438,29 @@ first_aid_label :: proc(fa: ^carry.First_Aid, h: ^carry.Health) -> (label: cstri
 	return "healthy", false
 }
 
+// What the grab button says at the soap: wash while the hands are free, and wait while they are being washed.
+soap_label :: proc(sp: ^carry.Soap) -> (label: cstring, ready: bool) {
+	if sp.washing > 0 {
+		return "wait", false
+	}
+	return "wash", true
+}
+
+// The line about the soap, under the crosshair.
+draw_soap_readout :: proc(w, h: f32, sp: ^carry.Soap, line: int) {
+	buf: [64]u8
+	text: string
+	if sp.washing > 0 {
+		text = fmt.bprintf(buf[:63], "washing hands: %d%%", int(carry.soap_progress(sp) * 100))
+	} else {
+		text = fmt.bprintf(buf[:63], "soap: wash hands")
+	}
+	buf[len(text)] = 0
+	font := i32(max(f32(16), h * 0.032))
+	y := i32(h * 0.5) + i32(max(f32(30), h * 0.075)) + 24 + i32(line) * (font + font / 3)
+	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), y, font, {60, 230, 215, 255})
+}
+
 // The line about the first aid cabinet, under the crosshair.
 draw_first_aid_readout :: proc(w, h: f32, fa: ^carry.First_Aid, health: ^carry.Health, line: int) {
 	buf: [64]u8
