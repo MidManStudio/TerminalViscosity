@@ -35,6 +35,8 @@ Room :: struct {
 	meshes:      Prop_Meshes,
 	health:      carry.Health,
 	stream:      carry.Stream, // liquid in the air
+	spill_shader: rl.Shader, // what puddles and beads of liquid are drawn with
+	spill_ok:    bool,
 	station:     carry.Station, // the bottle wall
 	valve:       int, // the tap the held vessel is under, or -1
 	pour_target: int, // the vessel the crosshair is on while one is held, close enough to pour into, or -1
@@ -308,6 +310,8 @@ room_oven_effects :: proc(room: ^Room, dt: f32) {
 // needs, or fewer if they would take too long, and then the liquid runs a little
 // slower than real time instead of the frame being late.
 room_stream_step :: proc(room: ^Room, dt: f32) {
+	// Puddles go on lying, and dissolve, when nothing is in the air, and in real time.
+	carry.spill_step(&room.stream.spill, dt)
 	if room.stream.sim.count == 0 {
 		return
 	}
@@ -339,6 +343,7 @@ room_load :: proc(game: ^Game) -> rawptr {
 	carry.oven_init(&room.oven)
 	effects.init(&room.fx)
 	effects_view_init(&room.fx_view)
+	room.spill_shader, room.spill_ok = load_spill_shader()
 	balloon_shader, balloon_ok := load_balloon_shader()
 	filler_view_init(&room.filler_view, balloon_shader, balloon_ok)
 	loadout_view_init(&room.loadout_view, balloon_shader, balloon_ok)
@@ -370,6 +375,9 @@ room_unload :: proc(game: ^Game, state: rawptr) {
 	effects_view_unload(&room.fx_view)
 	prop_meshes_unload(&room.meshes)
 	carry.stream_destroy(&room.stream)
+	if room.spill_ok {
+		rl.UnloadShader(room.spill_shader)
+	}
 	lab_mesh_unload(&room.mesh)
 	free(room)
 }
@@ -641,7 +649,7 @@ room_draw :: proc(game: ^Game, state: rawptr) {
 		hands_draw(&room.meshes, room.mesh.material, placed[:count])
 	}
 	props_draw_caps(&room.meshes, room.mesh.material, &room.props)
-	stream_draw(&room.stream, carry.view_of(&room.player).eye)
+	stream_draw(&room.stream, carry.view_of(&room.player), room.spill_shader, room.spill_ok)
 	props_draw_liquids(&room.meshes, &room.props, camera.position)
 	filler_view_draw(&room.filler_view, &room.filler, camera.position)
 	room.loadout_view.paint.view.art_turn = room.paint_turn

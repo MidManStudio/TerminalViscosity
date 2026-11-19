@@ -8,6 +8,7 @@ package carry
 import "../chemistry"
 import "../lab"
 import "../mpm"
+import "core:math"
 
 STREAM_DX :: f32(0.03) // grid cell of the liquid simulation, in metres
 STREAM_DT :: f32(8e-4) // length of one substep
@@ -37,8 +38,11 @@ Stream :: struct {
 	next_seq:  u32,
 	mouth:     Vec3, // where liquid last came out: the lip of the vessel being poured, or the tip of a tap
 	mouth_age: f32, // seconds since then
+	puddled:   [MAX_STREAM]bool, // the particle has been lying still, and its liquid is in a puddle
 	origin:    Vec3, // where the corner of the box is in the world
 	air_floor: bool, // the box floor is above the real floor, so a particle reaching it falls out
+	spill:     Spill, // the liquid that has landed, for the view
+	layout:    ^lab.Layout, // the lab, to find the floor that liquid falls to
 }
 
 stream_init :: proc(st: ^Stream) {
@@ -60,6 +64,7 @@ stream_destroy :: proc(st: ^Stream) {
 stream_remove :: proc(st: ^Stream, i: int) {
 	last := st.sim.count - 1
 	st.compound[i], st.age[i], st.rest[i], st.ml[i], st.purity[i], st.heat[i], st.seq[i] = st.compound[last], st.age[last], st.rest[last], st.ml[last], st.purity[last], st.heat[last], st.seq[last]
+	st.puddled[i] = st.puddled[last]
 	mpm.sim_remove_particle(&st.sim, i)
 }
 
@@ -104,6 +109,8 @@ stream_spawn_ml :: proc(st: ^Stream, l: ^lab.Layout, world, vel: Vec3, compound:
 	st.compound[i], st.age[i], st.rest[i], st.ml[i], st.purity[i], st.heat[i] = compound, 0, 0, ml, purity, heat
 	st.seq[i] = st.next_seq
 	st.next_seq += 1
+	st.puddled[i] = false
+	st.layout = l
 	return true
 }
 
@@ -135,6 +142,18 @@ stream_step :: proc(st: ^Stream, steps: int) {
 		slow := p.v.x * p.v.x + p.v.y * p.v.y + p.v.z * p.v.z < REST_SPEED * REST_SPEED
 		st.rest[i] = slow ? st.rest[i] + elapsed : 0
 		fell_out := st.air_floor && p.x.y < 3.6 * STREAM_DX
+		floor_y := st.origin.y + 2.9 * STREAM_DX
+		if !st.puddled[i] && st.rest[i] >= PUDDLE_START {
+			// It has landed on a surface and lies there: its liquid is a puddle from now on.
+			st.puddled[i] = true
+			spill_add(&st.spill, {st.origin.x + p.x.x, floor_y, st.origin.z + p.x.z}, st.ml[i], st.compound[i])
+		}
+		if fell_out && st.layout != nil {
+			// It left the box over the edge of a counter, and lands on the floor below after the time it takes to fall.
+			x, z := st.origin.x + p.x.x, st.origin.z + p.x.z
+			ground := support_height(st.layout, x, z, STREAM_DX)
+			spill_add(&st.spill, {x, ground, z}, st.ml[i], st.compound[i], math.sqrt(2 * max(floor_y - ground, 0) / 9.8))
+		}
 		if fell_out || st.rest[i] > PUDDLE_TIME || st.age[i] > DROP_LIFE {
 			stream_remove(st, i)
 		}

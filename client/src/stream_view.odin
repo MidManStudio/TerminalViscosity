@@ -9,6 +9,7 @@ import "carry"
 import "chem"
 import "core:math"
 import "core:math/linalg"
+import rl "vendor:raylib"
 import rlgl "vendor:raylib/rlgl"
 
 DROP_RADIUS :: f32(0.012) // metres, the radius of a drop that stands for the usual 3.4 ml
@@ -16,33 +17,119 @@ JET_SIDES :: 6 // sides of the tube a jet is drawn as
 JET_ALPHA :: u8(225) // the liquid shows a little of what is behind it
 MAX_DRAW_VERTICES :: 7000 // the most the stream puts in one batch, which the smallest batch of raylib holds
 
-// Draws the liquid in the air. Drops that are part of a stream are drawn as one smooth tube through them,
-// joined to the lip or the tap that they came from, with a highlight along it and brighter edges, in the color
-// of the liquid. Drops that are alone, such as the spray of a splash, are drawn as small beads. All are drawn
-// by the batch renderer with the lighting worked out for each vertex, which is cheap enough for the few dozen
-// drops there are, and without back-face culling so that their winding does not matter.
-stream_draw :: proc(st: ^carry.Stream, eye: Vec3) {
-	if st.sim.count == 0 {
+// Draws the liquid in the air and what has landed. Puddles come first, flat on the surfaces they lie on, each a
+// quad that the spill shader makes into a wandering shape that dissolves away. Drops that are part of a stream
+// are drawn as one smooth tube through them, joined to the lip or the tap they came from, with a highlight along
+// it and brighter edges, in the color of the liquid. Drops that are alone, such as the spray of a splash, are
+// drawn as round beads, quads that face the camera and that the spill shader makes into lit balls. The tubes are
+// drawn by the batch renderer with the lighting worked out for each vertex, which is cheap enough for the few
+// dozen drops there are, and all of it without back-face culling so that winding does not matter.
+stream_draw :: proc(st: ^carry.Stream, view: carry.View, shader: rl.Shader, shader_ok: bool) {
+	if st.spill.count == 0 && st.sim.count == 0 {
 		return
 	}
-	jet: carry.Jet
-	carry.jet_build(st, &jet)
 	rlgl.DrawRenderBatchActive()
 	rlgl.DisableBackfaceCulling()
-	rlgl.Begin(rlgl.TRIANGLES)
-	verts := 0
-	for i in 0 ..< st.sim.count {
-		if jet.loose[i] && verts + 24 <= MAX_DRAW_VERTICES {
-			draw_bead(carry.stream_position(st, i), chem.compound_color(st.compound[i]), st.ml[i])
-			verts += 24
+	if st.spill.count > 0 {
+		draw_puddles(&st.spill, shader, shader_ok)
+	}
+	if st.sim.count > 0 {
+		jet: carry.Jet
+		carry.jet_build(st, &jet)
+		rlgl.Begin(rlgl.TRIANGLES)
+		verts := 0
+		for s in 0 ..< jet.strands {
+			draw_strand(st, &jet, s, view.eye, &verts)
+		}
+		if !shader_ok {
+			for i in 0 ..< st.sim.count {
+				if jet.loose[i] && !st.puddled[i] && verts + 24 <= MAX_DRAW_VERTICES {
+					draw_bead(carry.stream_position(st, i), chem.compound_color(st.compound[i]), st.ml[i])
+					verts += 24
+				}
+			}
+		}
+		rlgl.End()
+		rlgl.DrawRenderBatchActive()
+		if shader_ok {
+			draw_beads(st, &jet, view, shader)
 		}
 	}
-	for s in 0 ..< jet.strands {
-		draw_strand(st, &jet, s, eye, &verts)
+	rlgl.EnableBackfaceCulling()
+}
+
+// Draws every puddle that has landed as a flat quad, a little over its surface. The quad is a little wider than
+// the puddle, since the shader draws the edge wandering inside it. The alpha is how much of the puddle is left,
+// which the shader turns into the dissolve. Without the shader a puddle is a flat disc that only fades.
+draw_puddles :: proc(sp: ^carry.Spill, shader: rl.Shader, shader_ok: bool) {
+	if shader_ok {
+		rl.BeginShaderMode(shader)
+	}
+	rlgl.Begin(rlgl.TRIANGLES)
+	for i in 0 ..< sp.count {
+		p := sp.puddles[i]
+		if !carry.puddle_landed(p) {
+			continue
+		}
+		c := chem.compound_color(p.compound)
+		life := 1 - carry.puddle_dissolve(p)
+		a := u8(life * 255)
+		y := p.pos.y + 0.003
+		if shader_ok {
+			half := p.radius * 1.15
+			corners := [4][2]f32{{-1, -1}, {1, -1}, {1, 1}, {-1, 1}}
+			order := [6]int{0, 1, 2, 0, 2, 3}
+			for k in order {
+				rlgl.Color4ub(u8(c.r * 255), u8(c.g * 255), u8(c.b * 255), a)
+				rlgl.TexCoord2f(corners[k].x, corners[k].y)
+				rlgl.Vertex3f(p.pos.x + corners[k].x * half, y, p.pos.z + corners[k].y * half)
+			}
+		} else {
+			for k in 0 ..< 8 {
+				a0, a1 := f32(k) * math.PI / 4, f32(k + 1) * math.PI / 4
+				rlgl.Color4ub(u8(c.r * 230), u8(c.g * 230), u8(c.b * 230), u8(f32(a) * 0.7))
+				rlgl.Vertex3f(p.pos.x, y, p.pos.z)
+				rlgl.Vertex3f(p.pos.x + math.cos(a0) * p.radius, y, p.pos.z + math.sin(a0) * p.radius)
+				rlgl.Vertex3f(p.pos.x + math.cos(a1) * p.radius, y, p.pos.z + math.sin(a1) * p.radius)
+			}
+		}
 	}
 	rlgl.End()
 	rlgl.DrawRenderBatchActive()
-	rlgl.EnableBackfaceCulling()
+	if shader_ok {
+		rl.EndShaderMode()
+	}
+}
+
+// Draws the drops that are in no stream and have not landed as round beads: quads that face the camera, as wide as
+// the liquid they stand for.
+draw_beads :: proc(st: ^carry.Stream, jet: ^carry.Jet, view: carry.View, shader: rl.Shader) {
+	rl.BeginShaderMode(shader)
+	rlgl.Begin(rlgl.TRIANGLES)
+	corners := [4][2]f32{{-1, -1}, {1, -1}, {1, 1}, {-1, 1}}
+	order := [6]int{0, 1, 2, 0, 2, 3}
+	for i in 0 ..< st.sim.count {
+		if !jet.loose[i] || st.puddled[i] {
+			continue
+		}
+		p := carry.stream_position(st, i)
+		r := bead_radius(st.ml[i]) * 1.1
+		c := chem.compound_color(st.compound[i])
+		for k in order {
+			rlgl.Color4ub(u8(c.r * 255), u8(c.g * 255), u8(c.b * 255), JET_ALPHA)
+			rlgl.TexCoord2f(10 + corners[k].x, corners[k].y)
+			at := p + view.right * (corners[k].x * r) + view.up * (corners[k].y * r)
+			rlgl.Vertex3f(at.x, at.y, at.z)
+		}
+	}
+	rlgl.End()
+	rlgl.DrawRenderBatchActive()
+	rl.EndShaderMode()
+}
+
+// How wide a bead is for the liquid it stands for, in metres.
+bead_radius :: proc(ml: f32) -> f32 {
+	return clamp(DROP_RADIUS * math.pow(ml / carry.DROP_ML, 1.0 / 3.0), 0.006, 0.03)
 }
 
 // The color of a point of the liquid with the surface turned to `n`, seen from the direction `to_eye`: its own
@@ -64,7 +151,7 @@ jet_shade :: proc(base: [3]f32, n, to_eye: Vec3) -> (r, g, b, a: u8) {
 // A small bead for a drop that is not in a stream: a diamond, lighter on top and darker underneath, as wide as
 // the liquid it stands for.
 draw_bead :: proc(p: Vec3, c: [3]f32, ml: f32) {
-	r := clamp(DROP_RADIUS * math.pow(ml / carry.DROP_ML, 1.0 / 3.0), 0.006, 0.03)
+	r := bead_radius(ml)
 	top, bottom := Vec3{p.x, p.y + r, p.z}, Vec3{p.x, p.y - r, p.z}
 	ring := [4]Vec3{{p.x + r, p.y, p.z}, {p.x, p.y, p.z + r}, {p.x - r, p.y, p.z}, {p.x, p.y, p.z - r}}
 	shades := [4]f32{1.0, 0.92, 0.84, 0.95}

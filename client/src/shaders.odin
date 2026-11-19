@@ -102,6 +102,18 @@ load_balloon_shader :: proc() -> (shader: rl.Shader, ok: bool) {
 	return
 }
 
+// Loads the shader that puddles and beads of liquid are drawn with. `ok` is false if it fails to compile, and
+// they are then drawn as plain flat shapes with raylib's default shader.
+load_spill_shader :: proc() -> (shader: rl.Shader, ok: bool) {
+	vs := shader_path("spill.vs")
+	defer delete(vs)
+	fs := shader_path("spill.fs")
+	defer delete(fs)
+	shader = rl.LoadShader(vs, fs)
+	ok = rl.IsShaderValid(shader)
+	return
+}
+
 unload_heat_shader :: proc(fx: ^HeatShader) {
 	if fx.valid {
 		rl.UnloadShader(fx.shader)

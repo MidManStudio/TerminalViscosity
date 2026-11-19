@@ -267,7 +267,7 @@ A vial has the inside of a beaker.
 **Tests:** `carry_test.odin`, and `stations_test.odin` for the balloon.
 
 ### `stream.odin`
-**What it does:** Liquid in the air: poured from a vessel or let out of a tap, falling, splashing, and either landing in a vessel, which takes it, or on a surface, where it is wiped away after a moment. Each drop is a particle of the liquid simulation, standing for 3.4 ml, in a box of 44 cells of 3 cm that is set in the world when the first drop is made, with its floor on whatever is under it. `pour_flow` lets the held vessel pour, `pour_flow_to` does the same and aims at a given mouth when no vessel is under the crosshair, which is how a pour goes into the funnel of the fill station, `stream_step` runs the simulation, and `stream_capture` hands drops to the vessels they have fallen into. Each drop knows how much liquid it stands for. `stream_spawn_ml` makes one that stands for a given amount, and `stream_spawn` one that stands for 3.4 ml. `SPEEDS`, `flow_speed`, and `speed_cycle` are the speed setting. A drop is one compound, with its purity and its temperature in degrees: the temperature of the vessel it was poured from, and the room's from a tap. A pour from a mixture is made of drops drawn from it in the proportions of the mixture (`chemistry.mix_draw`), so what lands is what was poured. Each drop also has a `seq`, the order it was made in, which survives the swaps of removing one, and `stream_mouth` notes where liquid last came out (the lip of the vessel being poured, the tip of a tap, or the oven's spout), with `mouth_age` the seconds since, for the jets that `jet.odin` makes.
+**What it does:** Liquid in the air: poured from a vessel or let out of a tap, falling, splashing, and either landing in a vessel, which takes it, or on a surface, where it is wiped away after a moment. Each drop is a particle of the liquid simulation, standing for 3.4 ml, in a box of 44 cells of 3 cm that is set in the world when the first drop is made, with its floor on whatever is under it. `pour_flow` lets the held vessel pour, `pour_flow_to` does the same and aims at a given mouth when no vessel is under the crosshair, which is how a pour goes into the funnel of the fill station, `stream_step` runs the simulation, and `stream_capture` hands drops to the vessels they have fallen into. Each drop knows how much liquid it stands for. `stream_spawn_ml` makes one that stands for a given amount, and `stream_spawn` one that stands for 3.4 ml. `SPEEDS`, `flow_speed`, and `speed_cycle` are the speed setting. A drop is one compound, with its purity and its temperature in degrees: the temperature of the vessel it was poured from, and the room's from a tap. A pour from a mixture is made of drops drawn from it in the proportions of the mixture (`chemistry.mix_draw`), so what lands is what was poured. Each drop also has a `seq`, the order it was made in, which survives the swaps of removing one, and `stream_mouth` notes where liquid last came out (the lip of the vessel being poured, the tip of a tap, or the oven's spout), with `mouth_age` the seconds since, for the jets that `jet.odin` makes. A drop that has lain still for 0.08 s becomes liquid in a puddle (`spill.odin`), once, and so does a drop that falls out of the box over the edge of a counter, after the time it takes to fall to the floor under it. The stream keeps the puddles and the lab it was made in.
 
 **Decisions:**
 - The cell size comes from the first phone benchmark. At 4.3 microseconds a particle each step, a 3 cm cell lets a pour of about twenty drops in flight run in a few milliseconds, and a finer cell does not fit. A pour never has more than 96 drops in flight. When the stream is full, the liquid waits at the lip, so a pour slows down and the frame does not.
@@ -443,6 +443,36 @@ A vial lets out at most 25 ml a second, a narrow neck being slow.
 - A drawing that is half made when the game is stopped is not saved, only a finished one.
 - The path is the one the file functions of the client use, which on the phone is the private storage of the game.
 
+### `spill.odin`
+**What it does:** The puddles of the lab: liquid that has landed, kept for the view. A puddle has a place on a surface, how much liquid is in it, how wide it has spread, how long ago it landed, and a delay for liquid that is still falling to a floor far below. `spill_add` lets liquid land: it joins a puddle of the same liquid that it lands within 0.9 of the radius of, on the same surface (within 3 cm of height), which makes that puddle larger, moves its middle towards the drop by the drop's share, and makes it fresh again; otherwise it makes a new puddle, and when all 24 are in use it takes the one that has lain longest. `spill_step` spreads puddles that have landed towards their size, the circle that holds their liquid at a thickness of 1.2 mm (kept between 1.2 and 35 cm), and removes those that have dissolved. A puddle lies for 4 s and then dissolves over 2.5 s (`puddle_dissolve` is 0 to 1). The stream makes puddles when a drop has lain still for 0.08 s (`PUDDLE_START`), and when a drop falls out of its box over the edge of a counter.
+
+**Decisions:**
+- Puddles are only for looking at: nothing reads them, so they do not make anything slippery or hurt, and a chemical that is dangerous on the floor looks the same as water. What a spill of acid should do is for the owner to say.
+- A puddle spreads quickly, in a second or so, so that it looks like liquid spreading and not a disc that appears.
+- Liquid of one kind joins a puddle and different liquids lie side by side, so a mix is not made on the floor.
+- The time is real time, from the room, and not the substeps of the stream, which run slower than real time when a frame is late.
+- The numbers are first guesses: the thickness, the 4 s and 2.5 s, the 24, and the reach of joining.
+
+**Tests:** `spill_test.odin`.
+
+### `spill_test.odin`
+**What it does:** Tests the size of a puddle and its limits; a new puddle and its delay; joining, which needs the same liquid, the same surface and a place near, moves the middle by the share, and makes a puddle fresh without taking back its delay; taking the oldest when all are in use; spreading, which is only up to the size and not before landing, and not past it in one long step; the dissolve at the start, the middle and the end, counted from when it landed; the removal of one puddle keeping the others; and in the stream, that a drop lying on the island becomes one puddle once and that one falling off a counter lands on the floor after its fall, and that the flag of a drop that has landed goes with it when another is removed and is clear on a new drop.
+
+**Decisions:** The drops are made over the island in the middle of the lab for the one that lies, and over bare floor for the one that falls, because the box of the stream gets its floor from what is under the first drop.
+
+### `spill.vs`
+**What it does:** Vertex shader for puddles and beads. It passes the texture coordinate and color on, and the position, which is already in the world because the batch renderer makes the quads there, so the fragment shader can use it for the grain of the dissolve.
+
+**Decisions:** The GLES 2 version is kept in step with the desktop one by hand.
+
+### `spill.fs`
+**What it does:** Fragment shader for puddles and beads, which one file draws, switched by the texture coordinate: it runs from -1 to 1 across a quad, and a bead has 10 added to its x. A bead is a ball lit from above and to one side with a highlight and a brighter edge, cut off round. A puddle has an edge that wanders, by a pattern read off a circle so that it has no seam, and that is different where the puddle lies, since it is read from the world position. It is a little darker in the middle, with a bright line at the edge and a glint. Its alpha is how much of it is left: as that falls, specks are cut away, the edge first, by two layers of noise, and what remains is a little more see-through, until nothing is left. Both are cut round and soft at the edge.
+
+**Decisions:**
+- One shader for both, so that a puddle's alpha can be its life and a bead's its opacity without a uniform changing between them.
+- Noise is a hash of a sine, which needs no texture. The highp precision is asked for where the device has it, since the hash loses itself in mediump.
+- Written to compile as GLSL 330 and as GLSL ES 100, with no derivatives and no loops.
+
 ### `jet.odin`
 **What it does:** Turns the drops in the air into what the view draws. A drop's `seq` gives the order the drops were made in, oldest first (`jet_order`). Drops that follow one another in that order, are in the air and moving, go the same way, and are no further apart than the time between them allows (`jet_joined`) form a jet. `jet_build` makes a smooth curve through each (Catmull-Rom, with the ends carried on the way the line was going), as wide as the liquid in it (`jet_radius`: the width of a stream that would hold it, made 1.4 times thicker, kept between 5 mm and 2 cm) and drawn thinner at the ends. The newest end is joined to the mouth, the lip being poured from or the tip of a tap, while liquid has come out of it in the last 0.12 s and the newest drop is within 30 cm of it. Drops in no jet are marked loose, and the view draws them as beads. Nothing is allocated: a `Jet` has room for 193 points, which is 96 drops with a point between each pair and the mouth.
 
@@ -460,13 +490,15 @@ A vial lets out at most 25 ml a second, a narrow neck being slow.
 **Decisions:** The drops of a test are made 0.6 m over the island in the middle of the lab, because the box of the stream gets its floor from whatever is under the first drop, and a drop lower than the top of the island would be outside it.
 
 ### `stream_view.odin`
-**What it does:** Draws the liquid in the air. Drops that are part of a stream (`carry.jet_build`) are drawn as one smooth tube through them, six sided, joined to the lip or the tap they came from, in the color of the liquid, with the lighting worked out for each vertex: lighter on the side to the light, a sharp highlight along it, and a glow at the edges, where clear liquid is brighter. It is a little see-through. The oldest end is rounded off, and so is the newest when no liquid is coming out. Drops in no stream, such as the spray of a splash, are drawn as small diamonds as wide as the liquid they stand for. They are drawn by the batch renderer without back-face culling, so the winding does not matter.
+**What it does:** Draws the liquid in the air. Drops that are part of a stream (`carry.jet_build`) are drawn as one smooth tube through them, six sided, joined to the lip or the tap they came from, in the color of the liquid, with the lighting worked out for each vertex: lighter on the side to the light, a sharp highlight along it, and a glow at the edges, where clear liquid is brighter. It is a little see-through. The oldest end is rounded off, and so is the newest when no liquid is coming out. Liquid that has landed is drawn first, as flat puddles on the surface it lies on, each a quad that `spill.fs` makes into a wandering shape with a bright line at its edge and a glint, which spreads, joins the puddles near it, and after a few seconds dissolves away in specks, the edge first. Drops in no stream and not landed, such as the spray of a splash, are drawn as round beads: quads that face the camera, which `spill.fs` makes into lit balls with a highlight. The tubes are drawn by the batch renderer with no shader, and everything without back-face culling, so the winding does not matter. If the shader fails to compile, puddles are flat discs that only fade, and beads are small diamonds as before.
 
 **Decisions:**
 - A stream of 96 drops is at most 7000 vertices (a diamond is 24, a stretch of tube between two points 36, a cap 18), and the drawing stops at that, which the smallest batch of raylib holds. It is flushed before and after so that it does not mix with the rest.
 - The tube is turned along the curve by carrying one side direction forward and taking out what lies along the curve, so that it does not twist.
 - The eye is passed in for the highlight. The light is a fixed direction from above.
-- Water is not refracted, and nothing is drawn where the stream hits a surface. A screen-space surface, at half size, would be the next step, and has not been tried.
+- Water is not refracted, and no spray is made where the stream hits a surface: the beads are the drops the simulation has, and a splash made of many small drops that are not simulated has not been tried. A screen-space surface, at half size, would be another step.
+- Puddles and beads share one shader, switched by the texture coordinate, so that there is one file to keep in step for each GLSL version, and puddles can be one batch. A puddle's alpha is how much of it is left, so no uniform has to change between puddles.
+- A puddle is drawn 3 mm over its surface, and is not an obstacle. It is only for looking at.
 
 ### `effects_view.odin`
 **What it does:** Draws the effects and gives the room shaders the light of a blast. Two small textures, a soft dot and a ring, are made in code. Particles are squares that face the viewer. Smoke, liquid, and mist are blended over the picture first. Fire, sparks, and the rings are added to it afterwards, so they glow. Nothing writes depth, so particles overlap without cutting each other, and the room still hides them. `blast_light_set` gives a shader the place and reach of the flash, its color, and its brightness, which `lab.fs` and `vessel.fs` add to their lighting. With no blast going the reach and brightness are zero.
@@ -858,6 +890,7 @@ A sixth check, `selftest_book`, puts the book's close button, its three bar butt
 - The scene is copied to the screen with blending off. A translucent balloon leaves an alpha below 1 in the scene texture, and blending that onto black would darken the picture. This holds with and without the heat shader.
 - `load_vessel_shader` pairs the lab vertex shader with `vessel.fs`, so the vessels share the room's way of moving a mesh into the world.
 - `load_arena_shader` pairs the same vertex shader with `arena.fs`, and the coliseum falls back to raylib's default shader if it fails to compile.
+- `load_spill_shader` loads `spill.vs` and `spill.fs` for puddles and beads of liquid. If they fail to compile, puddles are flat discs that only fade and beads are small diamonds.
 
 ### `heat_distort.fs`
 **What it does:** A small screen-space ripple. There are two versions, `shaders/glsl330/` for desktop and `shaders/glsl100/` for OpenGL ES 2 and the browser.
@@ -1160,12 +1193,25 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 
 - None recorded yet for the vial and the equipment.
 - The drops got a `seq` and the stream a mouth, so that the view can join the drops of a pour into one stream and join it to the lip. The mouth is noted by the pour, by a tap and by the oven's spout, each only while liquid comes out, and tested with deliberate changes together with `jet.odin`.
+- Drops that lie still, or fall off a counter, now make puddles, so that the view does not draw them as dots. `spill_step` is not called by `stream_step`, because the room only steps the stream while drops are in the air, and puddles have to age when there are none. The room calls it every frame.
 
 ### `station.odin`
 - The bottle wall has four stocked taps and six empty ones, where it had ten liquids. The empty ones are locked and grey. The six bottles above them look empty, and what the wall is for after the shop comes is not decided.
 - The taps did not work for the first player to try them. They needed the held vessel within about 12 cm of the point under the nozzle, which at a normal standing place is a band of about 19 cm for the player to stand in, and the button did not light until it was pressed. A probe that stood a player at the counter and moved sideways found the band. The window is now half a metre and the stream is aimed into the vessel.
 - Every tap is unlocked, and nothing takes a cost for the liquid.
 - Water was the first tap of the bottle wall, which is not what the design says. The wall has three taps now and the faucet of the sink has the water. The tests that took tap 0 for water, tap 2 for ethanol and tap 3 for sulfuric acid were moved to the new places. Twelve deliberate changes to the taps and the faucet were made one at a time, in a copy of the tree, and all twelve were caught: the faucet not found, not unlocked, giving the wrong liquid or not a tap, water back on the wall, the wall one tap short or its bottles coloured from the old numbers, and the faucet too low, off the basin or counted wrongly. The faucet has not been seen or used on a phone.
+
+### `spill.odin`
+- New, and not seen on a phone. Tested with 20 deliberate changes, one at a time, in a copy of the tree, and all 20 were caught in the end. One was not at first: the dissolve tests read the puddle after it had been removed, and a removed puddle's data stays in the array, so a puddle taken away too early passed. The tests now check that it is still counted. One change did not compile, because it left the math import unused, and was written again.
+
+### `spill_test.odin`
+- None recorded yet. The first drafts passed at once, which the deliberate changes then checked.
+
+### `spill.vs`
+- None recorded yet. Validated with glslang for both GLSL versions, and compiled and run on desktop OpenGL under a virtual display. The GLES 2 version has not run on a phone.
+
+### `spill.fs`
+- None recorded yet. Validated with glslang for both GLSL versions, and the desktop version drew puddles in a headless run. How it looks, the lobes, the glint and the dissolve grain, has not been seen on a screen, and the GLES 2 version has not run on a phone.
 
 ### `jet.odin`
 - New, and not seen on a phone or a screen. How the stream looks, its width, its shading and the highlight along it, is for the owner to judge. A throwaway build that made a scripted jet in front of the player drew it without a crash at 1600 by 720 and changed thousands of pixels against a control, which shows only that something was drawn.
@@ -1175,6 +1221,7 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - The first drafts of the tests made drops at 1.0 m, which is under the top of the island in the middle of the lab, so none could be made. They are made 0.6 m higher.
 
 ### `stream_view.odin`
+- The owner looked at the jets and said the pouring was much better but the spill was all dots. Drops lying on a surface were still drawn as diamonds. They are now puddles that spread, join and dissolve, and the spray is round beads. Not seen on a phone. A throwaway headless build with a scripted spill showed the puddle land in view, stay for about four seconds and be gone about nine seconds after it landed, by counting changed pixels against a control. The first run showed nothing, for two reasons that were mine: the scripted spill landed below the bottom of the picture, and the puddles never aged, because the room only steps the stream while drops are in the air. The room now steps the spill every frame.
 - The diamonds were replaced by the jets after the owner said the pouring looked bad and the liquid sitting in vessels did not. Not seen on a phone or a screen: the shading numbers (0.55 and 0.45 for the light, 24 and 0.6 for the highlight, 3 and 0.3 for the edges, 225 of 255 for how solid it is) are first guesses.
 - The frame cost of the tube has not been measured on a phone. It is at most 7000 vertices and no allocation, and the simulation has not changed.
 
@@ -1235,6 +1282,7 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - The toasts say what was made, `mixed` when nothing was made, and, for a spatter, what went wrong: a splash, fumes, a fire, or that water went into the acid. The heat events are shown by `room_heat_events`. None of it has been seen.
 - The burn was checked by counting pixels in a headless run, with a control that looked the other way. Looking at the incinerator, with the burn forced at frame 40 by the same procedure the grab button uses: the balloon was gone from the hand, the picture changed over most of the screen at the flash and kept changing for as long as the smoke rose, and looking away it changed by a few hundred pixels at most. How it looks and sounds on a phone has not been seen. There is no sound.
 - The arena button is the eighth button of the lab, and a press of it is index 7. Only the button list and the handler changed.
+- The room loads the shader of puddles and beads, steps the puddles every frame in real time, even with no drops in the air, and passes the camera view to the stream's drawing. Not seen on a phone.
 - The reactions menu became the book: the room keeps the page it is open at, the press goes to `book_press`, and the arrows turn pages on a desktop. The button list is the same size, and the old matrix button is now the book button at the same place. Not seen on a phone.
 - A first check that forced blasts, oven runs, and balloons into the scene put the forcing in the loading code and not the update, because the two have the same lines, so it never ran those paths. It was redone in the update, with a control run that had no drawing and no blasts: that had no red pixels on the screen where the run with the drawing had tens of thousands.
 - The carrying, hands, crosshair, and grab button were written and compile for desktop and Android, but have not been seen running on a phone yet.
