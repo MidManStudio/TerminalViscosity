@@ -135,6 +135,10 @@ jobs:
           glslangValidator -S frag client/shaders/glsl100/vessel.fs
           glslangValidator -S frag client/shaders/glsl330/arena.fs
           glslangValidator -S frag client/shaders/glsl100/arena.fs
+          glslangValidator -S vert client/shaders/glsl330/spill.vs
+          glslangValidator -S frag client/shaders/glsl330/spill.fs
+          glslangValidator -S vert client/shaders/glsl100/spill.vs
+          glslangValidator -S frag client/shaders/glsl100/spill.fs
       - name: Build client and run selftest
         run: bash scripts/build_client.sh --selftest
       - name: Headless render, lab room
