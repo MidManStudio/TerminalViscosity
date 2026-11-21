@@ -709,7 +709,7 @@ selftest_book :: proc(failures: ^int) {
 	check(failures, book_press(5, {2, 2}, w, h) == 5 && book_press(0, {2, 2}, w, h) == 0, "a press on nothing turns nothing")
 }
 
-// Checks the screen of the bag and the bottle wall: on six screen shapes its close button and all 22 slots are on
+// Checks the screen of the bag, the bottle wall and the bench: on six screen shapes its close button and all 28 slots are on
 // the screen, inside the panel, none lies on another, and each slot is big enough to press with a thumb. Then the
 // drags, without a window: a stack is picked up, carried over a slot and dropped, and what may not move does not.
 selftest_stock :: proc(failures: ^int) {
@@ -726,9 +726,9 @@ selftest_stock :: proc(failures: ^int) {
 	for s in screens {
 		w, h := s.x, s.y
 		panel := book_panel(w, h)
-		boxes: [22 + 2][4]f32
+		boxes: [28 + 3][4]f32
 		n := 0
-		for c in 0 ..< 2 {
+		for c in 0 ..< STOCK_CONTAINERS {
 			for slot in 0 ..< stock_slot_count(c) {
 				boxes[n] = stock_slot_box(w, h, c, slot)
 				n += 1
@@ -736,6 +736,7 @@ selftest_stock :: proc(failures: ^int) {
 		}
 		boxes[n] = book_close_button(w, h)
 		boxes[n + 1] = bag_button(w, h)
+		boxes[n + 2] = pickup_button(w, h)
 		for b, i in boxes {
 			if i < n && b.z < 44 {
 				big_enough = false
@@ -755,20 +756,25 @@ selftest_stock :: proc(failures: ^int) {
 		}
 		// The bag button sits beside the book button and on none of the others of the lab.
 		bag := bag_button(w, h)
+		pick := pickup_button(w, h)
 		others := [7][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h), bench_button(w, h), pour_button(w, h), book_button(w, h), speed_button(w, h)}
 		for o in others {
 			if boxes_overlap(bag, o) {
 				none_over = false
 				fmt.printf("      %vx%v: the bag button overlaps another button\n", w, h)
 			}
+			if boxes_overlap(pick, o) {
+				none_over = false
+				fmt.printf("      %vx%v: the pick up button overlaps another button\n", w, h)
+			}
 		}
-		if boxes_overlap(bag, arena_button(w, h)) {
+		if boxes_overlap(bag, arena_button(w, h)) || boxes_overlap(pick, arena_button(w, h)) || boxes_overlap(pick, bag) || !box_on_screen(pick, w, h) {
 			none_over = false
 		}
 	}
-	check(failures, all_on, "every slot of the bag and the wall, and the close button, is on the screen, on every screen shape")
+	check(failures, all_on, "every slot of the bag, the wall and the bench, and the close button, is on the screen, on every screen shape")
 	check(failures, all_in, "and inside the panel")
-	check(failures, none_over, "and none lies on another, nor does the bag button lie on another button")
+	check(failures, none_over, "and none lies on another, nor do the bag and pick up buttons lie on another button")
 	check(failures, big_enough, "and every slot is at least 44 pixels across")
 
 	w, h := f32(1600), f32(720)
@@ -827,4 +833,26 @@ selftest_stock :: proc(failures: ^int) {
 	carry.station_init(&station)
 	carry.station_sync(&station, &st.wall)
 	check(failures, station.items[1].compound == 0 && station.items[6].compound == u16(chemistry.Id.Ethanol) && station.items[0].compound == u16(chemistry.Id.Acetic_Acid), "the taps follow the wall: the ethanol tap is now at mount 7")
+
+	// The bench: the stations move the same way, and only where they can stand.
+	check(failures, carry.bench_of(&st.bench) == lab.default_bench(), "the bench starts with the hot plate, the ice bath and the scale where they have always been")
+	stock_update(&ui, &st, centre(w, h, STOCK_BENCH, 1), true, false, w, h)
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_BAG, 2), false, true, w, h)
+	check(failures, changed && st.bench.slots[1].count == 0 && st.bag.slots[2].item.kind == .Hot_Plate && carry.bench_of(&st.bench).spots[1] == .None, "the hot plate dragged from the bench to the bag leaves its spot bare")
+	stock_update(&ui, &st, centre(w, h, STOCK_BAG, 2), true, false, w, h)
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_BENCH, 5), false, true, w, h)
+	check(failures, changed && carry.bench_of(&st.bench).spots[5] == .Hot_Plate && st.bag.slots[2].count == 0, "and dragged from the bag to spot 6 of the bench it stands there")
+	stock_update(&ui, &st, centre(w, h, STOCK_WALL, 0), true, false, w, h)
+	stock_update(&ui, &st, centre(w, h, STOCK_BENCH, 0), false, false, w, h)
+	check(failures, ui.drag.hover == STOCK_BENCH * inventory.MAX_SLOTS && !ui.drag.hover_ok, "a dispenser over a spot of the bench is not taken")
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_BENCH, 0), false, true, w, h)
+	check(failures, !changed && st.wall.slots[0] == acetic, "and letting go there changes nothing")
+	stock_update(&ui, &st, centre(w, h, STOCK_BENCH, 2), true, false, w, h)
+	stock_update(&ui, &st, centre(w, h, STOCK_WALL, 8), false, false, w, h)
+	check(failures, !ui.drag.hover_ok, "a station over a mount of the wall is not taken")
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_WALL, 8), false, true, w, h)
+	check(failures, !changed && carry.bench_of(&st.bench).spots[2] == .Ice_Bath, "and letting go there leaves it on the bench")
+	stock_update(&ui, &st, centre(w, h, STOCK_BENCH, 2), true, false, w, h)
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_BENCH, 3), false, true, w, h)
+	check(failures, changed && carry.bench_of(&st.bench).spots[3] == .Ice_Bath && carry.bench_of(&st.bench).spots[2] == .None, "a station moves along the bench to another spot")
 }

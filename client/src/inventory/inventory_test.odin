@@ -360,3 +360,62 @@ the_text_has_a_line_for_each_container_and_each_stack_and_none_for_an_empty_slot
 	testing.expect_value(t, slot_lines, 2)
 	testing.expect_value(t, container_lines, 2)
 }
+
+bench_row :: proc() -> Container {
+	c: Container
+	container_init(&c, 3, {.Benchable})
+	return c
+}
+
+@(test)
+stations_go_on_a_bench_and_not_on_a_wall_and_dispensers_the_other_way_round :: proc(t: ^testing.T) {
+	w, row, b := wall(), bench_row(), bag()
+	for kind in ([3]Item_Kind{.Hot_Plate, .Ice_Bath, .Scale}) {
+		item := Item{kind, 0}
+		testing.expect(t, accepts(&row, item), "the bench takes it")
+		testing.expect(t, accepts(&b, item), "so does the bag")
+		testing.expect(t, !accepts(&w, item), "the wall does not")
+		testing.expect_value(t, def_of(kind).max_stack, u16(1))
+	}
+	testing.expect(t, !accepts(&row, ethanol), "the bench does not take a dispenser")
+	testing.expect(t, accepts(&w, ethanol), "and the wall does")
+}
+
+@(test)
+move_to_puts_a_stack_in_the_first_slot_that_takes_it :: proc(t: ^testing.T) {
+	row, b := bench_row(), bag()
+	put(&row, 1, Item{.Scale, 0}, 1)
+	b.slots[0] = {ethanol, 1} // the first slot of the bag is taken
+	testing.expect(t, move_to(&row, 1, &b), "to the bag")
+	testing.expect_value(t, b.slots[1], Slot{{.Scale, 0}, 1})
+	testing.expect_value(t, row.slots[1], Slot{})
+	testing.expect(t, !move_to(&row, 1, &b), "an empty slot has nothing to move")
+	testing.expect(t, !move_to(&row, -1, &b), "nor one that does not exist")
+	testing.expect(t, !move_to(&row, 3, &b), "nor one past the end")
+}
+
+@(test)
+move_to_does_nothing_when_nowhere_takes_the_stack :: proc(t: ^testing.T) {
+	row, w := bench_row(), wall()
+	put(&row, 0, Item{.Scale, 0}, 1)
+	testing.expect(t, !move_to(&row, 0, &w), "the wall takes no station")
+	testing.expect_value(t, row.slots[0], Slot{{.Scale, 0}, 1})
+	b := bag()
+	add(&b, ethanol, 3)
+	testing.expect(t, !move_to(&row, 0, &b), "the bag is full")
+	testing.expect_value(t, row.slots[0], Slot{{.Scale, 0}, 1})
+	row.locked = true
+	b2 := bag()
+	testing.expect(t, !move_to(&row, 0, &b2), "the bench is locked")
+}
+
+@(test)
+text_with_a_station_in_a_wall_is_skipped :: proc(t: ^testing.T) {
+	w := wall()
+	names := [1]string{"wall"}
+	cs := [1]^Container{&w}
+	text := "tvstock 1\ncontainer wall 4\nslot 0 2 0 1\nslot 1 1 3 1\n" // a hot plate, then a dispenser
+	testing.expect_value(t, deserialize(text, names[:], cs[:]), 1)
+	testing.expect_value(t, w.slots[0], Slot{})
+	testing.expect_value(t, w.slots[1], Slot{ethanol, 1})
+}

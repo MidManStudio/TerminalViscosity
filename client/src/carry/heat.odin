@@ -18,14 +18,15 @@ HEAT_NOTICE :: f32(0.25) // a liquid this far from the room, as a share of the w
 // What a vessel is standing on: 1 for the hot plate, -1 for the ice bath, and 0 for
 // anything else. It counts as standing on one when its middle is inside the
 // footprint and it is resting near the counter top.
-station_heat :: proc(pr: Prop) -> f32 {
+station_heat :: proc(pr: Prop, bench: ^lab.Bench = nil) -> f32 {
 	if pr.pos.y > lab.STATION_RESTING {
 		return 0
 	}
-	if lab.in_rect(lab.HOT_PLATE, pr.pos.x, pr.pos.z) {
+	b := bench != nil ? bench^ : lab.default_bench()
+	if lab.on_bench(&b, .Hot_Plate, pr.pos.x, pr.pos.z) {
 		return 1
 	}
-	if lab.in_rect(lab.ICE_BATH, pr.pos.x, pr.pos.z) {
+	if lab.on_bench(&b, .Ice_Bath, pr.pos.x, pr.pos.z) {
 		return -1
 	}
 	return 0
@@ -40,11 +41,11 @@ move_toward :: proc(value, target, step: f32) -> f32 {
 
 // The temperature a vessel is heading for: a station's while it stands on one and is not held,
 // and the room otherwise.
-target_c :: proc(pr: Prop, held: bool) -> f32 {
+target_c :: proc(pr: Prop, held: bool, bench: ^lab.Bench = nil) -> f32 {
 	if held {
 		return ROOM_C
 	}
-	switch station_heat(pr) {
+	switch station_heat(pr, bench) {
 	case 1:
 		return HOT_PLATE_C
 	case -1:
@@ -67,7 +68,7 @@ props_heat_update :: proc(props: ^Props, dt: f32, eye: Vec3, events: ^[MAX_EVENT
 			pr.mix = {}
 			continue
 		}
-		target := target_c(pr^, i == props.held)
+		target := target_c(pr^, i == props.held, &props.bench)
 		rate := target == ROOM_C ? COOL_RATE_C : HEAT_RATE_C
 		before := pr.mix.heat_c
 		pr.mix.heat_c = move_toward(pr.mix.heat_c, target, rate * dt)
@@ -75,7 +76,7 @@ props_heat_update :: proc(props: ^Props, dt: f32, eye: Vec3, events: ^[MAX_EVENT
 			continue
 		}
 		d := kind_dims(pr.kind)
-		r := react(&pr.mix, {pr.pos.x, pr.pos.y + d.height * 0.5, pr.pos.z}, eye, station_of(pr^), 0, main_of(&pr.mix))
+		r := react(&pr.mix, {pr.pos.x, pr.pos.y + d.height * 0.5, pr.pos.z}, eye, station_of(pr^, &props.bench), 0, main_of(&pr.mix))
 		if r.kind == .Nothing {
 			continue
 		}

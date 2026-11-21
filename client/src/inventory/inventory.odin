@@ -15,17 +15,21 @@ STOCK_FILE_HEADER :: "tvstock 1"
 Item_Kind :: enum u8 {
 	None      = 0,
 	Dispenser = 1,
+	Hot_Plate = 2, // the stations of the bench
+	Ice_Bath  = 3,
+	Scale     = 4,
 }
 
 // What an item is. A container takes only the items that have all the tags it asks for.
 Tag :: enum u8 {
 	Mountable, // can be mounted on a wall
+	Benchable, // can stand on the bench
 }
 
 Tags :: bit_set[Tag;u8]
 
 // One kind of thing. `arg` is what makes two of the same kind different: for a dispenser it is the number of the
-// compound that it is filled with, 0 for none. Items stack only when kind and arg are both the same.
+// compound that it is filled with, 0 for none, and for a station it is 0. Items stack only when kind and arg are both the same.
 Item :: struct {
 	kind: Item_Kind,
 	arg:  u16,
@@ -45,6 +49,8 @@ def_of :: proc(kind: Item_Kind) -> Item_Def {
 	#partial switch kind {
 	case .Dispenser:
 		return {1, {.Mountable}}
+	case .Hot_Plate, .Ice_Bath, .Scale:
+		return {1, {.Benchable}}
 	}
 	return {0, {}}
 }
@@ -303,4 +309,24 @@ deserialize :: proc(text: string, names: []string, containers: []^Container) -> 
 		count += 1
 	}
 	return
+}
+
+// Moves the stack in slot `i` of `from` to the first slot of `to` that takes it: on top of the same item if there
+// is room, and otherwise into an empty one. All of it, or nothing, and false if `to` has no place for it.
+move_to :: proc(from: ^Container, i: int, to: ^Container) -> bool {
+	if i < 0 || i >= from.size || from.slots[i].count == 0 {
+		return false
+	}
+	for pass in 0 ..< 2 {
+		for j in 0 ..< to.size {
+			filled := to.slots[j].count > 0
+			if filled != (pass == 0) {
+				continue
+			}
+			if can_move(from, i, to, j) && int(from.slots[i].count) <= room_in(to, j, from.slots[i].item) {
+				return move(from, i, to, j)
+			}
+		}
+	}
+	return false
 }

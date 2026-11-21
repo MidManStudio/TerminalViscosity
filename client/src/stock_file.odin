@@ -20,8 +20,8 @@ stock_load :: proc(s: ^carry.Stock) {
 		return
 	}
 	defer delete(text)
-	names := [2]string{"bag", "wall"}
-	containers := [2]^inventory.Container{&s.bag, &s.wall}
+	names := [3]string{"bag", "wall", "bench"}
+	containers := [3]^inventory.Container{&s.bag, &s.wall, &s.bench}
 	n := inventory.deserialize(text, names[:], containers[:])
 	fmt.eprintfln("stock: %d stacks read from %v", n, STOCK_FILE)
 }
@@ -29,8 +29,8 @@ stock_load :: proc(s: ^carry.Stock) {
 // Writes the bag and the wall, so they are as they were next time. It is called when a stack is moved and when
 // the lab is left, and a failure to write is a line of text and nothing more.
 stock_save :: proc(s: ^carry.Stock) {
-	names := [2]string{"bag", "wall"}
-	containers := [2]^inventory.Container{&s.bag, &s.wall}
+	names := [3]string{"bag", "wall", "bench"}
+	containers := [3]^inventory.Container{&s.bag, &s.wall, &s.bench}
 	text := inventory.serialize(names[:], containers[:])
 	defer delete(text)
 	io := raylib_files()

@@ -76,11 +76,11 @@ shelf_bottle :: proc(i: int) -> Vec3 {
 	return {SHELF_X0 + step * f32(col), heights[row] + 0.015, SHELF_Z}
 }
 
-// Adds the boxes of the vial racks, the first aid cabinet and the scale.
+// Adds the boxes of the vial racks and the first aid cabinet. The scale is on the bench, with the other stations
+// that can be moved.
 add_equipment :: proc(l: ^Layout) {
 	add_vial_racks(l)
 	add_first_aid(l)
-	add_scale(l)
 }
 
 add_vial_racks :: proc(l: ^Layout) {
@@ -117,16 +117,6 @@ add_first_aid :: proc(l: ^Layout) {
 	add_box(l, {c.x, c.y + 0.06, front + 0.004}, {0.07, 0.26, 0.006}, red, 0.6) // and up
 	add_box(l, {c.x - 0.1, c.y - 0.2, front + 0.008}, {0.03, 0.03, 0.016}, COLOR_METAL, 0, 0.5) // the left handle
 	add_box(l, {c.x + 0.1, c.y - 0.2, front + 0.008}, {0.03, 0.03, 0.016}, COLOR_METAL, 0, 0.5) // the right handle
-}
-
-add_scale :: proc(l: ^Layout) {
-	p := SCALE_PLATE
-	cx, cz := (p.min_x + p.max_x) * 0.5, (p.min_z + p.max_z) * 0.5
-	w, d := p.max_x - p.min_x, p.max_z - p.min_z
-	add_box(l, {cx, COUNTER_HEIGHT + 0.02, cz}, {w + 0.1, 0.04, d + 0.1}, COLOR_METAL, 0, 0.5) // the body
-	add_box(l, {cx, COUNTER_HEIGHT + SCALE_PLATE_TOP - 0.015, cz}, {w, 0.03, d}, COLOR_STEEL, 0, 0.9) // the plate
-	add_box(l, {cx, COUNTER_HEIGHT + 0.025, p.max_z + 0.055}, {0.2, 0.035, 0.012}, {16, 20, 26, 255}, 0, 0.6) // the display, on the front
-	add_box(l, {cx, COUNTER_HEIGHT + 0.025, p.max_z + 0.062}, {0.14, 0.012, 0.004}, COLOR_GLOW, 1) // and its light
 }
 
 // Adds the two shelves of the south wall: a board and two brackets under each, and a bottle

@@ -40,8 +40,8 @@ the_equipment_adds_its_boxes_and_no_collider :: proc(t: ^testing.T) {
 	colliders := l.collider_count
 	before := l.box_count
 	add_equipment(l)
-	// Four racks of two plates, four posts and twelve holes, the cabinet's six boxes, the scale's four.
-	testing.expect_value(t, l.box_count, before + 4 * (2 + 4 + 12) + 6 + 4)
+	// Four racks of two plates, four posts and twelve holes, and the cabinet's six boxes. The scale is on the bench.
+	testing.expect_value(t, l.box_count, before + 4 * (2 + 4 + 12) + 6)
 	testing.expect_value(t, l.collider_count, colliders)
 	before = l.box_count
 	colors := [][4]u8{{255, 0, 0, 255}, {0, 255, 0, 255}, {0, 0, 255, 255}}

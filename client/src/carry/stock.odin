@@ -11,11 +11,13 @@ import "../lab"
 
 BAG_SIZE :: 12 // slots in the bag
 
-// What the player has to put on the bottle wall: the bag, and the wall, which has a mount for each tap. A
-// dispenser mounted on the wall gives its tap, and one in the bag does not.
+// What the player has to put in the lab: the bag, the wall, which has a mount for each tap, and the bench, which has
+// a spot for each station that can be moved. A dispenser mounted on the wall gives its tap, and one in the bag does
+// not. A station on the bench is where its heat, cold or weighing is, and one in the bag is nowhere.
 Stock :: struct {
-	bag:  inventory.Container,
-	wall: inventory.Container,
+	bag:   inventory.Container,
+	wall:  inventory.Container,
+	bench: inventory.Container,
 }
 
 // The wall as the lab starts: a dispenser of each of the chemicals the lab starts with except water, from the
@@ -30,6 +32,7 @@ wall_default :: proc(wall: ^inventory.Container) {
 stock_init :: proc(s: ^Stock) {
 	inventory.container_init(&s.bag, BAG_SIZE)
 	wall_default(&s.wall)
+	bench_default(&s.bench)
 }
 
 // Sets the taps of the bottle wall from what is mounted on it: a dispenser with a compound in it gives that
@@ -63,4 +66,90 @@ wall_look :: proc(wall: ^inventory.Container) -> (colors: [lab.DISPENSER_COUNT][
 		}
 	}
 	return
+}
+
+// What a station of the bench is as an item, and the other way round. A kind of nothing is no item.
+bench_item :: proc(kind: lab.Bench_Kind) -> inventory.Item {
+	switch kind {
+	case .Hot_Plate:
+		return {.Hot_Plate, 0}
+	case .Ice_Bath:
+		return {.Ice_Bath, 0}
+	case .Scale:
+		return {.Scale, 0}
+	case .None:
+	}
+	return {}
+}
+
+item_bench_kind :: proc(item: inventory.Item) -> lab.Bench_Kind {
+	#partial switch item.kind {
+	case .Hot_Plate:
+		return .Hot_Plate
+	case .Ice_Bath:
+		return .Ice_Bath
+	case .Scale:
+		return .Scale
+	}
+	return .None
+}
+
+// The bench as the lab starts, as a container: the stations where `lab.default_bench` has them. It takes only
+// things that can stand on a bench.
+bench_default :: proc(bench: ^inventory.Container) {
+	inventory.container_init(bench, lab.BENCH_SPOTS, {.Benchable})
+	d := lab.default_bench()
+	for i in 0 ..< lab.BENCH_SPOTS {
+		if d.spots[i] != .None {
+			inventory.put(bench, i, bench_item(d.spots[i]), 1)
+		}
+	}
+}
+
+// Which station stands at each spot of the bench, from what is in its container.
+bench_of :: proc(bench: ^inventory.Container) -> (b: lab.Bench) {
+	for i in 0 ..< min(bench.size, lab.BENCH_SPOTS) {
+		if bench.slots[i].count > 0 {
+			b.spots[i] = item_bench_kind(bench.slots[i].item)
+		}
+	}
+	return
+}
+
+// The station that the crosshair is on, within reach, with nothing nearer, and which spot it stands at.
+Pickup :: struct {
+	spot:  int,
+	aimed: bool,
+}
+
+pickup_aim :: proc(pk: ^Pickup, props: ^Props, v: View) -> bool {
+	nearest := f32(0)
+	pk.aimed = false
+	for i in 0 ..< lab.BENCH_SPOTS {
+		kind := props.bench.spots[i]
+		if kind == .None {
+			continue
+		}
+		low, high := lab.bench_aim_box(kind, i)
+		if t, hit := ray_box(v.eye, -v.back, low, high); hit && t <= REACH && (!pk.aimed || t < nearest) {
+			nearest, pk.spot, pk.aimed = t, i, true
+		}
+	}
+	pk.aimed = pk.aimed && props.aimed == -1
+	return pk.aimed
+}
+
+// Whether the pick up button would take the station now: it is aimed at, the hands are empty, and the bag has
+// room for it.
+pickup_ready :: proc(pk: ^Pickup, props: ^Props, bag: ^inventory.Container) -> bool {
+	return pk.aimed && props.held == -1 && inventory.free_room(bag, bench_item(props.bench.spots[pk.spot])) > 0
+}
+
+// Takes the station at the aimed spot off the bench and into the bag. False, with nothing changed, if there is no
+// station there or the bag has no room.
+pickup_take :: proc(pk: ^Pickup, s: ^Stock) -> bool {
+	if !pk.aimed || pk.spot < 0 || pk.spot >= s.bench.size || s.bench.slots[pk.spot].count == 0 {
+		return false
+	}
+	return inventory.move_to(&s.bench, pk.spot, &s.bag)
 }

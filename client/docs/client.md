@@ -157,6 +157,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 **Tests:** `apparatus_test.odin`.
 
 `add_apparatus` also builds the racks, the cabinet and the scale, by calling `add_equipment`.
+**Moved stations:** `add_apparatus` is `add_apparatus_with` with the default bench, and the hot plate and the ice bath are built by `add_bench` (`bench.odin`), where the bench has them, and not here.
 
 ### `player.odin`
 **What it does:** A walker seen from above, with a view direction. `player_look` turns the view and keeps the pitch within about 70 degrees. `player_move` walks for one frame at a stick position, and `blocked` says whether a spot is inside a counter or outside the room.
@@ -236,6 +237,7 @@ Commands, run from the repository root with `cargo` and `odin` on the path:
 **Decisions:**
 - The holes draw a vial in by what is under it and not by a drop of the hand's height, so a vial let go of in the air over a hole falls into it.
 - A vial in the row behind another is reached after the front one is taken out, as in a real rack, so the vials start in the near row.
+**Moved stations:** The props carry the `bench`, which says where the stations stand, and `standing_height` and `settle` take it, so that the plate of a scale lifts the vessels on it where the scale is now.
 
 ### `vessels.odin`
 **What it does:** What a vessel is and what it holds. It has the outline of the space inside each kind of vessel and the maths that follows from that outline: how much a vessel holds, how high a given amount stands, and the height of the surface in the world. The compounds are in `chemistry`.
@@ -265,6 +267,7 @@ A vial has the inside of a beaker.
 - Gases that a reaction makes are kept in the container like the liquids, as millilitres, because phases are not modelled.
 
 **Tests:** `carry_test.odin`, and `stations_test.odin` for the balloon.
+**Moved stations:** `station_of` takes the bench the same way, and `apply_droplet` gives it the bench of the props, so a drop reacts by the station the vessel stands on now.
 
 ### `stream.odin`
 **What it does:** Liquid in the air: poured from a vessel or let out of a tap, falling, splashing, and either landing in a vessel, which takes it, or on a surface, where it is wiped away after a moment. Each drop is a particle of the liquid simulation, standing for 3.4 ml, in a box of 44 cells of 3 cm that is set in the world when the first drop is made, with its floor on whatever is under it. `pour_flow` lets the held vessel pour, `pour_flow_to` does the same and aims at a given mouth when no vessel is under the crosshair, which is how a pour goes into the funnel of the fill station, `stream_step` runs the simulation, and `stream_capture` hands drops to the vessels they have fallen into. Each drop knows how much liquid it stands for. `stream_spawn_ml` makes one that stands for a given amount, and `stream_spawn` one that stands for 3.4 ml. `SPEEDS`, `flow_speed`, and `speed_cycle` are the speed setting. A drop is one compound, with its purity and its temperature in degrees: the temperature of the vessel it was poured from, and the room's from a tap. A pour from a mixture is made of drops drawn from it in the proportions of the mixture (`chemistry.mix_draw`), so what lands is what was poured. Each drop also has a `seq`, the order it was made in, which survives the swaps of removing one, and `stream_mouth` notes where liquid last came out (the lip of the vessel being poured, the tip of a tap, or the oven's spout), with `mouth_age` the seconds since, for the jets that `jet.odin` makes. A drop that has lain still for 0.08 s becomes liquid in a puddle (`spill.odin`), once, and so does a drop that falls out of the box over the edge of a counter, after the time it takes to fall to the floor under it. The stream keeps the puddles and the lab it was made in.
@@ -402,6 +405,7 @@ A vial lets out at most 25 ml a second, a narrow neck being slow.
 - How a temperature is blended on mixing, and what a reaction at a temperature does, is in `mixing.odin` and `chemistry.odin`.
 
 **Tests:** `heat_test.odin`.
+**Moved stations:** Where the hot plate and the ice bath are comes from the bench of the props, and not from fixed places. `station_heat` and `target_c` take a bench, and with none they use the default, which is where the stations have always been. `props_heat_update` gives them the bench of the props.
 
 ### `loadout.odin`
 **What it does:** The balloons the player has made, in package `carry`. An `Item` is a tied balloon: the whole mixture it carries, with its temperature in degrees, and an id for its drawing, which is 0 until there is drawing. A `Loadout` has the balloon in the hand, the one in the paint station, and a balloon for each hook of the rack, which is the set that goes into a match. `loadout_aim` finds what the crosshair is on among the fill clamp, the paint station, the hooks, and the incinerator, the nearest within reach and nearer than any vessel. `balloon_action` says what the grab button would do there: tie off and take at the fill clamp, clamp or take at the paint station, paint at the tablet when a balloon is clamped, store or take at a hook, burn at the incinerator when a balloon is in the hand, and nothing while a vessel is held. Painting moves nothing, the scene opens the drawing screen. `balloon_do` does it, and `filler_tie` is what happens at the fill clamp: the balloon is tied, its contents go to the hand, and the station makes another. `loadout_presets` gives what the server needs of each balloon on a hook: the mixture, the compound there is most of and the volume, which are all the wire carries until it carries a mixture, and the drawing id.
@@ -484,9 +488,11 @@ A vial lets out at most 25 ml a second, a narrow neck being slow.
 - A move that puts a stack back where it came from counts as a success and changes nothing, not even the version.
 
 **Tests:** `inventory_test.odin`.
+**Stations:** The hot plate, the ice bath and the scale are items that have the tag `Benchable`, and a dispenser has `Mountable`, so a wall takes dispensers and a bench takes stations and neither takes the other. `move_to` moves a stack to the first slot of another container that takes it, all of it or nothing.
 
 ### `inventory_test.odin`
 **What it does:** Tests the sizes; what a container takes by its tags; adding to empty slots, stopping when full, and not stacking identical dispensers; that adding to a full or locked container changes nothing, not even the version; removing all or nothing, from the first slots; `take` and `put` at their edges; moving into an empty place, between containers and within one, never swapping, from and to places that do not exist, and with either end locked; putting a stack back; transfers, which undo themselves; free room; and the text, which comes back as it was, leaves containers it does not name alone, skips every kind of bad line and keeps the rest, and is not read without its header.
+The station tests check that stations go on a bench and in the bag and not on a wall, and a dispenser the other way round, that `move_to` takes the first place that takes the stack and does nothing when none does, and that text that puts a station on a wall is skipped.
 
 ### `dragdrop.odin`
 **What it does:** One drag at a time, ported from the dragndrop package of unity-chem-sim as its controller, without the pointer and the pictures. `begin` starts a drag with a payload that the controller never looks at, `set_hover` says which target it is over (or none), and the target says whether it takes the payload, `end` says whether the drag ended over a target that takes it and which, and `cancel` ends it with nothing dropped. The owner makes the move.
@@ -507,9 +513,13 @@ A vial lets out at most 25 ml a second, a narrow neck being slow.
 - An unknown compound in a dispenser, from a damaged file, gives no tap.
 
 **Tests:** `stock_test.odin`.
+**The bench:** `Stock` also has the bench, a container of six spots that takes only things that can stand on a bench. `bench_default` is the three stations where they have always been, `bench_of` says which kind stands at each spot, and `bench_item` and `item_bench_kind` turn kinds into items and back. `Pickup` is the station that the crosshair is on, within reach and with nothing nearer (`pickup_aim`); `pickup_ready` says whether picking it up would work (hands empty, room in the bag); `pickup_take` moves it from the bench into the bag, all of it or nothing.
+
+The tests of the bench are in `stock_test.odin`.
 
 ### `stock_test.odin`
 **What it does:** Tests the wall as the lab starts, that the taps follow what is mounted when stacks are moved, that a dispenser with nothing in it or an unknown compound gives nothing, that syncing clears what was there, a wall with fewer mounts than taps, that the taps at the start are those of the default wall, and the look of the wall and its colors.
+The bench tests check that it starts as the lab always had it, that a station moved between the bench and the bag changes where it stands, that a dispenser does not go on the bench nor a station on the wall, the two-way mapping of kinds and items, a bench with fewer spots than the lab, aiming at a station and not at a bare spot, the readiness of the pick up button, and picking up with room and with the bag full.
 
 ### `stock_ui.odin`
 **What it does:** The screen of the bag and the bottle wall, opened by the bag button, to the left of the book button, or B on a desktop. It is a panel over the lab, with a close button, like the book: the wall on the left as ten mounts in two rows of five, numbered, and the bag on the right as twelve slots in three rows of four. A slot that holds a dispenser shows a bottle in the color of its liquid with the name under it, or grey with "empty". A press on a dispenser starts a drag, a bottle follows the pointer, the slots that take it have a green edge, the one the pointer is over a brighter one, red if it does not take it, and the slot it came from is dimmed; letting go over a slot that takes it moves it there, and anywhere else cancels. The logic of the screen (`stock_update`, `stock_slot_box`, `stock_slot_at`) is plain procedures that `selftest_stock` runs without a window. While the screen is open the lab is paused, and when a stack has moved the room syncs the taps, makes the lab and its mesh again so that the bottles are where the dispensers are, and saves.
@@ -520,6 +530,7 @@ A vial lets out at most 25 ml a second, a narrow neck being slow.
 - A drag cannot start from a locked container, and a locked one takes nothing, though nothing locks either yet.
 - Moving a dispenser to the bag takes its bottle off the wall and its tap stops. Mounting a dispenser from the bag, wherever there is an empty mount, brings it back with its liquid.
 - The first pass has dispensers and the bag only. Buying them, filling them, a gauge, blueprints, placing other mountable things, and picking up workstations are not built, and the world has no placement yet beyond the ten mounts.
+**The bench:** The screen has the bench as a row of six spots under the wall, numbered, and the same drag moves a station between the bench and the bag, or along the bench; a dispenser is not taken by a spot and a station is not taken by a mount. A station is a flat block in its color with its name under it. The pick up button is above the pour button: it is always there, bright when a station is aimed at with empty hands and there is room in the bag, and dim when not. A change to the bench counts as a change, which makes the room put the stations where they now are.
 
 ### `stock_file.odin`
 **What it does:** Reads and writes `tv_stock.txt`, the bag and the wall as text from `inventory.serialize`, through the same file functions as the loadout. It is read when the lab is loaded and written when a stack moves and when the lab is left. A missing file is the first run, a damaged one gives back what could be read, and a failed write is a line on the error output.
@@ -533,6 +544,20 @@ A vial lets out at most 25 ml a second, a narrow neck being slow.
 
 ### `sink_test.odin`
 **What it does:** Tests that the soap is aimed at when the crosshair is on it within reach and not beside it, too far or looking away, that a vessel under the crosshair comes first, that it can be used only when aimed at with empty hands and not while washing, and that washing takes its time, ends once, and can be done again.
+
+### `bench.odin`
+**What it does:** The bench: a row of six spots along the back of the north counter, at 4.5, 3.5, 2.4, 1.2, 0 and -1.2 m (x, west to east), where the stations that can be moved stand: the hot plate, the ice bath and the scale. A `Bench` says which kind stands at each spot, none for a bare one. `bench_rect` is the footprint of a kind at a spot, which is what the middle of a vessel has to be inside to be on it, `on_bench` asks whether a point is on a station of a kind anywhere on the bench, and `bench_aim_box` is the box the crosshair is tested against. `add_bench` builds each station where it stands and a dark plate at each bare spot, so that the player can see where one goes. `default_bench` has the three where they have always been, at spots 2, 3 and 5, and `HOT_PLATE`, `ICE_BATH` and `SCALE_PLATE` still give those places, for the default and for the tests. The builders of the three stations were moved here from `apparatus.odin` and `equipment.odin`, and take their place as an argument.
+
+**Decisions:**
+- Spots and not free placement. A spot is a place that is known to be clear of the hood, the oven and the rest, so a station can never be put inside something. Free placement needs a cursor in the world, a ghost, and a test against every fixed thing in the lab, which is for later.
+- The spots are 1 to 1.3 m apart, wide enough for the widest station with a hand between, and clear of the hood to the west and the oven to the east.
+- Only the three stations that stand on the counter with a footprint can be moved. The sink, the hood, the filler, the oven, the paint station and the first aid cabinet are plumbed, walled in or fixed, and are not on the bench.
+- Where a station stands is one fact, the bench, and the heat, the weighing, the height of the scale's plate, the aim and the geometry all read it. Nothing keeps a copy of a place.
+
+**Tests:** `bench_test.odin`.
+
+### `bench_test.odin`
+**What it does:** Tests that the bench as the lab starts has the stations where they have always stood, that the spots are apart and clear of the hood and the oven, that a spot that does not exist is the nearest one, that a point is on a station only where one of that kind stands and a moved one leaves its old place bare, the aim boxes, the boxes `add_bench` makes for the default bench, a bare one and a full one, and that a station is built over its spot.
 
 ### `jet.odin`
 **What it does:** Turns the drops in the air into what the view draws. A drop's `seq` gives the order the drops were made in, oldest first (`jet_order`). Drops that follow one another in that order, are in the air and moving, go the same way, and are no further apart than the time between them allows (`jet_joined`) form a jet. `jet_build` makes a smooth curve through each (Catmull-Rom, with the ends carried on the way the line was going), as wide as the liquid in it (`jet_radius`: the width of a stream that would hold it, made 1.4 times thicker, kept between 5 mm and 2 cm) and drawn thinner at the ends. The newest end is joined to the mouth, the lip being poured from or the tip of a tap, while liquid has come out of it in the last 0.12 s and the newest drop is within 30 cm of it. Drops in no jet are marked loose, and the view draws them as beads. Nothing is allocated: a `Jet` has room for 193 points, which is 96 drops with a point between each pair and the mouth.
@@ -646,6 +671,7 @@ The defaults are the 23 vessels of the island and 24 vials in the racks, and the
 
 ### `heat_test.odin`
 **What it does:** A vessel on the hot plate warms by 6 degrees a second and reaches 160, and one in the ice bath cools the same way to 0, and neither goes past the ends. A hot vessel taken off cools slowly, 2 degrees a second, and a cold one warms the same way, and both stop at the room. An empty vessel, a held vessel, one in the air, and one beside the plate take no heat. The words and the numbers for the temperature change at the right places, down to a degree that is warm and one that is hot. A hot drop warms the liquid it joins by its share, and into an empty vessel it is the drop's own temperature. A vessel that is heated into the window of a reaction reacts, once, when it gets there, and one that is heated past a limit spatters, and one past a burst breaks. A pour carries the temperature of the vessel it comes from, and a hot or cold drop that lands in a vessel or the funnel brings its temperature and keeps its purity, and the drop that is left in the stream after one is taken out is the right one. A balloon takes the temperature of what is poured in, and loses it when it bursts. The liquid in the balloon of the fill station drifts back to the room at the rate of a vessel and stops there, one with nothing in it has no temperature, and tied balloons cool in the hand, the clamp, and on the hooks. Vessels stand on the station of the pages that the plate and the bath stand for.
+The moved-station tests check that a plate and a bath that are moved heat and cool at their new places and not at the old, that the station a vessel is on follows the bench, and that a drop is judged by the station where the vessel is now.
 
 ### `loadout_test.odin`
 **What it does:** The crosshair finds the paint station, each hook, and the fill clamp, and nothing when looking away, when too far, or when a vessel is nearer. The grab button does the right thing at each place: tie and take only with empty hands and something in the balloon, clamp or take at the paint station, store or take at a hook, and nothing when the place or the hand is the wrong way round, or when a vessel is held. Tying takes what is in the balloon, the whole mixture with its temperature, and the station makes another. A stretched balloon is let down to full, and the excess is told. Balloons move between the hand, the paint station, and the hooks with every field unchanged. Burning needs a balloon in the hand and no vessel, takes the hand and nothing else, leaves the paint station and the hooks as they were, and does nothing with empty hands. The presets are what the server needs of the hooks that hold a balloon, with the volume rounded and held to a full balloon, and with the balloon in the hand and the paint station left out. Each test was checked by changing the code on purpose and seeing it fail.
@@ -769,6 +795,7 @@ The walking stick floats: its middle is where the finger landed, kept far enough
 - With the book open nothing in the lab moves and only the book's own buttons work, and the finger that closes it is ignored until it lifts, so closing the book does not start the player walking. The page it is open at is kept in the room, so it opens again where it was closed. Vessels that heat into a reaction while the player looks on show it as a drop would (`room_heat_events`).
 
 The room holds a `First_Aid` and a `Scale`, and `room_reset` clears both. They are aimed at every frame after the vessels are. The grab button heals at the cabinet and zeroes the scale, in the order of the cases after the one for hands full, so a vessel in the hands, or a balloon in them, comes first. The shelves are added with colours from `carry.shelf_colors()`. A line under the crosshair says whether the cabinet is ready, or how long it has to rest, and what is on the scale. The buttons are read with `button_pressed` and `button_held`, so the pour button can stay held while the jump button is pressed.
+**Moved stations:** The pick up button takes the station that the crosshair is on into the bag and puts the stations where the bench now has them: the props get the bench, the lab and its mesh are built again with the stations at their spots, and the scale starts at nothing. The bench is saved with the bag and the wall.
 
 ### `scene_bench.odin`
 **What it does:** The sim-test scene. It times the liquid simulation on the device itself at five particle counts, six substeps a frame so the screen keeps moving, and shows for each count the grid nodes used and the cost. When it finishes it fits a straight line through the smallest and largest count to get the cost of one particle and the fixed cost of the grid, and shows what that allows for a 125 ml splash at 1, 2, and 3 cm cells. A tap runs it again, and the button in the top right corner goes back to the lab room.
@@ -809,6 +836,7 @@ The room holds a `First_Aid` and a `Scale`, and `room_reset` clears both. They a
 - The speed button is lit when the speed is not normal, and says which. The grab button becomes the run button when the crosshair is on the oven with nothing held and a run could start.
 
 `draw_station_button` is the grab button for equipment: bright when it would do something and dim when not, so the player knows before pressing. At the cabinet it says heal, wait or healthy, and at the scale zero. `draw_first_aid_readout` and `draw_scale_readout` draw the lines under the crosshair, the scale's in grams with one decimal and marked when it has been zeroed.
+**Moved stations:** `draw_pickup_readout` says that a station can be picked up, on the line under the crosshair, for a station that the crosshair is on.
 
 ### `mix_label.odin`
 **What it does:** `mix_label` says what a mixture is called in a line of text, written into a buffer the caller owns so that nothing is allocated and it can be used every frame: "empty", the name of the one compound, or the name of the compound there is most of followed by how many others there are, such as "Water +2". The readouts under the crosshair use it for vessels, the balloon, the tank, the paint station, the hooks and the balloon in the hand.
@@ -1136,6 +1164,7 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - The numbers are first guesses, to be moved by looking at the room. `MAX_BOXES` was 256 and is 640: the room with all of this takes about half of it, and one mesh holds 2730 boxes.
 
 **Tests:** `equipment_test.odin`.
+**Moved stations:** The scale is built by `add_bench`, where the bench has it, and not by `add_equipment`.
 
 ### `equipment_test.odin`
 **What it does:** The racks, the cabinet, the scale and the shelves add the boxes they should and no collider. The whole room, shelves and all, fits the list with room to spare and one mesh. Every rack stands wholly on a counter and clear of the other racks, the sink, hood, oven, hot plate, ice bath, incinerator, filler and scale. The scale stands on the north counter clear of the rest, with an aim box that takes in its plate. The cabinet is flat against the north wall over the counter, away from the hood, with a red cross on the side toward the room. The shelves are against the south wall over the counter, clear of the filler and the loadout rack, with bottles a hand apart inside the boards, and each bottle is a coloured body, a narrower cap on top and a pale narrower label on the side toward the room, on its board. The racks face the player who stands at their counter, and the first six holes are the row nearer them. The documented numbers are pinned.
@@ -1151,11 +1180,13 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - The scale used to read only the first vessel it found on the plate, so a second one put beside it was not weighed. It adds them all now. The plate is 40 by 35 cm, so two or three vessels fit side by side. A vessel that is not resting on the plate, such as one in the air, does not count.
 
 **Tests:** `gear_test.odin`.
+**Moved stations:** The scale is where the bench has it. A vessel is on the plate when it stands on the plate of a scale anywhere on the bench, and aiming at the scale is aiming at any scale on the bench. With two scales on the bench the one tare is shared, and the room clears it whenever the stock changes.
 
 ### `gear_test.odin`
 **What it does:** The racks: every hole is over a counter, evenly spaced, and a vial is narrower than the spacing; the vials start empty, in the near row of each rack, each exactly in a hole and standing on the lower plate, and stay there when the system runs. A vial let go near a free hole is drawn into it and falls in; it is not drawn into a hole that is taken, one more than 3 cm away, or by something that is not a vial, and a vial that is held is not; two vials over one hole do not share it, and the nearer of two free holes is the one; a vial taken out of a rack by aiming at it and put back goes into the same hole, and the crosshair is on the vial it looks to be on along a full row. The scale: a vessel on the plate stands on it, 7 cm up, and is weighed with its glass for each kind; one beside the plate, held or in the air is not; several on the plate are weighed together, a held or a faraway one is left out of the sum, a stale copy past the end of the list is not on it, and zeroing takes the whole load off the display, a vessel added reads alone, taking one of two off keeps the tare and taking both off clears it; zeroing takes what is on it off the display until it is taken off, and only when aimed at with empty hands and the reading not already zero; the scale and the cabinet are aimed at within reach and a vessel under the crosshair comes first. The cabinet gives back all the health, then rests for 30 seconds, and the grab button uses it only when aimed at, with empty hands, ready. A vessel weighs its glass and its contents, and every compound weighs a gram a millilitre. The shelf bottles are coloured by the compounds in turn.
 
 ## Fixes and Problems
+The moved-scale tests check that a scale weighs what is on it where it stands now, that its plate lifts vessels there and not at the old place, and that it is aimed at there.
 
 ### `softbody.odin`
 - The first version used a pressure force proportional to the area error. A headless render showed no balloon, and a sweep showed the ring thrown far off screen after hitting the floor for some combinations of step size and node count (for example 60 Hz with 24 nodes of radius 80 and the floor at 640). The first unit tests passed only because they used one lucky combination. Replaced with the area constraint, and added the parameter sweep test and the grab-and-throw test.
@@ -1229,6 +1260,7 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - The first aim test of the racks failed because the crosshair, with 5 cm of pad round every vial, was on three vials at once in a row of holes 5 cm apart and took the first of them. Vials have a pad of 0.8 cm now.
 - The vials first started in the first eight holes of the first rack, which put two in the row behind others, out of reach of the crosshair. They start in the near row, and the first holes are the near row.
 - A vial is drawn into a hole by `vial_snap` and not at the moment it is let go, so for a frame it is where it was let go.
+- `standing_height` and `settle` take the bench, so that a moved scale lifts the vessels on it.
 
 ### `vessels.odin`
 - The stock liquid table is a stand-in with fictional names. The compound database will replace it, and the level is only right for an upright vessel until pouring is added.
@@ -1242,6 +1274,7 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - Not seen in the game. Whether the numbers feel right, and how the pages' reactions read when poured by hand, has not been tried on a phone.
 - The first version mixed with a button press and wanted the held vessel exactly over the target, which was hard to do and never showed it was ready. It was replaced by the pour, aimed with the crosshair. A blast removes the vessel with no shards or spill.
 - The rule was moved into `mix_into` so the balloon of the fill station uses the same one. The earlier tests passed unchanged, and a result now says where the reaction happened.
+- A drop is judged by the station where the vessel is now, from the bench.
 
 ### `health.odin`
 - The knock-out rule, which resets the lab, is an assumption.
@@ -1277,9 +1310,10 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 
 ### `inventory.odin`
 - New. Tested with 34 deliberate changes to it, the drag and drop controller, the wall and the soap, one at a time, in a copy of the tree. Thirty-two were caught in the end. One was not at first, a wall read from slots past its end, because no test had a dispenser in such a slot, and a test was written. Two make no difference while the dispenser is the only kind of item: the check that a container takes an item when reading text, since every item is mountable and a kind that is not an item fails the stack limit as well, and an empty slot counted as holding a dispenser, since an empty slot is of no kind. Three did not compile at first and were written again.
+- Stations are items now, and `move_to` is new. Tested together with the rest.
 
 ### `inventory_test.odin`
-- None recorded yet.
+- None recorded yet for the stations.
 
 ### `dragdrop.odin`
 - New, and tested with the deliberate changes of `inventory.odin`.
@@ -1289,12 +1323,14 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 
 ### `stock.odin`
 - New. The look of the wall is not seen on a phone.
+- Picking up stations is new, and not seen on a phone.
 
 ### `stock_test.odin`
-- None recorded yet.
+- The first drafts of the aim tests looked at the stations from 30 cm over the counter, which is above the box of the hot plate, and found nothing. The view is at 4 cm.
 
 ### `stock_ui.odin`
 - New, and not seen on a phone or a screen. The layout and the drags are checked by `selftest_stock` (every slot and the close button on the screen, inside the panel, at least 44 pixels across and not on one another, on six screen shapes; picking up, carrying, dropping, not swapping, cancelling, locked containers and the taps following the wall). How it looks and how a drag feels under a thumb are for the owner to judge. A drag is one finger and the screen has no scrolling. Eight deliberate changes to it were each built and run through the self-test, in a copy of the tree, and all eight were caught: a drag starting on an empty slot, dropping without letting go, every slot taking everything, the target container misread, columns overlapping, the bag out of reach of the pointer, tiles too big, and a locked container that could be dragged from.
+- The self-test found that a station moved along the bench was not counted as a change, because the check of changes looked at the bag and the wall and not the bench, and the room would not have put the station in its new place. The bench is in the check now.
 
 ### `stock_file.odin`
 - New. The file has not been written or read on a phone.
@@ -1304,6 +1340,12 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 
 ### `sink_test.odin`
 - None recorded yet.
+
+### `bench.odin`
+- New. Tested with 29 deliberate changes to it and to the code that reads the bench (the heat, the plate height, the weighing and aim of the scale, what a drop sees, aiming at and picking up a station, the items), one at a time, in a copy of the tree. All 29 were caught in the end. Two were not at first: a drop judged by the default station and not the one where the vessel stands, which needed a test with a reaction that runs only in a hot bath, and a bare spot that could be aimed at, which needed a ray through exactly the point that the empty box of a bare spot has. One did not compile and was written again.
+
+### `bench_test.odin`
+- The box count of `add_equipment` fell by the four boxes of the scale, which is on the bench now, and its test was changed.
 
 ### `jet.odin`
 - New, and not seen on a phone or a screen. How the stream looks, its width, its shading and the highlight along it, is for the owner to judge. A throwaway build that made a scripted jet in front of the player drew it without a crash at 1600 by 720 and changed thousands of pixels against a control, which shows only that something was drawn.
@@ -1360,6 +1402,7 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - The grab button was hard to see over the light counter tops. It now has a dark backing and the counter tops are dark teal.
 
 - None recorded yet for the equipment buttons.
+- The pick up readout is new and not seen on a phone.
 
 ### `lab_mesh.odin`
 - None recorded yet.
@@ -1382,6 +1425,7 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - The effects, the fill station, the hood, and the sink compile for desktop and for Android with `-o:minimal` and `-o:size`, and the ABI check passes, but none of it has been seen running on a phone.
 
 - The cabinet and the scale have not been used with a thumb on a phone, and the readout lines have not been seen there. The frame rate with 47 vessels in the room, where there were 23, has not been measured.
+- Picking up and placing stations is new and not seen on a phone. The spot a station goes to is chosen on the bag screen.
 
 ### `lab.vs`
 - The shader now reads the model matrix. The room is drawn with an identity matrix, so its look does not change. The normal is moved with `vec4(normal, 0.0)` and not `mat3(matModel)`, because GLSL ES 1.00 may not accept a matrix built from a matrix.
@@ -1444,6 +1488,7 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - The faucet is new: it stands 42 cm over the counter, over the middle of the basin, so that a flask fits under it and the tip is within reach. Where it stands and how it looks have not been seen on a phone.
 
 - None recorded yet for the vial and the equipment.
+- The hot plate and the ice bath are not built here any more. See `bench.odin`.
 
 ### `apparatus_test.odin`
 - The first test of the incinerator counted its boxes as 14, and it has 12. The test was wrong. The test of the cradle settles the soft body for ten seconds at each of four fills, which takes about a second, and has to repeat the mesh detail and substeps of the station, which the main package owns, so a change there has to be made here by hand too.
@@ -1483,10 +1528,12 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - Rewritten in degrees. The old scale, -1 to 1 with a fifth of a unit a second, is gone, and `heat_unit` keeps it for the words and the steam. The plate reaches 160 in 23 seconds, which is slow enough to stop at a window of the pages and which nobody has tried. A vessel that reacts while it heats is reported as an event, which is new.
 - There is no thermometer except the number in the readout under the crosshair.
 - None recorded yet. The rates are first guesses, and the plate is always on. Nothing has been seen on a phone, including the steam.
+- The hot plate and the ice bath were fixed places, and are where the bench has them. The default bench is the old places, so the tests that use them are as they were.
 
 ### `heat_test.odin`
 - Rewritten for degrees. Two of its tests set a vessel to just under a limit and mark a reaction as already run, as if it had been held there, to reach a spatter and a burst by heating, because a vessel heated up from the room would have reacted at the first window it passed.
 - The first run of the change-on-purpose check found four gaps in the tests. Changing where a word for the temperature starts, leaving the temperature out of what a drop brings into a vessel, leaving it out of what the funnel takes, and leaving it in a burst balloon, all still passed. Tests for each were added.
+- None recorded yet for the moved stations.
 
 ### `loadout.odin`
 - A balloon in the hand, the clamp and on the hooks carries the whole mixture. `loadout_presets` has the whole mixture, but the wire still takes one compound and an amount, so a throw sends the compound there is most of with the whole volume. A balloon of spirit with a little water in it is thrown as spirit. Sending the mixture is the next step, and it changes the protocol and the C ABI.
@@ -1629,6 +1676,7 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - The shelf boards were first put 2 cm off the wall. A test that the boards are flat against it found that, and `SHELF_Z` was moved.
 - The check with deliberate changes moved a rack to the wrong side of the counter, turned the rows round, moved the scale's plate onto the oven and put the cabinet on the hood. Two got through at first, because the tests used the racks' own facing in their own check and measured the plate with a rectangle that the change had turned inside out, so the facing and the size of the plate are now pinned by numbers.
 - Nothing about the look has been seen on a phone. In a headless run, each piece changed the picture against a copy of the room without it: 4035 pixels for the cabinet, 4616 for the racks, 54507 for the shelves, 7350 for the scale, and 1384 red pixels for the cross against none.
+- The scale is not built here any more. See `bench.odin`.
 
 ### `equipment_test.odin`
 - None recorded yet.
@@ -1638,9 +1686,11 @@ A player who is knocked out is not drawn. Over the head of every other player wh
 - Deliberate changes were made to the cabinet and the scale one at a time, in a copy of the tree: 52 in all with those of the racks. The survivors at first were an aim test that never put a vessel under the crosshair at the cabinet, and the pieces named under `equipment.odin`. Each was fixed by a test or by taking out the code.
 - The scale's density is a stand-in, and so is the weight of the glass. Nothing has been tried by a player.
 - The scale weighed only the first vessel on the plate. It now weighs all of them, and the tare is the whole load when it is zeroed. Ten deliberate changes were made to it, one at a time, in a copy of the tree: nine were caught at once, and the tenth, letting the slot just past the end of the list count as a vessel, was not, because the slot beside it was empty in the test. A vessel taken out of the list leaves a stale copy of the last one in that slot, so a test now removes one with two on the plate, and the change is caught. Not tried on a phone.
+- The scale was at one place and is where the bench has it.
 
 ### `gear_test.odin`
 - Two mistakes of the tests, not of the code: a vial that was meant to be too far from a hole was only a hole's width from the next one, and a vial that was let go of at the end of a test was drawn into the hole beside it, as it should be.
+- None recorded yet for the moved scale.
 
 ### `touch.odin`
 - Tested with 36 deliberate changes, one at a time, in a copy of the package: 35 were caught and one change survived, which swaps `>` for `>=` at the exact edge of the dead zone, where both give zero, so it is the same code. Survivors before that were a clamp that no test pinned by numbers, an aim finger whose movement was never added after another finger's, and two lines that did nothing and were taken out (a second cap on the number of fingers inside `update`, which the slot check already does, and a check that the turn was above zero before cutting it, which the comparison with the cap already covers). The runner is not kept in the repo.

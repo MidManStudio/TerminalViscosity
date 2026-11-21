@@ -7,6 +7,7 @@ package main
 
 import rl "vendor:raylib"
 import "carry"
+import "lab"
 import "chem"
 import "core:fmt"
 import "core:strconv"
@@ -444,6 +445,23 @@ soap_label :: proc(sp: ^carry.Soap) -> (label: cstring, ready: bool) {
 		return "wait", false
 	}
 	return "wash", true
+}
+
+// The line about a station of the bench that the crosshair is on, which can be picked up.
+draw_pickup_readout :: proc(w, h: f32, kind: lab.Bench_Kind, line: int) {
+	name: cstring = "scale"
+	#partial switch kind {
+	case .Hot_Plate:
+		name = "hot plate"
+	case .Ice_Bath:
+		name = "ice bath"
+	}
+	buf: [64]u8
+	text := fmt.bprintf(buf[:63], "%v: pick it up to move it", name)
+	buf[len(text)] = 0
+	font := i32(max(f32(16), h * 0.032))
+	y := i32(h * 0.5) + i32(max(f32(30), h * 0.075)) + 24 + i32(line) * (font + font / 3)
+	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), y, font, {60, 230, 215, 255})
 }
 
 // The line about the soap, under the crosshair.

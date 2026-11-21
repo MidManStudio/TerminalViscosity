@@ -165,12 +165,16 @@ COLOR_PANEL :: [4]u8{200, 208, 216, 255}
 // Adds the boxes of the three workstations. They stand on counters that
 // `build` has already made, and block nobody: the counters do that.
 add_apparatus :: proc(l: ^Layout) {
+	add_apparatus_with(l, default_bench())
+}
+
+// The same, with the stations of the bench where `bench` has them.
+add_apparatus_with :: proc(l: ^Layout, bench: Bench) {
 	add_sink(l)
 	add_hood(l)
 	add_filler(l)
 	add_mixer(l)
-	add_hot_plate(l)
-	add_ice_bath(l)
+	add_bench(l, bench)
 	add_paint_station(l)
 	add_loadout_rack(l)
 	add_incinerator(l)
@@ -263,29 +267,6 @@ add_mixer :: proc(l: ^Layout) {
 		add_box(l, {p.x, MIXER_TOP + 0.035, p.z - r}, {2 * r + 0.012, 0.07, 0.012}, COLOR_STEEL, 0, 0.8)
 		add_box(l, {p.x, MIXER_TOP + 0.035, p.z + r}, {2 * r + 0.012, 0.07, 0.012}, COLOR_STEEL, 0, 0.8)
 	}
-}
-
-add_hot_plate :: proc(l: ^Layout) {
-	h := HOT_PLATE
-	cx, cz := (h.min_x + h.max_x) * 0.5, (h.min_z + h.max_z) * 0.5
-	add_box(l, {cx, COUNTER_HEIGHT + 0.02, cz}, {h.max_x - h.min_x, 0.04, h.max_z - h.min_z}, {50, 54, 62, 255}, 0, 0.4)
-	add_box(l, {cx, COUNTER_HEIGHT + 0.043, cz}, {h.max_x - h.min_x - 0.12, 0.012, h.max_z - h.min_z - 0.12}, {255, 96, 40, 255}, 1) // the coil, glowing
-}
-
-add_ice_bath :: proc(l: ^Layout) {
-	b := ICE_BATH
-	cx, cz := (b.min_x + b.max_x) * 0.5, (b.min_z + b.max_z) * 0.5
-	w, d := b.max_x - b.min_x, b.max_z - b.min_z
-	add_box(l, {cx, COUNTER_HEIGHT + 0.015, cz}, {w, 0.03, d}, {170, 214, 238, 255}, 0, 0.8) // the floor of the tub, pale blue
-	rim := f32(0.07)
-	add_box(l, {b.min_x - 0.015, COUNTER_HEIGHT + rim * 0.5, cz}, {0.03, rim, d + 0.06}, {120, 160, 190, 255}, 0, 0.6)
-	add_box(l, {b.max_x + 0.015, COUNTER_HEIGHT + rim * 0.5, cz}, {0.03, rim, d + 0.06}, {120, 160, 190, 255}, 0, 0.6)
-	add_box(l, {cx, COUNTER_HEIGHT + rim * 0.5, b.min_z - 0.015}, {w, rim, 0.03}, {120, 160, 190, 255}, 0, 0.6)
-	add_box(l, {cx, COUNTER_HEIGHT + rim * 0.5, b.max_z + 0.015}, {w, rim, 0.03}, {120, 160, 190, 255}, 0, 0.6)
-	// A few lumps of ice standing in it.
-	add_box(l, {cx - 0.25, COUNTER_HEIGHT + 0.05, cz - 0.1}, {0.1, 0.04, 0.1}, {225, 240, 250, 255}, 0.3, 0.9)
-	add_box(l, {cx + 0.28, COUNTER_HEIGHT + 0.05, cz + 0.12}, {0.09, 0.04, 0.12}, {225, 240, 250, 255}, 0.3, 0.9)
-	add_box(l, {cx + 0.05, COUNTER_HEIGHT + 0.045, cz - 0.15}, {0.08, 0.03, 0.08}, {225, 240, 250, 255}, 0.3, 0.9)
 }
 
 add_paint_station :: proc(l: ^Layout) {

@@ -79,6 +79,7 @@ Props :: struct {
 	aimed_t: f32, // how far along the view that prop is, in metres
 	pouring: bool, // the pour button is down, so the held vessel is tipping over
 	speed:   f32, // how many times faster than normal liquid runs, from SPEEDS; 0 counts as 1
+	bench:   lab.Bench, // which stations stand where on the bench: they decide where heat, cold and weighing are
 }
 
 // What the hands are doing, which also drives the crosshair and the button.
@@ -119,6 +120,7 @@ props_init :: proc(props: ^Props) {
 	props.held = -1
 	props.aimed = -1
 	props.speed = 1
+	props.bench = lab.default_bench()
 }
 
 // The horizontal direction a vessel pours toward when held by a player facing `yaw`.
@@ -143,9 +145,10 @@ support_height :: proc(l: ^lab.Layout, x, z, radius: f32) -> f32 {
 
 // Where the foot of a prop stands: on the plate of the scale if its middle is over it, and in the hole of a
 // vial rack if it is a vial exactly at one, and otherwise on whatever `support_height` says.
-standing_height :: proc(l: ^lab.Layout, pr: ^Prop) -> f32 {
+standing_height :: proc(l: ^lab.Layout, pr: ^Prop, bench: ^lab.Bench = nil) -> f32 {
 	floor := support_height(l, pr.pos.x, pr.pos.z, kind_dims(pr.kind).radius)
-	if lab.in_rect(lab.SCALE_PLATE, pr.pos.x, pr.pos.z) {
+	b := bench != nil ? bench^ : lab.default_bench()
+	if lab.on_bench(&b, .Scale, pr.pos.x, pr.pos.z) {
 		floor = max(floor, lab.COUNTER_HEIGHT + lab.SCALE_PLATE_TOP)
 	}
 	if pr.kind == .Vial {
@@ -215,7 +218,7 @@ props_add :: proc(props: ^Props, l: ^lab.Layout, kind: Kind, x, z: f32, compound
 	amount := compound == 0 ? f32(0) : clamp(ml, 0, capacity_ml(kind))
 	props.items[props.count] = {kind = kind, pos = {x, support_height(l, x, z, d.radius), z}}
 	fill_with(&props.items[props.count].mix, compound, amount)
-	props.items[props.count].pos.y = standing_height(l, &props.items[props.count])
+	props.items[props.count].pos.y = standing_height(l, &props.items[props.count], &props.bench)
 	props.count += 1
 	return true
 }
@@ -429,8 +432,8 @@ hold :: proc(pr: ^Prop, l: ^lab.Layout, v: View, yaw: f32) {
 
 // Lets a prop that is not held fall until it stands on a counter, the floor, the plate of the
 // scale or in a hole of a vial rack.
-settle :: proc(pr: ^Prop, l: ^lab.Layout, dt: f32) {
-	floor := standing_height(l, pr)
+settle :: proc(pr: ^Prop, l: ^lab.Layout, dt: f32, bench: ^lab.Bench = nil) {
+	floor := standing_height(l, pr, bench)
 	if pr.pos.y <= floor + 1e-4 && pr.vy == 0 {
 		pr.pos.y = floor
 		return
@@ -462,7 +465,7 @@ update :: proc(props: ^Props, l: ^lab.Layout, p: ^lab.Player, dt: f32) {
 			hold(pr, l, v, p.yaw)
 		} else {
 			vial_snap(props, i)
-			settle(pr, l, dt)
+			settle(pr, l, dt, &props.bench)
 		}
 	}
 }

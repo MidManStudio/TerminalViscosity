@@ -69,6 +69,7 @@ Room :: struct {
 	burn_timer:  f32, // seconds the incinerator has left to burn, with smoke from its chimney
 	first_aid:   carry.First_Aid, // the cabinet on the north wall
 	soap:        carry.Soap, // the soap by the sink
+	pickup:      carry.Pickup, // the station of the bench that the crosshair is on
 	scale:       carry.Scale, // the scale on the north counter
 }
 
@@ -86,6 +87,7 @@ room_reset :: proc(room: ^Room) {
 	carry.stream_clear(&room.stream)
 	speed := carry.flow_speed(&room.props) // a knock-out does not change the speed that was set
 	carry.props_init(&room.props)
+	room.props.bench = carry.bench_of(&room.stock.bench)
 	room.props.speed = speed
 	carry.props_place_defaults(&room.props, &room.layout)
 	carry.health_init(&room.health)
@@ -99,6 +101,7 @@ room_reset :: proc(room: ^Room) {
 	room.spout_rest = -1
 	room.first_aid = {}
 	room.soap = {}
+	room.pickup = {}
 	room.scale = {}
 }
 
@@ -335,7 +338,7 @@ room_build_layout :: proc(room: ^Room) {
 	lab.build(&room.layout)
 	colors, present := carry.wall_look(&room.stock.wall)
 	lab.add_dispensers_with(&room.layout, colors, present)
-	lab.add_apparatus(&room.layout)
+	lab.add_apparatus_with(&room.layout, carry.bench_of(&room.stock.bench))
 	shelf_colors := carry.shelf_colors()
 	lab.add_shelves(&room.layout, shelf_colors[:])
 }
@@ -344,6 +347,8 @@ room_build_layout :: proc(room: ^Room) {
 // mesh are made again so that the bottles are where the dispensers are, and the stock is saved.
 room_stock_changed :: proc(room: ^Room) {
 	carry.station_sync(&room.station, &room.stock.wall)
+	room.props.bench = carry.bench_of(&room.stock.bench)
+	room.scale.tare = 0 // a scale that has been moved starts at nothing
 	room_build_layout(room)
 	lab_mesh_rebuild(&room.mesh, &room.layout)
 	stock_save(&room.stock)
@@ -359,6 +364,7 @@ room_load :: proc(game: ^Game) -> rawptr {
 	shader, ok := load_lab_shader()
 	lab_mesh_init(&room.mesh, &room.layout, shader, ok)
 	carry.props_init(&room.props)
+	room.props.bench = carry.bench_of(&room.stock.bench)
 	carry.props_place_defaults(&room.props, &room.layout)
 	carry.stream_init(&room.stream)
 	carry.station_init(&room.station)
@@ -487,7 +493,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 		return
 	}
 
-	buttons := [9][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h), bench_button(w, h), pour_button(w, h), book_button(w, h), speed_button(w, h), arena_button(w, h), bag_button(w, h)}
+	buttons := [10][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h), bench_button(w, h), pour_button(w, h), book_button(w, h), speed_button(w, h), arena_button(w, h), bag_button(w, h), pickup_button(w, h)}
 	controls_update(&room.controls, &pointers, w, h, buttons[:])
 	if button_pressed(&room.controls, 0) {
 		game_switch(game, .Balloon_Lab)
@@ -516,6 +522,20 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	if bag_pressed {
 		room.stock_open = true
 		return
+	}
+	if button_pressed(&room.controls, 9) && room.pickup.aimed {
+		switch {
+		case room.props.held != -1:
+			room_toast(room, "hands are full")
+		case carry.pickup_ready(&room.pickup, &room.props, &room.stock.bag):
+			_, name := station_look(carry.bench_item(room.props.bench.spots[room.pickup.spot]))
+			if carry.pickup_take(&room.pickup, &room.stock) {
+				room_stock_changed(room)
+				room_toast(room, "%v is in the bag", name)
+			}
+		case:
+			room_toast(room, "the bag is full")
+		}
 	}
 
 	// Looking: dragging up looks up, and dragging right turns right.
@@ -584,6 +604,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	carry.loadout_aim(&game.loadout, &room.filler, &room.props, carry.view_of(&room.player))
 	carry.first_aid_aim(&room.first_aid, &room.props, carry.view_of(&room.player))
 	carry.soap_aim(&room.soap, &room.props, carry.view_of(&room.player))
+	carry.pickup_aim(&room.pickup, &room.props, carry.view_of(&room.player))
 	carry.scale_aim(&room.scale, &room.props, carry.view_of(&room.player))
 	if grab_pressed {
 		action := carry.balloon_action(&game.loadout, &room.filler, &room.props)
@@ -760,6 +781,8 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 		draw_first_aid_readout(w, h, &room.first_aid, &room.health, lines)
 	} else if room.soap.aimed && room.pour_target == -1 {
 		draw_soap_readout(w, h, &room.soap, lines)
+	} else if room.pickup.aimed && room.pour_target == -1 && !room.scale.aimed {
+		draw_pickup_readout(w, h, room.props.bench.spots[room.pickup.spot], lines)
 	} else if room.pour_target == -1 && (room.scale.aimed || carry.scale_on(&room.props, room.props.aimed)) {
 		grams, loaded := carry.scale_reading(&room.scale, &room.props)
 		draw_scale_readout(w, h, grams, loaded, room.scale.tare > 0, lines)
@@ -810,6 +833,7 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 	draw_speed_button(w, h, carry.flow_speed(&room.props))
 	draw_arena_button(w, h)
 	draw_bag_button(w, h)
+	draw_book_nav(pickup_button(w, h), "pick up", room.pickup.aimed && carry.pickup_ready(&room.pickup, &room.props, &room.stock.bag))
 	controls_draw(&room.controls, w, h)
 	if room.menu_open {
 		draw_book(w, h, room.menu_page)
