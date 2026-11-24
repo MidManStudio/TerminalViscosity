@@ -69,7 +69,8 @@ Room :: struct {
 	burn_timer:  f32, // seconds the incinerator has left to burn, with smoke from its chimney
 	first_aid:   carry.First_Aid, // the cabinet on the north wall
 	soap:        carry.Soap, // the soap by the sink
-	pickup:      carry.Pickup, // the station of the bench that the crosshair is on
+	pickup:      carry.Pickup, // the station that the crosshair is on, which can be picked up
+	blueprint:   carry.Blueprint, // the station that is being carried, as a copy of itself, if one is
 	scale:       carry.Scale, // the scale on the north counter
 }
 
@@ -83,11 +84,18 @@ room_toast :: proc(room: ^Room, format: string, args: ..any) {
 
 // Puts the player, the vessels, and the health back as they were at the start.
 room_reset :: proc(room: ^Room) {
+	if room.blueprint.active {
+		// A station that is carried is put back, and not lost, and the lab is built again with it where it is now.
+		if carry.blueprint_cancel(&room.blueprint, &room.props, &room.stock.bag) != .No_Room {
+			room_stock_changed(room)
+		}
+	}
 	lab.player_init(&room.player, &room.layout)
 	carry.stream_clear(&room.stream)
 	speed := carry.flow_speed(&room.props) // a knock-out does not change the speed that was set
+	placed := room.props.placed // nor where the stations stand
 	carry.props_init(&room.props)
-	room.props.bench = carry.bench_of(&room.stock.bench)
+	room.props.placed = placed
 	room.props.speed = speed
 	carry.props_place_defaults(&room.props, &room.layout)
 	carry.health_init(&room.health)
@@ -338,33 +346,71 @@ room_build_layout :: proc(room: ^Room) {
 	lab.build(&room.layout)
 	colors, present := carry.wall_look(&room.stock.wall)
 	lab.add_dispensers_with(&room.layout, colors, present)
-	lab.add_apparatus_with(&room.layout, carry.bench_of(&room.stock.bench))
+	lab.add_apparatus_with(&room.layout, room.props.placed)
 	shelf_colors := carry.shelf_colors()
 	lab.add_shelves(&room.layout, shelf_colors[:])
 }
 
-// What follows when the contents of the bag or the wall changed: the taps follow what is mounted, the lab and its
-// mesh are made again so that the bottles are where the dispensers are, and the stock is saved.
+// Saves the stock and where the stations stand, unless a station is being carried: it is in neither the bag nor on a
+// counter then, and the file keeps it where it was picked up from, so that nothing that ends the game while it is carried
+// can lose it.
+room_save_stock :: proc(room: ^Room) {
+	if !room.blueprint.active {
+		stock_save(&room.stock, &room.props.placed)
+	}
+}
+
+// What follows when the contents of the bag or the wall changed, or a station was picked up, put down or put back: the
+// taps follow what is mounted, the lab and its mesh are made again so that the bottles and the stations are where they
+// are, and the stock is saved.
 room_stock_changed :: proc(room: ^Room) {
 	carry.station_sync(&room.station, &room.stock.wall)
-	room.props.bench = carry.bench_of(&room.stock.bench)
 	room.scale.tare = 0 // a scale that has been moved starts at nothing
 	room_build_layout(room)
 	lab_mesh_rebuild(&room.mesh, &room.layout)
-	stock_save(&room.stock)
+	room_save_stock(room)
+}
+
+// Puts the carried station down where the crosshair has it, if it can stand there, and otherwise says why it cannot.
+room_blueprint_place :: proc(room: ^Room) {
+	bp := &room.blueprint
+	if !bp.ok {
+		room_toast(room, "%v", carry.blueprint_words(bp.problem))
+		return
+	}
+	name := carry.station_name(bp.kind)
+	if carry.blueprint_place(bp, &room.props) {
+		room_stock_changed(room)
+		room_toast(room, "%v put down", name)
+	}
+}
+
+// Puts the carried station back where it was picked up from, or into the bag if that place is not free.
+room_blueprint_cancel :: proc(room: ^Room) {
+	name := carry.station_name(room.blueprint.kind)
+	switch carry.blueprint_cancel(&room.blueprint, &room.props, &room.stock.bag) {
+	case .Put_Back:
+		room_stock_changed(room)
+		room_toast(room, "%v is back where it was", name)
+	case .In_Bag:
+		room_stock_changed(room)
+		room_toast(room, "%v is in the bag", name)
+	case .No_Room:
+		room_toast(room, "no room in the bag: put the %v down on a counter", name)
+	case .Nothing:
+	}
 }
 
 room_load :: proc(game: ^Game) -> rawptr {
 	room := new(Room)
 	carry.stock_init(&room.stock)
 	stock_ui_init(&room.stock_ui)
-	stock_load(&room.stock)
+	carry.props_init(&room.props) // before the stock is read, which says where the stations stand
+	stock_load(&room.stock, &room.props.placed)
 	room_build_layout(room)
 	lab.player_init(&room.player, &room.layout)
 	shader, ok := load_lab_shader()
 	lab_mesh_init(&room.mesh, &room.layout, shader, ok)
-	carry.props_init(&room.props)
-	room.props.bench = carry.bench_of(&room.stock.bench)
 	carry.props_place_defaults(&room.props, &room.layout)
 	carry.stream_init(&room.stream)
 	carry.station_init(&room.station)
@@ -401,7 +447,10 @@ room_unload :: proc(game: ^Game, state: rawptr) {
 	rlgl.SetClipPlanes(0.05, 4000)
 	game.heat_strength = 0
 	loadout_save(game)
-	stock_save(&room.stock)
+	if room.blueprint.active {
+		carry.blueprint_cancel(&room.blueprint, &room.props, &room.stock.bag) // put back before the file is written
+	}
+	room_save_stock(room)
 	free(room.paint)
 	loadout_view_unload(&room.loadout_view)
 	filler_view_unload(&room.filler_view)
@@ -487,8 +536,17 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 			dragdrop.cancel(&room.stock_ui.drag)
 			room.stock_open = false
 			controls_init(&room.controls, &pointers) // the finger that closed it must not start walking
-		} else if stock_update(&room.stock_ui, &room.stock, pointer, pressed, rl.IsMouseButtonReleased(.LEFT), w, h) {
-			room_stock_changed(room)
+		} else {
+			room.stock_ui.hands_free = room.props.held == -1
+			if stock_update(&room.stock_ui, &room.stock, pointer, pressed, rl.IsMouseButtonReleased(.LEFT), w, h) {
+				room_stock_changed(room)
+			}
+			if slot := room.stock_ui.carry_slot; slot != -1 && carry.blueprint_take_from_bag(&room.blueprint, &room.props, &room.stock.bag, slot) {
+				// Carry the station: the screen closes, and the copy follows the crosshair. Nothing is saved while it is carried.
+				room.stock_open = false
+				controls_init(&room.controls, &pointers)
+				room_toast(room, "%v: aim at a counter and press place", carry.station_name(room.blueprint.kind))
+			}
 		}
 		return
 	}
@@ -510,6 +568,9 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	grab_pressed := button_pressed(&room.controls, 1)
 	jump_pressed := button_pressed(&room.controls, 2)
 	pour_down := button_held(&room.controls, 4)
+	rotate_pressed := button_pressed(&room.controls, 9) // pick up, or turn the station that is carried
+	cancel_pressed := button_pressed(&room.controls, 4) // put the station that is carried back
+	carrying := room.blueprint.active
 	speed_pressed := button_pressed(&room.controls, 6)
 	if button_pressed(&room.controls, 5) {
 		room.menu_open = true
@@ -519,23 +580,11 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	when ODIN_PLATFORM_SUBTARGET != .Android {
 		bag_pressed = bag_pressed || rl.IsKeyPressed(.B)
 	}
-	if bag_pressed {
+	if bag_pressed && carrying {
+		room_toast(room, "put the station down or put it back first")
+	} else if bag_pressed {
 		room.stock_open = true
 		return
-	}
-	if button_pressed(&room.controls, 9) && room.pickup.aimed {
-		switch {
-		case room.props.held != -1:
-			room_toast(room, "hands are full")
-		case carry.pickup_ready(&room.pickup, &room.props, &room.stock.bag):
-			_, name := station_look(carry.bench_item(room.props.bench.spots[room.pickup.spot]))
-			if carry.pickup_take(&room.pickup, &room.stock) {
-				room_stock_changed(room)
-				room_toast(room, "%v is in the bag", name)
-			}
-		case:
-			room_toast(room, "the bag is full")
-		}
 	}
 
 	// Looking: dragging up looks up, and dragging right turns right.
@@ -548,6 +597,12 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	when ODIN_PLATFORM_SUBTARGET != .Android {
 		if rl.IsKeyPressed(.E) {
 			grab_pressed = true
+		}
+		if rl.IsKeyPressed(.Q) {
+			rotate_pressed = true
+		}
+		if rl.IsKeyPressed(.X) {
+			cancel_pressed = true
 		}
 		if rl.IsKeyPressed(.SPACE) {
 			jump_pressed = true
@@ -591,6 +646,9 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	// Near a tap, or the spout of the oven, the pour button fills the held vessel, and
 	// otherwise it tips the held vessel over to pour. Which one is known before the
 	// button is pressed, so the button can show it.
+	if carrying {
+		pour_down = false // the pour button cancels while a station is carried, and pours nothing
+	}
 	room.valve = carry.dispenser_under(&room.station, &room.props)
 	room.spout = room.valve == -1 && carry.oven_spout_under(&room.oven, &room.props)
 	room.spout_rest = room.props.held == -1 ? carry.oven_rest_under(&room.oven, &room.props) : -1
@@ -604,7 +662,37 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	carry.loadout_aim(&game.loadout, &room.filler, &room.props, carry.view_of(&room.player))
 	carry.first_aid_aim(&room.first_aid, &room.props, carry.view_of(&room.player))
 	carry.soap_aim(&room.soap, &room.props, carry.view_of(&room.player))
-	carry.pickup_aim(&room.pickup, &room.props, carry.view_of(&room.player))
+	if carrying {
+		// The copy of the station follows the crosshair, and is put down, turned or put back by the buttons.
+		room.pickup = {}
+		if rotate_pressed {
+			carry.blueprint_rotate(&room.blueprint)
+		}
+		carry.blueprint_aim(&room.blueprint, &room.props, carry.view_of(&room.player))
+		if grab_pressed {
+			room_blueprint_place(room)
+		} else if cancel_pressed {
+			room_blueprint_cancel(room)
+		}
+		grab_pressed = false
+	} else {
+		carry.pickup_aim(&room.pickup, &room.props, carry.view_of(&room.player))
+		if rotate_pressed && room.pickup.aimed {
+			switch {
+			case room.props.held != -1:
+				room_toast(room, "hands are full")
+			case room.pickup.busy:
+				room_toast(room, "take the vessel off the %v first", carry.station_name(room.props.placed.items[room.pickup.index].kind))
+			case:
+				name := carry.station_name(room.props.placed.items[room.pickup.index].kind)
+				if carry.blueprint_pick_up(&room.blueprint, &room.props, room.pickup.index) {
+					room.pickup = {}
+					room_stock_changed(room)
+					room_toast(room, "%v: aim at a counter and press place", name)
+				}
+			}
+		}
+	}
 	carry.scale_aim(&room.scale, &room.props, carry.view_of(&room.player))
 	if grab_pressed {
 		action := carry.balloon_action(&game.loadout, &room.filler, &room.props)
@@ -739,6 +827,7 @@ room_draw :: proc(game: ^Game, state: rawptr) {
 	stations_draw(&room.filler, &game.loadout)
 	tablet_draw(&room.loadout_view, &game.loadout)
 	oven_draw(&room.oven)
+	blueprint_draw(&room.blueprint)
 	forward := linalg_normalize(camera.target - camera.position)
 	cam_right := linalg_normalize(linalg_cross(forward, {0, 1, 0}))
 	cam_up := linalg_cross(cam_right, forward)
@@ -773,7 +862,9 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 		draw_contents(w, h, &room.props.items[focus], target)
 	}
 	lines := carry.focus(&room.props) != -1 ? 1 : 0
-	if room.filler.aimed && room.pour_target == -1 {
+	if room.blueprint.active {
+		draw_blueprint_readout(w, h, &room.blueprint, lines)
+	} else if room.filler.aimed && room.pour_target == -1 {
 		draw_filler_readout(w, h, &room.filler, lines)
 	} else if room.oven.aimed && room.pour_target == -1 {
 		draw_oven_readout(w, h, &room.oven, lines)
@@ -782,7 +873,7 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 	} else if room.soap.aimed && room.pour_target == -1 {
 		draw_soap_readout(w, h, &room.soap, lines)
 	} else if room.pickup.aimed && room.pour_target == -1 && !room.scale.aimed {
-		draw_pickup_readout(w, h, room.props.bench.spots[room.pickup.spot], lines)
+		draw_pickup_readout(w, h, room.props.placed.items[room.pickup.index].kind, room.pickup.busy, lines)
 	} else if room.pour_target == -1 && (room.scale.aimed || carry.scale_on(&room.props, room.props.aimed)) {
 		grams, loaded := carry.scale_reading(&room.scale, &room.props)
 		draw_scale_readout(w, h, grams, loaded, room.scale.tare > 0, lines)
@@ -794,6 +885,8 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 	draw_toast(w, h, cstring(raw_data(room.toast[:])), room.toast_timer)
 	action := carry.balloon_action(&game.loadout, &room.filler, &room.props)
 	switch {
+	case room.blueprint.active:
+		draw_station_button(w, h, "place", room.blueprint.ok)
 	case carry.oven_run_ready(&room.oven, &room.props):
 		draw_run_button(w, h)
 	case action != .None:
@@ -816,6 +909,8 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 	ready := false
 	port_label: [16]u8
 	switch {
+	case room.blueprint.active:
+		label, ready = "cancel", true
 	case room.valve != -1 || room.spout || room.spout_rest != -1:
 		label, ready = "fill", true
 	case room.pour_target != -1:
@@ -832,8 +927,12 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 	draw_book_button(w, h)
 	draw_speed_button(w, h, carry.flow_speed(&room.props))
 	draw_arena_button(w, h)
-	draw_bag_button(w, h)
-	draw_book_nav(pickup_button(w, h), "pick up", room.pickup.aimed && carry.pickup_ready(&room.pickup, &room.props, &room.stock.bag))
+	draw_bag_button(w, h, !room.blueprint.active)
+	if room.blueprint.active {
+		draw_book_nav(pickup_button(w, h), "rotate", true)
+	} else {
+		draw_book_nav(pickup_button(w, h), "pick up", carry.pickup_ready(&room.pickup, &room.props))
+	}
 	controls_draw(&room.controls, w, h)
 	if room.menu_open {
 		draw_book(w, h, room.menu_page)

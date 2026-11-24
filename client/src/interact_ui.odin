@@ -447,21 +447,29 @@ soap_label :: proc(sp: ^carry.Soap) -> (label: cstring, ready: bool) {
 	return "wash", true
 }
 
-// The line about a station of the bench that the crosshair is on, which can be picked up.
-draw_pickup_readout :: proc(w, h: f32, kind: lab.Bench_Kind, line: int) {
-	name: cstring = "scale"
-	#partial switch kind {
-	case .Hot_Plate:
-		name = "hot plate"
-	case .Ice_Bath:
-		name = "ice bath"
-	}
+// The line about a station that the crosshair is on, which can be picked up unless a vessel stands on it.
+draw_pickup_readout :: proc(w, h: f32, kind: lab.Station_Kind, busy: bool, line: int) {
 	buf: [64]u8
-	text := fmt.bprintf(buf[:63], "%v: pick it up to move it", name)
+	text: string
+	if busy {
+		text = fmt.bprintf(buf[:63], "%v: take the vessel off first", carry.station_name(kind))
+	} else {
+		text = fmt.bprintf(buf[:63], "%v: pick it up to move it", carry.station_name(kind))
+	}
 	buf[len(text)] = 0
 	font := i32(max(f32(16), h * 0.032))
 	y := i32(h * 0.5) + i32(max(f32(30), h * 0.075)) + 24 + i32(line) * (font + font / 3)
-	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), y, font, {60, 230, 215, 255})
+	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), y, font, busy ? rl.Color{255, 190, 120, 255} : rl.Color{60, 230, 215, 255})
+}
+
+// The line about the station that is carried: what it is, and whether it can be put down where it is or why not.
+draw_blueprint_readout :: proc(w, h: f32, bp: ^carry.Blueprint, line: int) {
+	buf: [80]u8
+	text := fmt.bprintf(buf[:79], "%v: %v", carry.station_name(bp.kind), carry.blueprint_words(bp.problem))
+	buf[len(text)] = 0
+	font := i32(max(f32(16), h * 0.032))
+	y := i32(h * 0.5) + i32(max(f32(30), h * 0.075)) + 24 + i32(line) * (font + font / 3)
+	draw_text_centered(cstring(raw_data(buf[:])), i32(w * 0.5), y, font, bp.ok ? rl.Color{60, 230, 215, 255} : rl.Color{255, 120, 120, 255})
 }
 
 // The line about the soap, under the crosshair.

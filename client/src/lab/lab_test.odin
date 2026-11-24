@@ -221,3 +221,74 @@ the_east_counter_stops_the_player_but_can_be_walked_round :: proc(t: ^testing.T)
 	}
 	testing.expect(t, p.x > 11.3)
 }
+
+@(test)
+a_point_is_turned_by_quarters_about_the_origin :: proc(t: ^testing.T) {
+	x, z := turn_xz(2, 3, 0)
+	testing.expect_value(t, [2]f32{x, z}, [2]f32{2, 3})
+	x, z = turn_xz(2, 3, 1)
+	testing.expect_value(t, [2]f32{x, z}, [2]f32{-3, 2})
+	x, z = turn_xz(2, 3, 2)
+	testing.expect_value(t, [2]f32{x, z}, [2]f32{-2, -3})
+	x, z = turn_xz(2, 3, 3)
+	testing.expect_value(t, [2]f32{x, z}, [2]f32{3, -2})
+	x, z = turn_xz(2, 3, 4)
+	testing.expect_value(t, [2]f32{x, z}, [2]f32{2, 3}) // a whole turn is none
+	x, z = turn_xz(2, 3, 5)
+	testing.expect_value(t, [2]f32{x, z}, [2]f32{-3, 2})
+}
+
+@(test)
+a_box_is_added_as_it_is_given_unless_a_transform_is_on :: proc(t: ^testing.T) {
+	l := new(Layout)
+	defer free(l)
+	l.xform = {false, 10, 20, 1} // set, but not on
+	add_box(l, {1, 0.5, 2}, {4, 1, 6}, COLOR_WALL)
+	testing.expect_value(t, l.boxes[0].center, Vec3{1, 0.5, 2})
+	testing.expect_value(t, l.boxes[0].size, Vec3{4, 1, 6})
+	testing.expect_value(t, l.box_count, 1)
+}
+
+@(test)
+a_box_is_turned_and_then_moved_and_a_quarter_swaps_its_width_and_depth :: proc(t: ^testing.T) {
+	l := new(Layout)
+	defer free(l)
+	for q in u8(0) ..< 4 {
+		l.xform = {true, 10, 20, q}
+		add_box(l, {1, 0.5, 2}, {4, 1, 6}, COLOR_WALL, 0.25, 0.75)
+	}
+	testing.expect_value(t, l.boxes[0].center, Vec3{11, 0.5, 22})
+	testing.expect_value(t, l.boxes[0].size, Vec3{4, 1, 6})
+	testing.expect_value(t, l.boxes[1].center, Vec3{8, 0.5, 21})
+	testing.expect_value(t, l.boxes[1].size, Vec3{6, 1, 4})
+	testing.expect_value(t, l.boxes[2].center, Vec3{9, 0.5, 18})
+	testing.expect_value(t, l.boxes[2].size, Vec3{4, 1, 6})
+	testing.expect_value(t, l.boxes[3].center, Vec3{12, 0.5, 19})
+	testing.expect_value(t, l.boxes[3].size, Vec3{6, 1, 4})
+	testing.expect_value(t, l.boxes[1].color, COLOR_WALL)
+	testing.expect_value(t, l.boxes[1].emissive, f32(0.25))
+	testing.expect_value(t, l.boxes[1].gloss, f32(0.75))
+}
+
+@(test)
+the_counters_are_where_counter_areas_says_and_building_clears_the_transform :: proc(t: ^testing.T) {
+	l := new(Layout)
+	defer free(l)
+	l.xform = {true, 3, 3, 1}
+	build(l)
+	testing.expect(t, !l.xform.on, "a built lab starts with no transform")
+	areas := counter_areas()
+	testing.expect_value(t, l.collider_count, COUNTER_COUNT)
+	for i in 0 ..< COUNTER_COUNT {
+		testing.expect_value(t, l.colliders[i], areas[i])
+	}
+	testing.expect_value(t, areas[COUNTER_ISLAND], Rect{-5, -0.7, 5, 0.7})
+	testing.expect(t, abs(areas[COUNTER_NORTH].min_z - -7.98) < 1e-5 && abs(areas[COUNTER_NORTH].max_z - -7.28) < 1e-5, "the north counter is 0.7 deep against the wall")
+	testing.expect(t, abs(areas[COUNTER_NORTH].min_x - -11.5) < 1e-5 && abs(areas[COUNTER_NORTH].max_x - 11.5) < 1e-5, "and 23 m long")
+	testing.expect(t, abs(areas[COUNTER_SOUTH].min_z - 7.28) < 1e-5 && abs(areas[COUNTER_SOUTH].max_z - 7.98) < 1e-5, "the south counter")
+	testing.expect(t, abs(areas[COUNTER_WEST].min_x - -11.98) < 1e-5 && abs(areas[COUNTER_WEST].max_x - -11.28) < 1e-5, "the west counter")
+	testing.expect(t, abs(areas[COUNTER_WEST].min_z - -6.8) < 1e-5 && abs(areas[COUNTER_WEST].max_z - 6.8) < 1e-5, "and 13.6 m long")
+	testing.expect(t, abs(areas[COUNTER_BOTTLE_WALL].min_x - 11.28) < 1e-5 && abs(areas[COUNTER_BOTTLE_WALL].max_x - 11.98) < 1e-5, "the bottle wall counter")
+	testing.expect_value(t, areas[COUNTER_BOTTLE_WALL].min_z, f32(-4.8))
+	testing.expect_value(t, areas[COUNTER_BOTTLE_WALL].max_z, f32(4.8))
+}

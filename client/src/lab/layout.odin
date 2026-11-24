@@ -40,6 +40,15 @@ Rect :: struct {
 	min_x, min_z, max_x, max_z: f32,
 }
 
+// A turn and a move that `add_box` applies to every box it is given while `on` is set. A station is built round the
+// origin, as if it stood there facing the way it was made, and this puts it where it stands and which way it faces.
+// The turn is in quarters about the vertical axis, 0 to 3, and comes before the move.
+Xform :: struct {
+	on:      bool,
+	x, z:    f32, // where the origin of what is being built goes
+	quarter: u8,
+}
+
 Layout :: struct {
 	boxes:          [MAX_BOXES]Box,
 	box_count:      int,
@@ -47,6 +56,7 @@ Layout :: struct {
 	collider_count: int,
 	spawn:          Vec3, // where the player starts, eye height ignored
 	spawn_yaw:      f32,
+	xform:          Xform,
 }
 
 COLOR_FLOOR :: [4]u8{196, 204, 212, 255}
@@ -57,11 +67,33 @@ COLOR_COUNTER_TOP :: [4]u8{34, 78, 92, 255}
 COLOR_GLOW :: [4]u8{60, 230, 215, 255}
 COLOR_LIGHT :: [4]u8{255, 255, 255, 255}
 
+// Turns the point (x, z) about the origin by `quarter` quarter turns: 1 sends (x, z) to (-z, x), 2 to (-x, -z) and 3
+// to (z, -x). Any other number is counted modulo four.
+turn_xz :: proc(x, z: f32, quarter: u8) -> (f32, f32) {
+	switch quarter % 4 {
+	case 1:
+		return -z, x
+	case 2:
+		return -x, -z
+	case 3:
+		return z, -x
+	}
+	return x, z
+}
+
 add_box :: proc(l: ^Layout, center, size: Vec3, color: [4]u8, emissive: f32 = 0, gloss: f32 = 0) {
 	if l.box_count == MAX_BOXES {
 		return
 	}
-	l.boxes[l.box_count] = {center, size, color, emissive, gloss}
+	c, sz := center, size
+	if l.xform.on {
+		tx, tz := turn_xz(c.x, c.z, l.xform.quarter)
+		c = {tx + l.xform.x, c.y, tz + l.xform.z}
+		if l.xform.quarter % 2 == 1 {
+			sz = {size.z, size.y, size.x} // a box turned a quarter has its width and depth the other way round
+		}
+	}
+	l.boxes[l.box_count] = {c, sz, color, emissive, gloss}
 	l.box_count += 1
 }
 
@@ -119,6 +151,29 @@ add_dispensers_with :: proc(l: ^Layout, colors: [DISPENSER_COUNT][4]u8, present:
 	}
 }
 
+COUNTER_COUNT :: 5
+COUNTER_NORTH :: 0 // the number of each counter in `counter_areas`
+COUNTER_SOUTH :: 1
+COUNTER_WEST :: 2
+COUNTER_ISLAND :: 3
+COUNTER_BOTTLE_WALL :: 4
+COUNTER_GAP :: f32(0.02) // between a counter and the wall behind it
+
+// The floor that each counter stands on, in the order `build` makes them: along the north, south and west walls,
+// the island in the middle, and the counter of the bottle wall. The island is collider 3 of the layout.
+counter_areas :: proc() -> [COUNTER_COUNT]Rect {
+	half_w := ROOM_W * 0.5
+	half_d := ROOM_D * 0.5
+	gap := COUNTER_GAP
+	return {
+		{-half_w + 0.5, -half_d + gap, half_w - 0.5, -half_d + 0.7 + gap}, // north wall
+		{-half_w + 0.5, half_d - 0.7 - gap, half_w - 0.5, half_d - gap}, // south wall
+		{-half_w + gap, -half_d + 1.2, -half_w + 0.7 + gap, half_d - 1.2}, // west wall
+		{-5, -0.7, 5, 0.7}, // the island
+		{half_w - 0.7 - gap, -4.8, half_w - gap, 4.8}, // the bottle wall
+	}
+}
+
 // Fills the layout: a large open room with long counters along the north, south,
 // and west walls, a counter for the bottle wall on the east wall with a way
 // round it at each end, an island in the middle, and rows of ceiling lights.
@@ -144,12 +199,9 @@ build :: proc(l: ^Layout) {
 		}
 	}
 
-	gap := f32(0.02)
-	add_counter(l, {-half_w + 0.5, -half_d + gap, half_w - 0.5, -half_d + 0.7 + gap}) // north wall
-	add_counter(l, {-half_w + 0.5, half_d - 0.7 - gap, half_w - 0.5, half_d - gap}) // south wall
-	add_counter(l, {-half_w + gap, -half_d + 1.2, -half_w + 0.7 + gap, half_d - 1.2}) // west wall
-	add_counter(l, {-5, -0.7, 5, 0.7}) // the island
-	add_counter(l, {half_w - 0.7 - gap, -4.8, half_w - gap, 4.8}) // the bottle wall
+	for area in counter_areas() {
+		add_counter(l, area)
+	}
 
 	l.spawn = {0, 0, 4.5}
 	l.spawn_yaw = 0

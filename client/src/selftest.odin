@@ -709,7 +709,7 @@ selftest_book :: proc(failures: ^int) {
 	check(failures, book_press(5, {2, 2}, w, h) == 5 && book_press(0, {2, 2}, w, h) == 0, "a press on nothing turns nothing")
 }
 
-// Checks the screen of the bag, the bottle wall and the bench: on six screen shapes its close button and all 28 slots are on
+// Checks the screen of the bag and the bottle wall: on six screen shapes its close button and all 22 slots are on
 // the screen, inside the panel, none lies on another, and each slot is big enough to press with a thumb. Then the
 // drags, without a window: a stack is picked up, carried over a slot and dropped, and what may not move does not.
 selftest_stock :: proc(failures: ^int) {
@@ -726,7 +726,7 @@ selftest_stock :: proc(failures: ^int) {
 	for s in screens {
 		w, h := s.x, s.y
 		panel := book_panel(w, h)
-		boxes: [28 + 3][4]f32
+		boxes: [22 + 3][4]f32
 		n := 0
 		for c in 0 ..< STOCK_CONTAINERS {
 			for slot in 0 ..< stock_slot_count(c) {
@@ -772,7 +772,7 @@ selftest_stock :: proc(failures: ^int) {
 			none_over = false
 		}
 	}
-	check(failures, all_on, "every slot of the bag, the wall and the bench, and the close button, is on the screen, on every screen shape")
+	check(failures, all_on, "every slot of the bag and the wall, and the close button, is on the screen, on every screen shape")
 	check(failures, all_in, "and inside the panel")
 	check(failures, none_over, "and none lies on another, nor do the bag and pick up buttons lie on another button")
 	check(failures, big_enough, "and every slot is at least 44 pixels across")
@@ -834,25 +834,48 @@ selftest_stock :: proc(failures: ^int) {
 	carry.station_sync(&station, &st.wall)
 	check(failures, station.items[1].compound == 0 && station.items[6].compound == u16(chemistry.Id.Ethanol) && station.items[0].compound == u16(chemistry.Id.Acetic_Acid), "the taps follow the wall: the ethanol tap is now at mount 7")
 
-	// The bench: the stations move the same way, and only where they can stand.
-	check(failures, carry.bench_of(&st.bench) == lab.default_bench(), "the bench starts with the hot plate, the ice bath and the scale where they have always been")
-	stock_update(&ui, &st, centre(w, h, STOCK_BENCH, 1), true, false, w, h)
-	changed = stock_update(&ui, &st, centre(w, h, STOCK_BAG, 2), false, true, w, h)
-	check(failures, changed && st.bench.slots[1].count == 0 && st.bag.slots[2].item.kind == .Hot_Plate && carry.bench_of(&st.bench).spots[1] == .None, "the hot plate dragged from the bench to the bag leaves its spot bare")
-	stock_update(&ui, &st, centre(w, h, STOCK_BAG, 2), true, false, w, h)
-	changed = stock_update(&ui, &st, centre(w, h, STOCK_BENCH, 5), false, true, w, h)
-	check(failures, changed && carry.bench_of(&st.bench).spots[5] == .Hot_Plate && st.bag.slots[2].count == 0, "and dragged from the bag to spot 6 of the bench it stands there")
-	stock_update(&ui, &st, centre(w, h, STOCK_WALL, 0), true, false, w, h)
-	stock_update(&ui, &st, centre(w, h, STOCK_BENCH, 0), false, false, w, h)
-	check(failures, ui.drag.hover == STOCK_BENCH * inventory.MAX_SLOTS && !ui.drag.hover_ok, "a dispenser over a spot of the bench is not taken")
-	changed = stock_update(&ui, &st, centre(w, h, STOCK_BENCH, 0), false, true, w, h)
-	check(failures, !changed && st.wall.slots[0] == acetic, "and letting go there changes nothing")
-	stock_update(&ui, &st, centre(w, h, STOCK_BENCH, 2), true, false, w, h)
+	// A station in the bag: dragged it moves like a dispenser, tapped it is to be carried, and it cannot go on the wall.
+	scale := inventory.Item{.Scale, 0}
+	inventory.put(&st.bag, 6, scale, 1)
+	ui.hands_free = true
+	stock_update(&ui, &st, centre(w, h, STOCK_BAG, 6), true, false, w, h)
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_BAG, 6), false, true, w, h)
+	check(failures, !changed && ui.carry_slot == 6 && st.bag.slots[6] == (inventory.Slot{scale, 1}), "a tap on a station of the bag asks for it to be carried and moves nothing")
+	stock_update(&ui, &st, centre(w, h, STOCK_BAG, 6), true, false, w, h)
+	stock_update(&ui, &st, centre(w, h, STOCK_BAG, 7), false, false, w, h)
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_BAG, 7), false, true, w, h)
+	check(failures, changed && ui.carry_slot == -1 && st.bag.slots[7] == (inventory.Slot{scale, 1}) && st.bag.slots[6].count == 0, "dragged to another slot it moves there and is not carried")
+	stock_update(&ui, &st, centre(w, h, STOCK_BAG, 7), true, false, w, h)
 	stock_update(&ui, &st, centre(w, h, STOCK_WALL, 8), false, false, w, h)
-	check(failures, !ui.drag.hover_ok, "a station over a mount of the wall is not taken")
+	check(failures, ui.drag.hover == STOCK_WALL * inventory.MAX_SLOTS + 8 && !ui.drag.hover_ok, "a station over a mount of the wall is not taken")
 	changed = stock_update(&ui, &st, centre(w, h, STOCK_WALL, 8), false, true, w, h)
-	check(failures, !changed && carry.bench_of(&st.bench).spots[2] == .Ice_Bath, "and letting go there leaves it on the bench")
-	stock_update(&ui, &st, centre(w, h, STOCK_BENCH, 2), true, false, w, h)
-	changed = stock_update(&ui, &st, centre(w, h, STOCK_BENCH, 3), false, true, w, h)
-	check(failures, changed && carry.bench_of(&st.bench).spots[3] == .Ice_Bath && carry.bench_of(&st.bench).spots[2] == .None, "a station moves along the bench to another spot")
+	check(failures, !changed && ui.carry_slot == -1 && st.bag.slots[7].item == scale && st.wall.slots[8].count == 0, "and letting go there leaves it in the bag")
+	ui.hands_free = false
+	stock_update(&ui, &st, centre(w, h, STOCK_BAG, 7), true, false, w, h)
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_BAG, 7), false, true, w, h)
+	check(failures, !changed && ui.carry_slot == -1, "a tap with the hands full carries nothing")
+	ui.hands_free = true
+	inventory.put(&st.bag, 8, inventory.Item{.Dispenser, u16(chemistry.Id.Ethanol)}, 1)
+	stock_update(&ui, &st, centre(w, h, STOCK_BAG, 8), true, false, w, h)
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_BAG, 8), false, true, w, h)
+	check(failures, !changed && ui.carry_slot == -1, "a tap on a dispenser carries nothing")
+	// A tap on a dispenser of the wall carries nothing, even where the bag has a station under the same number.
+	mount := 0
+	for mount < lab.DISPENSER_COUNT && st.wall.slots[mount].count == 0 {
+		mount += 1
+	}
+	inventory.take(&st.bag, mount, 1)
+	inventory.put(&st.bag, mount, scale, 1)
+	stock_update(&ui, &st, centre(w, h, STOCK_WALL, mount), true, false, w, h)
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_WALL, mount), false, true, w, h)
+	check(failures, !changed && ui.carry_slot == -1, "nor does a tap on a dispenser of the wall, whatever the bag holds at that number")
+	// A drag that began on a station and is let go over no slot is not a tap, whichever slot it began on.
+	inventory.take(&st.bag, 0, 1)
+	inventory.put(&st.bag, 0, scale, 1)
+	stock_update(&ui, &st, centre(w, h, STOCK_BAG, 0), true, false, w, h)
+	changed = stock_update(&ui, &st, {2, 2}, false, true, w, h)
+	check(failures, !changed && ui.carry_slot == -1 && st.bag.slots[0] == (inventory.Slot{scale, 1}), "letting go over no slot is no tap and moves nothing")
+	// With no drag going on a release is nothing.
+	changed = stock_update(&ui, &st, centre(w, h, STOCK_BAG, 0), false, true, w, h)
+	check(failures, !changed && ui.carry_slot == -1, "a release with no drag is not a tap")
 }

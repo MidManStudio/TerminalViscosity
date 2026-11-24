@@ -76,8 +76,8 @@ shelf_bottle :: proc(i: int) -> Vec3 {
 	return {SHELF_X0 + step * f32(col), heights[row] + 0.015, SHELF_Z}
 }
 
-// Adds the boxes of the vial racks and the first aid cabinet. The scale is on the bench, with the other stations
-// that can be moved.
+// Adds the boxes of the vial racks and the first aid cabinet. The scale is one of the stations that can be moved,
+// and is built with them.
 add_equipment :: proc(l: ^Layout) {
 	add_vial_racks(l)
 	add_first_aid(l)

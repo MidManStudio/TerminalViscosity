@@ -144,172 +144,209 @@ a_dispenser_in_a_slot_past_the_end_of_a_small_wall_gives_no_tap :: proc(t: ^test
 }
 
 @(test)
-the_bench_starts_with_the_stations_where_the_lab_has_always_had_them :: proc(t: ^testing.T) {
+a_stock_is_a_bag_and_a_wall_and_a_station_is_an_item_of_the_bag :: proc(t: ^testing.T) {
 	s: Stock
 	stock_init(&s)
-	testing.expect_value(t, s.bench.size, lab.BENCH_SPOTS)
-	testing.expect_value(t, s.bench.requires, inventory.Tags{.Benchable})
-	testing.expect_value(t, bench_of(&s.bench), lab.default_bench())
-	testing.expect_value(t, s.bench.slots[1], inventory.Slot{{.Hot_Plate, 0}, 1})
-	testing.expect_value(t, s.bench.slots[2], inventory.Slot{{.Ice_Bath, 0}, 1})
-	testing.expect_value(t, s.bench.slots[4], inventory.Slot{{.Scale, 0}, 1})
+	testing.expect_value(t, s.bag.size, BAG_SIZE)
+	testing.expect(t, inventory.can_move(&s.wall, 0, &s.bag, 0), "a dispenser moves from the wall to the bag")
+	testing.expect_value(t, inventory.add(&s.bag, station_item(.Scale), 1), 1)
+	testing.expect(t, !inventory.can_move(&s.bag, 0, &s.wall, 5), "a station does not go on the wall")
 }
 
 @(test)
-a_station_moved_between_the_bench_and_the_bag_changes_where_it_stands :: proc(t: ^testing.T) {
-	s: Stock
-	stock_init(&s)
-	testing.expect(t, inventory.move(&s.bench, 1, &s.bag, 0), "the hot plate into the bag")
-	b := bench_of(&s.bench)
-	testing.expect_value(t, b.spots[1], lab.Bench_Kind.None)
-	testing.expect(t, inventory.move(&s.bag, 0, &s.bench, 5), "and onto spot 5")
-	b = bench_of(&s.bench)
-	testing.expect_value(t, b.spots[5], lab.Bench_Kind.Hot_Plate)
-	testing.expect_value(t, b.spots[1], lab.Bench_Kind.None)
-	testing.expect(t, !inventory.can_move(&s.bag, 0, &s.bench, 5), "a stack cannot go where there is one")
-	testing.expect(t, inventory.move(&s.bench, 2, &s.bench, 3), "and a station can move along the bench")
-	testing.expect_value(t, bench_of(&s.bench).spots[3], lab.Bench_Kind.Ice_Bath)
-}
-
-@(test)
-a_dispenser_cannot_go_on_the_bench_nor_a_station_on_the_wall :: proc(t: ^testing.T) {
-	s: Stock
-	stock_init(&s)
-	testing.expect(t, !inventory.can_move(&s.wall, 0, &s.bench, 0), "a dispenser on the bench")
-	testing.expect(t, !inventory.can_move(&s.bench, 1, &s.wall, 5), "a station on the wall")
-}
-
-@(test)
-station_items_and_bench_kinds_map_both_ways :: proc(t: ^testing.T) {
-	for kind in ([3]lab.Bench_Kind{.Hot_Plate, .Ice_Bath, .Scale}) {
-		testing.expect_value(t, item_bench_kind(bench_item(kind)), kind)
+station_items_and_station_kinds_map_both_ways :: proc(t: ^testing.T) {
+	for kind in ([3]lab.Station_Kind{.Hot_Plate, .Ice_Bath, .Scale}) {
+		testing.expect_value(t, item_station(station_item(kind)), kind)
 	}
-	testing.expect_value(t, bench_item(.None), inventory.Item{})
-	testing.expect_value(t, item_bench_kind(inventory.Item{.Dispenser, 3}), lab.Bench_Kind.None)
-	testing.expect_value(t, item_bench_kind(inventory.Item{}), lab.Bench_Kind.None)
+	testing.expect_value(t, station_item(.None), inventory.Item{})
+	testing.expect_value(t, item_station(inventory.Item{.Dispenser, 3}), lab.Station_Kind.None)
+	testing.expect_value(t, item_station(inventory.Item{}), lab.Station_Kind.None)
+	testing.expect_value(t, station_item(.Hot_Plate), inventory.Item{.Hot_Plate, 0})
+	testing.expect_value(t, station_item(.Ice_Bath), inventory.Item{.Ice_Bath, 0})
+	testing.expect_value(t, station_item(.Scale), inventory.Item{.Scale, 0})
+	testing.expect_value(t, station_name(.Hot_Plate), "hot plate")
+	testing.expect_value(t, station_name(.Ice_Bath), "ice bath")
+	testing.expect_value(t, station_name(.Scale), "scale")
+	testing.expect_value(t, station_name(.None), "")
+}
+
+// A view that looks straight at the station that stands at (x, z) from the front, 0.9 m away, at the height of the counter
+// top plus 4 cm, which is inside the box of every kind of station.
+station_view :: proc(x, z: f32) -> View {
+	return View{eye = {x, lab.COUNTER_HEIGHT + 0.04, z + 0.9}, back = {0, 0, 1}}
 }
 
 @(test)
-a_bench_with_fewer_spots_than_the_lab_leaves_the_rest_empty :: proc(t: ^testing.T) {
-	c: inventory.Container
-	inventory.container_init(&c, 2, {.Benchable})
-	inventory.put(&c, 1, {.Scale, 0}, 1)
-	c.slots[4] = {{.Hot_Plate, 0}, 1} // left over from a bigger bench, and not one of its slots
-	b := bench_of(&c)
-	testing.expect_value(t, b.spots[1], lab.Bench_Kind.Scale)
-	testing.expect_value(t, b.spots[4], lab.Bench_Kind.None)
-}
-
-// A view that looks straight at the station at spot `i` from the front, 0.9 m away, at the height of the counter top plus
-// 4 cm, which is inside the box of every kind of station.
-bench_view :: proc(i: int) -> View {
-	return View{eye = {lab.bench_spot_x(i), lab.COUNTER_HEIGHT + 0.04, -7.63 + 0.9}, back = {0, 0, 1}}
-}
-
-@(test)
-a_station_is_aimed_at_when_the_crosshair_is_on_it_and_a_bare_spot_is_not :: proc(t: ^testing.T) {
+a_station_is_aimed_at_when_the_crosshair_is_on_it_and_bare_counter_is_not :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
 	pk: Pickup
 	props.aimed = -1
-	testing.expect(t, pickup_aim(&pk, props, bench_view(1)), "the hot plate")
-	testing.expect_value(t, pk.spot, 1)
-	testing.expect(t, pickup_aim(&pk, props, bench_view(4)), "the scale")
-	testing.expect_value(t, pk.spot, 4)
-	testing.expect(t, !pickup_aim(&pk, props, bench_view(0)), "spot 0 has nothing")
+	testing.expect(t, pickup_aim(&pk, props, station_view(-3.5, -7.63)), "the hot plate")
+	testing.expect_value(t, pk.index, 0)
+	testing.expect(t, pickup_aim(&pk, props, station_view(-2.4, -7.63)), "the ice bath")
+	testing.expect_value(t, pk.index, 1)
+	testing.expect(t, pickup_aim(&pk, props, station_view(0, -7.625)), "the scale")
+	testing.expect_value(t, pk.index, 2)
+	testing.expect(t, !pickup_aim(&pk, props, station_view(-1.2, -7.63)), "bare counter between them")
 	testing.expect(t, !pk.aimed, "so it is not aimed")
-	v := bench_view(1)
+	v := station_view(-3.5, -7.63)
 	v.eye.z += 4 // out of reach
 	testing.expect(t, !pickup_aim(&pk, props, v), "too far")
-	v = bench_view(1)
+	v = station_view(-3.5, -7.63)
 	v.back = {0, 0, -1} // looking away
 	testing.expect(t, !pickup_aim(&pk, props, v), "looking away")
 	props.aimed = 0 // a vessel comes first
-	testing.expect(t, !pickup_aim(&pk, props, bench_view(1)), "a vessel is under the crosshair")
+	testing.expect(t, !pickup_aim(&pk, props, station_view(-3.5, -7.63)), "a vessel is under the crosshair")
 }
 
 @(test)
-the_station_that_is_aimed_at_follows_the_bench_when_it_changes :: proc(t: ^testing.T) {
+the_station_that_is_aimed_at_follows_where_it_stands :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
 	pk: Pickup
 	props.aimed = -1
-	props.bench.spots[1], props.bench.spots[0] = .None, .Hot_Plate
-	testing.expect(t, !pickup_aim(&pk, props, bench_view(1)), "the old spot has nothing")
-	testing.expect(t, pickup_aim(&pk, props, bench_view(0)), "the new one has the plate")
-	testing.expect_value(t, pk.spot, 0)
+	props.placed = {}
+	lab.placed_add(&props.placed, {.Hot_Plate, 8, -7.63, 0})
+	testing.expect(t, !pickup_aim(&pk, props, station_view(-3.5, -7.63)), "the old place has nothing")
+	testing.expect(t, pickup_aim(&pk, props, station_view(8, -7.63)), "the new one has the plate")
+	testing.expect_value(t, pk.index, 0)
+	// Turned a quarter the plate is 0.5 along x: a view 0.28 to the side misses it.
+	props.placed.items[0].quarter = 1
+	testing.expect(t, !pickup_aim(&pk, props, station_view(8.28, -7.63)), "past the turned plate")
+	props.placed.items[0].quarter = 0
+	testing.expect(t, pickup_aim(&pk, props, station_view(8.28, -7.63)), "on the plate as it is made")
 }
 
 @(test)
-the_pick_up_button_is_ready_when_a_station_is_aimed_at_with_empty_hands_and_the_bag_has_room :: proc(t: ^testing.T) {
+the_nearer_of_two_stations_is_the_one_aimed_at :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
-	s: Stock
-	stock_init(&s)
+	pk: Pickup
+	props.aimed = -1
+	props.placed = {}
+	lab.placed_add(&props.placed, {.Hot_Plate, 8, -7.9 + 0.25, 0}) // behind: z -7.9 to -7.4
+	lab.placed_add(&props.placed, {.Hot_Plate, 8, 7.63, 0}) // on the south counter, behind the viewer
+	v := View{eye = {8, lab.COUNTER_HEIGHT + 0.04, -6.7}, back = {0, 0, 1}}
+	testing.expect(t, pickup_aim(&pk, props, v), "the one in front")
+	testing.expect_value(t, pk.index, 0)
+	v = View{eye = {8, lab.COUNTER_HEIGHT + 0.04, 6.7}, back = {0, 0, -1}}
+	testing.expect(t, pickup_aim(&pk, props, v), "the one on the other side")
+	testing.expect_value(t, pk.index, 1)
+}
+
+@(test)
+a_station_with_a_vessel_on_it_is_busy_and_cannot_be_picked_up :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
 	pk: Pickup
 	props.aimed = -1
 	props.held = -1
-	pickup_aim(&pk, props, bench_view(4))
-	testing.expect(t, pickup_ready(&pk, props, &s.bag), "ready")
-	props.held = 0
-	testing.expect(t, !pickup_ready(&pk, props, &s.bag), "a vessel in the hands")
+	pickup_aim(&pk, props, station_view(-3.5, -7.63))
+	testing.expect(t, !pk.busy, "nothing on it")
+	testing.expect(t, pickup_ready(&pk, props), "ready")
+	hx, hz := hot_spot()
+	props_add(props, l, .Flask, hx, hz, id(.Water), 100)
+	props.aimed = -1
+	pickup_aim(&pk, props, station_view(-3.5, -7.63))
+	testing.expect(t, pk.aimed && pk.busy, "a flask stands on the plate")
+	testing.expect(t, !pickup_ready(&pk, props), "so it cannot be picked up")
+	props.held = 0 // the flask is in the hands, which are not empty
+	pickup_aim(&pk, props, station_view(-3.5, -7.63))
+	testing.expect(t, !pk.busy, "a vessel in the hands is not standing on it")
+	testing.expect(t, !pickup_ready(&pk, props), "but the hands are full")
 	props.held = -1
-	for i in 0 ..< BAG_SIZE {
-		s.bag.slots[i] = {{.Dispenser, 3}, 1}
-	}
-	testing.expect(t, !pickup_ready(&pk, props, &s.bag), "the bag is full")
+	props.items[0].pos.x += 0.45 // beside the plate
+	pickup_aim(&pk, props, station_view(-3.5, -7.63))
+	testing.expect(t, !pk.busy && pickup_ready(&pk, props), "beside it, it is free again")
+	props.items[0].pos = {hx, lab.COUNTER_HEIGHT + 0.5, hz} // over it, in the air
+	testing.expect(t, !station_busy(props, props.placed.items[0]), "a vessel in the air over it is not on it")
 	pk.aimed = false
-	s.bag = {}
-	inventory.container_init(&s.bag, BAG_SIZE)
-	testing.expect(t, !pickup_ready(&pk, props, &s.bag), "nothing is aimed at")
+	testing.expect(t, !pickup_ready(&pk, props), "nothing is aimed at")
 }
 
 @(test)
-picking_up_takes_the_station_into_the_bag_and_leaves_the_bench_without_it :: proc(t: ^testing.T) {
+a_vessel_on_the_scale_plate_makes_the_scale_busy :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
-	s: Stock
-	stock_init(&s)
+	x, z := plate_middle()
+	props_add(props, l, .Beaker, x, z, id(.Water), 100)
+	props.items[0].pos.y = lab.COUNTER_HEIGHT + lab.SCALE_PLATE_TOP // resting on the plate
+	testing.expect(t, station_busy(props, props.placed.items[2]), "on the plate of the scale")
+	testing.expect(t, !station_busy(props, props.placed.items[0]), "and not on the hot plate")
+	props.items[0].pos.y = 0 // the same place on the floor, which is under the counter, is not on the plate
+	testing.expect(t, !station_busy(props, props.placed.items[2]), "a vessel on the floor is not on the plate")
+}
+
+@(test)
+the_nearer_of_two_stations_in_one_line_is_the_one_aimed_at :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
 	pk: Pickup
 	props.aimed = -1
-	pickup_aim(&pk, props, bench_view(4))
-	testing.expect(t, pickup_take(&pk, &s), "taken")
-	testing.expect_value(t, s.bench.slots[4], inventory.Slot{})
-	testing.expect_value(t, inventory.count_of(&s.bag, inventory.Item{.Scale, 0}), 1)
-	testing.expect_value(t, bench_of(&s.bench).spots[4], lab.Bench_Kind.None)
-	testing.expect(t, !pickup_take(&pk, &s), "there is nothing at the spot now")
-	pk.aimed = false
-	testing.expect(t, !pickup_take(&pk, &s), "and nothing aimed at")
+	props.placed = {}
+	lab.placed_add(&props.placed, {.Hot_Plate, 0, -0.45, 0}) // on the island, z -0.7 to -0.2: the one behind
+	lab.placed_add(&props.placed, {.Hot_Plate, 0, 0.05, 0}) // z -0.2 to 0.3: the one in front
+	v := View{eye = {0, lab.COUNTER_HEIGHT + 0.04, 1.2}, back = {0, 0, 1}}
+	testing.expect(t, pickup_aim(&pk, props, v), "aimed at one of them")
+	testing.expect_value(t, pk.index, 1)
+	props.placed.items[0], props.placed.items[1] = props.placed.items[1], props.placed.items[0] // in the other order
+	testing.expect(t, pickup_aim(&pk, props, v), "aimed at one of them")
+	testing.expect_value(t, pk.index, 0)
 }
 
-@(test)
-picking_up_changes_nothing_when_the_bag_is_full :: proc(t: ^testing.T) {
-	l, p, props := make_scene()
-	defer free_scene(l, p, props)
-	s: Stock
-	stock_init(&s)
-	for i in 0 ..< BAG_SIZE {
-		s.bag.slots[i] = {{.Dispenser, 3}, 1}
+// The text of a file with a bench of six spots, as the version before this one wrote it.
+bench_file :: proc(items: [BENCH_SPOTS]inventory.Item) -> string {
+	bench: inventory.Container
+	inventory.container_init(&bench, BENCH_SPOTS, {.Benchable})
+	for item, i in items {
+		if item.kind != .None {
+			inventory.put(&bench, i, item, 1)
+		}
 	}
-	pk: Pickup
-	props.aimed = -1
-	pickup_aim(&pk, props, bench_view(4))
-	before_bench := s.bench
-	testing.expect(t, !pickup_take(&pk, &s), "no room")
-	testing.expect_value(t, s.bench, before_bench)
+	bag: inventory.Container
+	inventory.container_init(&bag, BAG_SIZE)
+	names := [2]string{"bag", "bench"}
+	containers := [2]^inventory.Container{&bag, &bench}
+	return inventory.serialize(names[:], containers[:], context.temp_allocator)
 }
 
 @(test)
-a_bare_spot_is_never_aimed_at_even_by_a_ray_that_goes_through_its_place :: proc(t: ^testing.T) {
-	l, p, props := make_scene()
-	defer free_scene(l, p, props)
-	props.bench = {}
-	pk: Pickup
-	props.aimed = -1
-	// A ray along the back of the counter, from 1 m before the place of spot 3, exactly through the point that a bare spot would have for a box.
-	v := View{eye = {-2.9, lab.COUNTER_HEIGHT, -7.63}, back = {-1, 0, 0}}
-	testing.expect(t, !pickup_aim(&pk, props, v), "nothing is aimed at on a bare bench")
-	props.bench.spots[3] = .Ice_Bath
-	testing.expect(t, pickup_aim(&pk, props, v), "the one station is")
-	testing.expect_value(t, pk.spot, 3)
+a_file_from_before_stations_could_stand_anywhere_keeps_the_stations_where_its_bench_had_them :: proc(t: ^testing.T) {
+	// The bench as the lab started: the hot plate at spot 1, the bath at 2 and the scale at 4.
+	text := bench_file({{}, {.Hot_Plate, 0}, {.Ice_Bath, 0}, {}, {.Scale, 0}, {}})
+	p, had := placed_from_bench_file(text)
+	testing.expect(t, had, "it had a bench")
+	testing.expect_value(t, p, lab.default_placed())
+	// The plate moved to the first spot, the scale to the last, and the bath taken off.
+	text2 := bench_file({{.Hot_Plate, 0}, {}, {}, {}, {}, {.Scale, 0}})
+	p2, had2 := placed_from_bench_file(text2)
+	testing.expect(t, had2, "it had a bench")
+	testing.expect_value(t, p2.count, 2)
+	testing.expect_value(t, p2.items[0], lab.Placement{.Hot_Plate, -4.5, -7.63, 0})
+	testing.expect_value(t, p2.items[1], lab.Placement{.Scale, 1.2, -7.625, 0})
+	testing.expect_value(t, p2.items[2], lab.Placement{})
+	// A bench with nothing on it says that no station stands.
+	p3, had3 := placed_from_bench_file(bench_file({}))
+	testing.expect(t, had3 && p3.count == 0, "an empty bench is an empty counter")
+}
+
+@(test)
+a_file_with_no_bench_is_the_lab_as_it_starts :: proc(t: ^testing.T) {
+	p, had := placed_from_bench_file("tvstock 1\ncontainer bag 12\ncontainer wall 10\n")
+	testing.expect(t, !had, "no bench")
+	testing.expect_value(t, p, lab.default_placed())
+	p2, had2 := placed_from_bench_file("")
+	testing.expect(t, !had2, "nothing at all")
+	testing.expect_value(t, p2, lab.default_placed())
+}
+
+@(test)
+the_old_bench_reads_only_what_a_bench_could_hold :: proc(t: ^testing.T) {
+	// A dispenser in a slot of the bench is not a station and is not read as one.
+	text := "tvstock 1\ncontainer bench 6\nslot 0 1 3 1\nslot 1 2 0 1\nslot 9 2 0 1\n"
+	p, had := placed_from_bench_file(text)
+	testing.expect(t, had, "a bench")
+	testing.expect_value(t, p.count, 1)
+	testing.expect_value(t, p.items[0], lab.Placement{.Hot_Plate, -3.5, -7.63, 0})
 }

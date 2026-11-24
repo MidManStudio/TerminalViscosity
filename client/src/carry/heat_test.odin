@@ -334,14 +334,13 @@ tied_balloons_cool_in_the_hand_the_clamp_and_on_the_hooks :: proc(t: ^testing.T)
 a_hot_plate_and_an_ice_bath_that_are_moved_heat_and_cool_where_they_now_stand :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
-	// The plate is moved to spot 0 and the bath to spot 5. Where they stood is bare bench.
-	props.bench = {}
-	props.bench.spots[0], props.bench.spots[5] = .Hot_Plate, .Ice_Bath
-	hx, hz := (lab.bench_rect(.Hot_Plate, 0).min_x + lab.bench_rect(.Hot_Plate, 0).max_x) * 0.5, (lab.HOT_PLATE.min_z + lab.HOT_PLATE.max_z) * 0.5
-	cx, cz := (lab.bench_rect(.Ice_Bath, 5).min_x + lab.bench_rect(.Ice_Bath, 5).max_x) * 0.5, (lab.ICE_BATH.min_z + lab.ICE_BATH.max_z) * 0.5
+	// The plate is moved to x 8 and the bath to x 9.2, along the north counter. Where they stood is bare counter.
+	props.placed = {}
+	lab.placed_add(&props.placed, {.Hot_Plate, 8, -7.63, 0})
+	lab.placed_add(&props.placed, {.Ice_Bath, 9.2, -7.63, 0})
 	ox, oz := hot_spot() // where the plate used to be
-	props_add(props, l, .Flask, hx, hz, id(.Water), 300)
-	props_add(props, l, .Flask, cx, cz, id(.Water), 300)
+	props_add(props, l, .Flask, 8, -7.63, id(.Water), 300)
+	props_add(props, l, .Flask, 9.2, -7.63, id(.Water), 300)
 	props_add(props, l, .Flask, ox, oz, id(.Water), 300)
 	seconds(props, 1)
 	testing.expect(t, near(props.items[0].mix.heat_c, 26, 0.05), "warmed on the plate at its new place")
@@ -350,47 +349,58 @@ a_hot_plate_and_an_ice_bath_that_are_moved_heat_and_cool_where_they_now_stand ::
 }
 
 @(test)
-the_station_a_vessel_stands_on_is_where_the_bench_has_the_stations :: proc(t: ^testing.T) {
+a_station_that_is_turned_heats_where_its_plate_now_is :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	props.placed = {}
+	lab.placed_add(&props.placed, {.Hot_Plate, 8, -7.63, 1}) // turned a quarter: 0.6 along z, 0.5 along x
+	props_add(props, l, .Flask, 8, -7.63 + 0.29, id(.Water), 300) // on the turned plate, off the plate as it was
+	props_add(props, l, .Flask, 8 + 0.29, -7.63, id(.Water), 300) // on the plate as it was, off it turned
+	seconds(props, 1)
+	testing.expect(t, near(props.items[0].mix.heat_c, 26, 0.05), "warmed on the turned plate")
+	testing.expect_value(t, props.items[1].mix.heat_c, ROOM_C)
+}
+
+@(test)
+the_station_a_vessel_stands_on_is_where_the_stations_stand :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
 	hx, hz := hot_spot()
 	props_add(props, l, .Flask, hx, hz, id(.Water), 100)
-	testing.expect_value(t, station_of(props.items[0], &props.bench), chemistry.Station.Hot_Bath)
-	props.bench.spots[1] = .None // the plate is taken away
-	testing.expect_value(t, station_of(props.items[0], &props.bench), chemistry.Station.Any)
-	testing.expect_value(t, station_heat(props.items[0], &props.bench), f32(0))
-	props.bench.spots[1] = .Ice_Bath // and a bath is put where it was
-	testing.expect_value(t, station_of(props.items[0], &props.bench), chemistry.Station.Cold_Bath)
-	testing.expect_value(t, target_c(props.items[0], false, &props.bench), ICE_BATH_C)
+	testing.expect_value(t, station_of(props.items[0], &props.placed), chemistry.Station.Hot_Bath)
+	lab.placed_remove(&props.placed, 0) // the plate is taken away
+	testing.expect_value(t, station_of(props.items[0], &props.placed), chemistry.Station.Any)
+	testing.expect_value(t, station_heat(props.items[0], &props.placed), f32(0))
+	lab.placed_add(&props.placed, {.Ice_Bath, hx, hz, 0}) // and a bath is put where it was
+	testing.expect_value(t, station_of(props.items[0], &props.placed), chemistry.Station.Cold_Bath)
+	testing.expect_value(t, target_c(props.items[0], false, &props.placed), ICE_BATH_C)
+	testing.expect_value(t, station_of(props.items[0]), chemistry.Station.Hot_Bath) // with none given, the starting stations are meant
 }
 
 @(test)
 a_drop_into_a_vessel_reacts_by_the_station_where_the_vessel_stands_now :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
-	props.bench = {}
-	props.bench.spots[0] = .Hot_Plate
-	r := lab.bench_rect(.Hot_Plate, 0)
-	props_add(props, l, .Beaker, (r.min_x + r.max_x) * 0.5, (r.min_z + r.max_z) * 0.5, id(.Ethanol), 100)
-	testing.expect_value(t, station_of(props.items[0], &props.bench), chemistry.Station.Hot_Bath)
+	props.placed = {}
+	lab.placed_add(&props.placed, {.Hot_Plate, 8, -7.63, 0})
+	props_add(props, l, .Beaker, 8, -7.63, id(.Ethanol), 100)
+	testing.expect_value(t, station_of(props.items[0], &props.placed), chemistry.Station.Hot_Bath)
 	result := apply_droplet(props, 0, id(.Water), 5, {0, 1.6, 0})
 	testing.expect(t, result.kind != .Blast, "a little water in ethanol is a mix, whatever the station")
-	// The station that the drop saw is the one at the vessel: with the plate gone, the vessel is on bare bench.
-	props.bench = {}
-	testing.expect_value(t, station_of(props.items[0], &props.bench), chemistry.Station.Any)
+	// The station that the drop saw is the one at the vessel: with the plate gone, the vessel is on bare counter.
+	props.placed = {}
+	testing.expect_value(t, station_of(props.items[0], &props.placed), chemistry.Station.Any)
 }
 
 @(test)
 a_drop_that_makes_a_hot_bath_reaction_runs_only_where_the_vessel_stands_on_the_plate_now :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
-	props.bench = {}
-	props.bench.spots[0] = .Hot_Plate // moved from spot 1
-	r := lab.bench_rect(.Hot_Plate, 0)
-	mx, mz := (r.min_x + r.max_x) * 0.5, (r.min_z + r.max_z) * 0.5
-	ox, oz := hot_spot() // where the plate used to be: bare bench now
+	props.placed = {}
+	lab.placed_add(&props.placed, {.Hot_Plate, 8, -7.63, 0}) // moved from where it was
+	ox, oz := hot_spot() // where the plate used to be: bare counter now
 	// Ethanol and acetic acid, with sulfuric acid to help, at 80 degrees: ethyl acetate is made in a hot bath.
-	props_add(props, l, .Beaker, mx, mz, id(.Ethanol), 100)
+	props_add(props, l, .Beaker, 8, -7.63, id(.Ethanol), 100)
 	props_add(props, l, .Beaker, ox, oz, id(.Ethanol), 100)
 	for k in 0 ..< 2 {
 		m := &props.items[k].mix
@@ -409,5 +419,5 @@ a_drop_that_makes_a_hot_bath_reaction_runs_only_where_the_vessel_stands_on_the_p
 		return false
 	}
 	testing.expect(t, has_ester(&props.items[0].mix), "on the plate where it now stands, the hot bath reaction runs")
-	testing.expect(t, !has_ester(&props.items[1].mix), "on the bare bench where the plate was, it does not")
+	testing.expect(t, !has_ester(&props.items[1].mix), "on the bare counter where the plate was, it does not")
 }

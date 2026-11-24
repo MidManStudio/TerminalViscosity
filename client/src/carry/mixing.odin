@@ -141,8 +141,8 @@ mix_into :: proc(m: ^chemistry.Mixture, capacity: f32, middle, eye: Vec3, statio
 
 // What a vessel is standing on, in the words of the pages: the hot plate is a hot bath and the
 // ice bath a cold bath.
-station_of :: proc(pr: Prop, bench: ^lab.Bench = nil) -> chemistry.Station {
-	switch station_heat(pr, bench) {
+station_of :: proc(pr: Prop, placed: ^lab.Placed = nil) -> chemistry.Station {
+	switch station_heat(pr, placed) {
 	case 1:
 		return .Hot_Bath
 	case -1:
@@ -157,7 +157,7 @@ apply_droplet :: proc(props: ^Props, target: int, compound: u16, ml: f32, eye: V
 	t := &props.items[target]
 	td := kind_dims(t.kind)
 	middle := Vec3{t.pos.x, t.pos.y + td.height * 0.5, t.pos.z}
-	result := mix_into(&t.mix, capacity_ml(t.kind), middle, eye, station_of(t^, &props.bench), compound, ml, purity, drop_heat_c)
+	result := mix_into(&t.mix, capacity_ml(t.kind), middle, eye, station_of(t^, &props.placed), compound, ml, purity, drop_heat_c)
 	if result.kind == .Blast {
 		props_remove(props, target)
 	}

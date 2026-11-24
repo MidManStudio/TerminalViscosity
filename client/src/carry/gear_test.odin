@@ -567,46 +567,53 @@ the_shelf_bottles_are_coloured_by_the_compounds_in_turn :: proc(t: ^testing.T) {
 	testing.expect_value(t, colors[chemistry.COMPOUND_COUNT], colors[0]) // and the colours start over after the last compound
 }
 
-// The middle of the plate of a scale at spot `i`.
-plate_at :: proc(i: int) -> (x, z: f32) {
-	r := lab.bench_rect(.Scale, i)
-	return (r.min_x + r.max_x) * 0.5, (r.min_z + r.max_z) * 0.5
-}
-
 @(test)
 a_scale_that_is_moved_weighs_what_stands_on_it_now_and_not_what_stood_on_it :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
-	props.bench = {}
-	props.bench.spots[2] = .Scale // moved from spot 4
-	nx, nz := plate_at(2)
+	props.placed = {}
+	lab.placed_add(&props.placed, {.Scale, 8, -7.625, 0}) // moved from where it was
 	ox, oz := plate_middle() // where it used to be
-	props_add(props, l, .Beaker, nx, nz, u16(chemistry.Id.Water), 100)
+	props_add(props, l, .Beaker, 8, -7.625, u16(chemistry.Id.Water), 100)
 	props_add(props, l, .Beaker, ox, oz, u16(chemistry.Id.Water), 100)
 	settle_for(props, l, p, 1)
 	grams, count := scale_load(props)
 	testing.expect_value(t, count, 1)
 	testing.expect(t, near(grams, 160, 0.01), "only the beaker on the plate where it is now")
 	testing.expect(t, scale_on(props, 0), "the first is on it")
-	testing.expect(t, !scale_on(props, 1), "the second is on bare bench")
+	testing.expect(t, !scale_on(props, 1), "the second is on bare counter")
 }
 
 @(test)
 the_plate_of_a_moved_scale_lifts_the_vessels_on_it_and_the_old_place_does_not :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
-	props.bench = {}
-	props.bench.spots[0] = .Scale
-	nx, nz := plate_at(0)
+	props.placed = {}
+	lab.placed_add(&props.placed, {.Scale, 8, -7.625, 0})
 	ox, oz := plate_middle()
-	props_add(props, l, .Beaker, nx, nz, u16(chemistry.Id.Water), 100)
+	props_add(props, l, .Beaker, 8, -7.625, u16(chemistry.Id.Water), 100)
 	props_add(props, l, .Beaker, ox, oz, u16(chemistry.Id.Water), 100)
 	settle_for(props, l, p, 1)
 	plate := lab.COUNTER_HEIGHT + lab.SCALE_PLATE_TOP
 	testing.expect(t, near(props.items[0].pos.y, plate, 0.001), "stands on the plate")
 	testing.expect(t, near(props.items[1].pos.y, lab.COUNTER_HEIGHT, 0.001), "and on the bare counter at the old place")
-	testing.expect_value(t, standing_height(l, &props.items[1], &props.bench), lab.COUNTER_HEIGHT)
-	testing.expect(t, standing_height(l, &props.items[1]) > lab.COUNTER_HEIGHT, "with no bench given, the old place is the plate")
+	testing.expect_value(t, standing_height(l, &props.items[1], &props.placed), lab.COUNTER_HEIGHT)
+	testing.expect(t, standing_height(l, &props.items[1]) > lab.COUNTER_HEIGHT, "with no stations given, the old place is the plate")
+}
+
+@(test)
+a_scale_that_is_turned_weighs_on_its_plate_as_it_now_lies :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	props.placed = {}
+	lab.placed_add(&props.placed, {.Scale, 8, -7.625, 1}) // the plate is 0.4 by 0.35 and now 0.35 along x and 0.4 along z
+	props_add(props, l, .Beaker, 8, -7.625 + 0.19, u16(chemistry.Id.Water), 100) // on the turned plate, off it as it was made
+	props_add(props, l, .Beaker, 8 + 0.19, -7.625, u16(chemistry.Id.Water), 100) // on it as it was made, off it turned
+	settle_for(props, l, p, 1)
+	testing.expect(t, scale_on(props, 0), "on the turned plate")
+	testing.expect(t, !scale_on(props, 1), "off it")
+	plate := lab.COUNTER_HEIGHT + lab.SCALE_PLATE_TOP
+	testing.expect(t, near(props.items[0].pos.y, plate, 0.001), "and it stands on the plate")
 }
 
 @(test)
@@ -614,15 +621,29 @@ the_scale_is_aimed_at_where_it_stands_now :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
 	props.aimed = -1
-	props.bench = {}
-	props.bench.spots[3] = .Scale
+	props.placed = {}
+	lab.placed_add(&props.placed, {.Scale, 8, -7.625, 0})
 	sc: Scale
-	view := View{eye = {lab.bench_spot_x(3), lab.COUNTER_HEIGHT + 0.1, -7.63 + 0.9}, back = {0, 0, 1}}
+	view := View{eye = {8, lab.COUNTER_HEIGHT + 0.1, -7.625 + 0.9}, back = {0, 0, 1}}
 	testing.expect(t, scale_aim(&sc, props, view), "at its new place")
-	view.eye.x = lab.bench_spot_x(4)
+	view.eye.x = 0
 	testing.expect(t, !scale_aim(&sc, props, view), "not at the old one")
-	props.bench.spots[4] = .Scale // two scales: the nearer is the one
+	lab.placed_add(&props.placed, {.Scale, 0, -7.625, 0}) // two scales: either is the one
 	testing.expect(t, scale_aim(&sc, props, view), "either of two")
-	props.bench = {}
+	props.placed = {}
 	testing.expect(t, !scale_aim(&sc, props, view), "none at all")
+}
+
+@(test)
+a_scale_that_is_turned_is_aimed_at_by_its_turned_box :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	props.aimed = -1
+	props.placed = {}
+	lab.placed_add(&props.placed, {.Scale, 8, -7.625, 1}) // the body is 0.5 along x and 0.52 along z as it is made, and 0.5 either way turned
+	sc: Scale
+	view := View{eye = {8 + 0.255, lab.COUNTER_HEIGHT + 0.1, -7.625 + 0.9}, back = {0, 0, 1}}
+	testing.expect(t, !scale_aim(&sc, props, view), "0.255 to the side is past the turned body")
+	props.placed.items[0].quarter = 0
+	testing.expect(t, scale_aim(&sc, props, view), "and on the body as it is made")
 }

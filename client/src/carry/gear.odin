@@ -101,7 +101,7 @@ scale_on :: proc(props: ^Props, i: int) -> bool {
 	}
 	pr := props.items[i]
 	rest := lab.COUNTER_HEIGHT + lab.SCALE_PLATE_TOP
-	return lab.on_bench(&props.bench, .Scale, pr.pos.x, pr.pos.z) && pr.pos.y <= rest + 0.01
+	return lab.on_station(&props.placed, .Scale, pr.pos.x, pr.pos.z) && pr.pos.y <= rest + 0.01
 }
 
 // The mass in grams of every vessel on the plate, and how many there are.
@@ -134,9 +134,9 @@ scale_update :: proc(sc: ^Scale, props: ^Props) {
 // Whether the crosshair is on the scale within reach. A vessel under the crosshair comes first.
 scale_aim :: proc(sc: ^Scale, props: ^Props, v: View) -> bool {
 	nearest, any := f32(0), false
-	for i in 0 ..< lab.BENCH_SPOTS {
-		if props.bench.spots[i] == .Scale {
-			low, high := lab.bench_aim_box(.Scale, i)
+	for i in 0 ..< props.placed.count {
+		if props.placed.items[i].kind == .Scale {
+			low, high := lab.station_aim_box(props.placed.items[i])
 			if t, hit := ray_box(v.eye, -v.back, low, high); hit && (!any || t < nearest) {
 				nearest, any = t, true
 			}

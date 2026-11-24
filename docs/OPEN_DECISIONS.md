@@ -125,6 +125,15 @@ The owner's plan for it is locked in `docs/DESIGN.md`, and a format for the page
 - Whether 16 colours is enough, or a 256-colour palette should replace it.
 - Hosting the game on Google Play would bring a user-generated-content policy, which expects reporting and blocking tools. Sideloading does not.
 
+### Placing stations (see `placed.odin` and `blueprint.odin` in `client/docs/client.md`)
+
+- The owner said that stations stand only on the counters, wherever there is space, and are carried as a see-through copy that shows red where it cannot be put down. Whether "specified places" meant the counters with free positions (built, on a 5 cm grid) or fixed spots is not confirmed.
+- Whether the island and the west counter should take stations, as they do now, and whether the bottle wall counter should not.
+- Quarter turns only. Whether the display of the scale should face the player wherever it is put, which it does not.
+- Only the hot plate, the ice bath and the scale can be carried. The filler, the oven, the paint station, the hood, the sink, the incinerator, the loadout rack and the first aid cabinet are fixed, and dispensers cannot yet be carried as copies to a mount of the wall. The order for the rest is the owner's to give.
+- A knock-out puts the vessels back at their starting places even where a station now stands.
+- Whether aiming a station with a thumb is easy enough. The copy is moved in until it is wholly on the counter so that a 0.7 m counter can be aimed at, and a nudge button has not been tried.
+
 ### Browser build
 
 - `vendor:raylib` in the pinned Odin release ships a prebuilt web library, so Odin has raylib support for WebAssembly. The Emscripten link step, the browser main loop, the Rust library for `wasm32-unknown-emscripten`, and hosting are not built or tested. Shaders for it already exist in `client/shaders/glsl100/`.

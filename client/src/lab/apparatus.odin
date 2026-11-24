@@ -165,16 +165,16 @@ COLOR_PANEL :: [4]u8{200, 208, 216, 255}
 // Adds the boxes of the three workstations. They stand on counters that
 // `build` has already made, and block nobody: the counters do that.
 add_apparatus :: proc(l: ^Layout) {
-	add_apparatus_with(l, default_bench())
+	add_apparatus_with(l, default_placed())
 }
 
-// The same, with the stations of the bench where `bench` has them.
-add_apparatus_with :: proc(l: ^Layout, bench: Bench) {
+// The same, with the stations that can be moved where `placed` has them.
+add_apparatus_with :: proc(l: ^Layout, placed: Placed) {
 	add_sink(l)
 	add_hood(l)
 	add_filler(l)
 	add_mixer(l)
-	add_bench(l, bench)
+	add_placed(l, placed)
 	add_paint_station(l)
 	add_loadout_rack(l)
 	add_incinerator(l)
