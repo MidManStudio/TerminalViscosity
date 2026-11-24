@@ -11,6 +11,11 @@
 // and fail as ambiguous. The overrides are keyed by full _root/ path on
 // purpose. Keying by bare name would also redirect every nested Cargo.toml and
 // README.md.
+//
+// A replacements run cannot delete files, so the pre-hook removes the two files
+// of the old bench of stations. Their contents moved to
+// client/src/lab/placed.odin, and leaving them in place would declare the same
+// procedures twice. Hooks do not run on a dry run.
 
 @CONFIG(
   version    -> "1.0.0"
@@ -32,4 +37,7 @@
     target("_root/README.md", "README.md")
     target("_root/LICENSE", "LICENSE")
     target("_root/gitignore", ".gitignore")
+
+  pre_hooks::
+    "rm -f client/src/lab/bench.odin client/src/lab/bench_test.odin"
 )
