@@ -20,6 +20,7 @@ Blueprint_Problem :: enum u8 {
 	None,
 	Out_Of_Reach, // the crosshair is on a counter that is too far to put it on, or on no counter plane at all
 	Off_Counter, // not wholly on a counter
+	Too_Big, // the crosshair is on a counter that the station does not fit at this turn
 	Blocked_By_Fixture,
 	Blocked_By_Station,
 	Blocked_By_Vessel,
@@ -31,6 +32,7 @@ Blueprint_Origin :: enum u8 {
 	None,
 	Placed, // from a counter
 	Bag, // from a slot of the bag
+	Hotbar, // from a slot of the bar along the bottom of the screen
 }
 
 Blueprint :: struct {
@@ -42,7 +44,7 @@ Blueprint :: struct {
 	problem: Blueprint_Problem, // why it cannot, when it cannot
 	origin:  Blueprint_Origin,
 	from:    lab.Placement, // where it stood, for a station that came from a counter
-	slot:    int, // the slot of the bag that it came out of, for one that came from there
+	slot:    int, // the slot of the bag or of the bar that it came out of, for one that came from there
 }
 
 // What came of putting a carried station back.
@@ -50,6 +52,7 @@ Cancel_Result :: enum u8 {
 	Nothing, // nothing was carried
 	Put_Back, // it stands where it was picked up
 	In_Bag, // it is in the bag
+	In_Bar, // it is in the bar
 	No_Room, // it could go nowhere: it is still carried
 }
 
@@ -73,26 +76,32 @@ blueprint_pick_up :: proc(bp: ^Blueprint, props: ^Props, index: int) -> bool {
 	return true
 }
 
-// Starts carrying the station in slot `slot` of the bag: it leaves the bag and becomes the copy, not turned. False,
-// with nothing changed, if the slot holds no station, one is already carried, or the hands are full.
-blueprint_take_from_bag :: proc(bp: ^Blueprint, props: ^Props, bag: ^inventory.Container, slot: int) -> bool {
-	if bp.active || props.held != -1 || slot < 0 || slot >= bag.size {
+// Starts carrying the station in slot `slot` of a container, the bag or the bar, which `origin` says: it leaves the
+// container and becomes the copy, not turned. False, with nothing changed, if the slot holds no station, one is already
+// carried, or the hands are full.
+blueprint_take_from :: proc(bp: ^Blueprint, props: ^Props, c: ^inventory.Container, slot: int, origin: Blueprint_Origin) -> bool {
+	if bp.active || props.held != -1 || slot < 0 || slot >= c.size {
 		return false
 	}
-	kind := item_station(bag.slots[slot].item)
+	kind := item_station(c.slots[slot].item)
 	if kind == .None {
 		return false
 	}
-	if _, ok := inventory.take(bag, slot, 1); !ok {
+	if _, ok := inventory.take(c, slot, 1); !ok {
 		return false
 	}
 	bp^ = {
 		active = true,
 		kind   = kind,
-		origin = .Bag,
+		origin = origin,
 		slot   = slot,
 	}
 	return true
+}
+
+// The same for the bag.
+blueprint_take_from_bag :: proc(bp: ^Blueprint, props: ^Props, bag: ^inventory.Container, slot: int) -> bool {
+	return blueprint_take_from(bp, props, bag, slot, .Bag)
 }
 
 // Turns the copy a quarter.
@@ -146,13 +155,18 @@ station_problem :: proc(props: ^Props, kind: lab.Station_Kind, x, z: f32, quarte
 // that is level or up meets no plane, and then the copy floats in front of the player. Too far to reach is a problem
 // of its own and comes before the others.
 blueprint_aim :: proc(bp: ^Blueprint, props: ^Props, v: View) {
+	blueprint_aim_ray(bp, props, v.eye, -v.back)
+}
+
+// The same along any ray from the eye, such as the one through a finger on the screen.
+blueprint_aim_ray :: proc(bp: ^Blueprint, props: ^Props, eye, direction: Vec3) {
 	if !bp.active {
 		return
 	}
-	dir := -v.back
+	dir := direction
 	t := f32(-1)
 	if dir.y < -1e-4 {
-		t = (lab.COUNTER_HEIGHT - v.eye.y) / dir.y
+		t = (lab.COUNTER_HEIGHT - eye.y) / dir.y
 	}
 	if t <= 0 {
 		flat := Vec3{dir.x, 0, dir.z}
@@ -160,14 +174,18 @@ blueprint_aim :: proc(bp: ^Blueprint, props: ^Props, v: View) {
 		if n < 1e-4 {
 			flat, n = {0, 0, -1}, 1
 		}
-		bp.x = lab.snap_place(v.eye.x + flat.x / n * BLUEPRINT_FLOAT)
-		bp.z = lab.snap_place(v.eye.z + flat.z / n * BLUEPRINT_FLOAT)
+		bp.x = lab.snap_place(eye.x + flat.x / n * BLUEPRINT_FLOAT)
+		bp.z = lab.snap_place(eye.z + flat.z / n * BLUEPRINT_FLOAT)
 		bp.problem, bp.ok = .Out_Of_Reach, false
 		return
 	}
 	t = min(t, BLUEPRINT_FAR)
-	bp.x, bp.z, _ = lab.fit_to_zone(bp.kind, bp.quarter, v.eye.x + dir.x * t, v.eye.z + dir.z * t)
+	hit_x, hit_z := eye.x + dir.x * t, eye.z + dir.z * t
+	bp.x, bp.z, _ = lab.fit_to_zone(bp.kind, bp.quarter, hit_x, hit_z)
 	bp.problem = station_problem(props, bp.kind, bp.x, bp.z, bp.quarter)
+	if bp.problem == .Off_Counter && lab.zone_at(hit_x, hit_z) != -1 {
+		bp.problem = .Too_Big // the crosshair is on a counter and the station is still off it, so it does not fit it this way round
+	}
 	if t > REACH {
 		bp.problem = .Out_Of_Reach
 	}
@@ -186,10 +204,11 @@ blueprint_place :: proc(bp: ^Blueprint, props: ^Props) -> bool {
 	return true
 }
 
-// Puts the copy back: where it stood, if it came from a counter and that place is still free, and otherwise in the
-// bag, in the slot it came from if that is free. If the bag has no room either, the copy is still carried and the
-// player puts it down somewhere.
-blueprint_cancel :: proc(bp: ^Blueprint, props: ^Props, bag: ^inventory.Container) -> Cancel_Result {
+// Puts the copy back: where it stood, if it came from a counter and that place is still free, in its slot of the bar if
+// it came from there and that is free, and otherwise in the bag, in the slot it came from if that is free, and then in
+// the bar, which may be left out. If there is no room anywhere, the copy is still carried and the player puts it down
+// somewhere.
+blueprint_cancel :: proc(bp: ^Blueprint, props: ^Props, bag: ^inventory.Container, hotbar: ^inventory.Container = nil) -> Cancel_Result {
 	if !bp.active {
 		return .Nothing
 	}
@@ -200,11 +219,45 @@ blueprint_cancel :: proc(bp: ^Blueprint, props: ^Props, bag: ^inventory.Containe
 		}
 	}
 	item := station_item(bp.kind)
+	if hotbar != nil && bp.origin == .Hotbar && inventory.put(hotbar, bp.slot, item, 1) {
+		bp^ = {}
+		return .In_Bar
+	}
 	if (bp.origin == .Bag && inventory.put(bag, bp.slot, item, 1)) || inventory.add(bag, item, 1) == 1 {
 		bp^ = {}
 		return .In_Bag
 	}
+	if hotbar != nil && inventory.add(hotbar, item, 1) == 1 {
+		bp^ = {}
+		return .In_Bar
+	}
 	return .No_Room
+}
+
+// Puts the copy into the bar: in slot `slot` if that is free, in the first free slot of the bar if not, and in the bag if
+// the bar is full. If there is no room anywhere, the copy is still carried.
+blueprint_stow :: proc(bp: ^Blueprint, bag, hotbar: ^inventory.Container, slot: int) -> Cancel_Result {
+	if !bp.active {
+		return .Nothing
+	}
+	item := station_item(bp.kind)
+	if inventory.put(hotbar, slot, item, 1) || inventory.add(hotbar, item, 1) == 1 {
+		bp^ = {}
+		return .In_Bar
+	}
+	if inventory.add(bag, item, 1) == 1 {
+		bp^ = {}
+		return .In_Bag
+	}
+	return .No_Room
+}
+
+// The direction of the ray through a point of the screen, for a view that is `tan_half` wide to a side of the middle
+// of the screen in the vertical direction, and `aspect` times as wide as high. (nx, ny) is the point from -1 to 1
+// across and up the screen, with the middle at (0, 0).
+view_ray :: proc(v: View, nx, ny, tan_half, aspect: f32) -> Vec3 {
+	d := -v.back + v.right * (nx * tan_half * aspect) + v.up * (ny * tan_half)
+	return d / sqrt_f32(dot(d, d))
 }
 
 // What the line under the crosshair says about the copy.
@@ -216,6 +269,8 @@ blueprint_words :: proc(problem: Blueprint_Problem) -> string {
 		return "too far: go closer"
 	case .Off_Counter:
 		return "it has to go on a counter"
+	case .Too_Big:
+		return "too big for this counter: try turning it"
 	case .Blocked_By_Fixture:
 		return "something fixed is in the way"
 	case .Blocked_By_Station:

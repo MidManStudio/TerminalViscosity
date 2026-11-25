@@ -151,6 +151,12 @@ a_stock_is_a_bag_and_a_wall_and_a_station_is_an_item_of_the_bag :: proc(t: ^test
 	testing.expect(t, inventory.can_move(&s.wall, 0, &s.bag, 0), "a dispenser moves from the wall to the bag")
 	testing.expect_value(t, inventory.add(&s.bag, station_item(.Scale), 1), 1)
 	testing.expect(t, !inventory.can_move(&s.bag, 0, &s.wall, 5), "a station does not go on the wall")
+	testing.expect_value(t, s.hotbar.size, HOTBAR_SIZE)
+	testing.expect(t, inventory.can_move(&s.bag, 0, &s.hotbar, 3), "a station goes from the bag to the bar")
+	testing.expect_value(t, inventory.put(&s.hotbar, 0, {.Dispenser, 1}, 1), false) // the bar takes stations only
+	testing.expect_value(t, inventory.put(&s.hotbar, 0, station_item(.Ice_Bath), 1), true)
+	testing.expect(t, !inventory.can_move(&s.hotbar, 0, &s.wall, 5), "and a station does not go from the bar to the wall")
+	testing.expect_value(t, inventory.count_of(&s.hotbar, station_item(.Ice_Bath)), 1)
 }
 
 @(test)

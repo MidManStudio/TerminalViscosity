@@ -261,25 +261,37 @@ grid_floor :: proc(v: f32) -> f32 {
 // its floor a little.
 COUNTER_REACH_PAST :: f32(0.04)
 
+// The number of the counter, among `place_zones`, that the point (x, z) on the counter plane is on, with a little to
+// spare past its edge, or -1 if it is on none.
+zone_at :: proc(x, z: f32) -> int {
+	zones := place_zones()
+	for zone, i in zones {
+		if x >= zone.min_x - COUNTER_REACH_PAST && x <= zone.max_x + COUNTER_REACH_PAST && z >= zone.min_z - COUNTER_REACH_PAST && z <= zone.max_z + COUNTER_REACH_PAST {
+			return i
+		}
+	}
+	return -1
+}
+
 // Where the middle of a station goes when the crosshair is at (x, z) on the counter plane: the point rounded to the
 // grid, and then moved in just far enough that the whole station is on the counter the point is on, so that a
 // counter that is not much deeper than the station can be aimed at without care. `on_counter` is false when the
-// point is on no counter, or the station does not fit the counter at all, and then the point is only rounded.
+// point is on no counter, or the station does not fit the counter at all, and then the point is only rounded. Which of
+// the two it is, `zone_at` says.
 fit_to_zone :: proc(kind: Station_Kind, quarter: u8, x, z: f32) -> (fx, fz: f32, on_counter: bool) {
 	fx, fz = snap_place(x), snap_place(z)
-	body := turn_rect(station_body(kind), quarter)
-	for zone in place_zones() {
-		if x < zone.min_x - COUNTER_REACH_PAST || x > zone.max_x + COUNTER_REACH_PAST || z < zone.min_z - COUNTER_REACH_PAST || z > zone.max_z + COUNTER_REACH_PAST {
-			continue
-		}
-		lo_x, hi_x := grid_ceil(zone.min_x - body.min_x), grid_floor(zone.max_x - body.max_x)
-		lo_z, hi_z := grid_ceil(zone.min_z - body.min_z), grid_floor(zone.max_z - body.max_z)
-		if lo_x > hi_x || lo_z > hi_z {
-			return fx, fz, false
-		}
-		return clamp(fx, lo_x, hi_x), clamp(fz, lo_z, hi_z), true
+	index := zone_at(x, z)
+	if index == -1 {
+		return fx, fz, false
 	}
-	return fx, fz, false
+	zone := place_zones()[index]
+	body := turn_rect(station_body(kind), quarter)
+	lo_x, hi_x := grid_ceil(zone.min_x - body.min_x), grid_floor(zone.max_x - body.max_x)
+	lo_z, hi_z := grid_ceil(zone.min_z - body.min_z), grid_floor(zone.max_z - body.max_z)
+	if lo_x > hi_x || lo_z > hi_z {
+		return fx, fz, false
+	}
+	return clamp(fx, lo_x, hi_x), clamp(fz, lo_z, hi_z), true
 }
 
 // ---- Writing and reading ----

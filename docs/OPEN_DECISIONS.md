@@ -132,6 +132,8 @@ The owner's plan for it is locked in `docs/DESIGN.md`, and a format for the page
 - Quarter turns only. Whether the display of the scale should face the player wherever it is put, which it does not.
 - Only the hot plate, the ice bath and the scale can be carried. The filler, the oven, the paint station, the hood, the sink, the incinerator, the loadout rack and the first aid cabinet are fixed, and dispensers cannot yet be carried as copies to a mount of the wall. The order for the rest is the owner's to give.
 - A knock-out puts the vessels back at their starting places even where a station now stands.
+- The bar along the bottom of the lab: six slots (a guess), stations only for now. Dragging a station out of a slot makes a copy that follows the finger and is put down where the finger lifts, or back in the slot if it cannot stand there or the finger lifted over the bar. A tap on a slot carries the station on the crosshair, and a press on a free slot while carrying puts the station away in the bar. Picking up from a counter still carries the copy and does not put it in the bar. All of this was chosen by Claude from the owner's description of a bar that things are dragged out of, and he has not tried it.
+- Whether the bar should hold dispensers, vessels or other things as well, and how things get into it besides being dragged from the bag or put away while carried.
 - Whether aiming a station with a thumb is easy enough. The copy is moved in until it is wholly on the counter so that a 0.7 m counter can be aimed at, and a nudge button has not been tried.
 
 ### Browser build

@@ -10,6 +10,7 @@ import "lab"
 import rlgl "vendor:raylib/rlgl"
 
 BLUEPRINT_EDGE :: f32(0.004) // how thick the edges of the copy are drawn, in metres
+BLUEPRINT_LIFT :: f32(0.002) // how far over the counter top the copy is drawn, so that its floor does not flicker with the counter
 
 // Where the corners of a box are, from its middle and its size.
 Blueprint_Box :: struct {
@@ -65,7 +66,7 @@ blueprint_colors :: proc(ok: bool) -> (fill, foot, edge: [4]u8) {
 blueprint_box_for :: proc(bp: ^carry.Blueprint) -> Blueprint_Box {
 	body := lab.turn_rect(lab.station_body(bp.kind), bp.quarter)
 	h := lab.station_height(bp.kind)
-	return blueprint_box_of(bp.x + (body.min_x + body.max_x) * 0.5, lab.COUNTER_HEIGHT + h * 0.5, bp.z + (body.min_z + body.max_z) * 0.5, body.max_x - body.min_x, h, body.max_z - body.min_z)
+	return blueprint_box_of(bp.x + (body.min_x + body.max_x) * 0.5, lab.COUNTER_HEIGHT + BLUEPRINT_LIFT + h * 0.5, bp.z + (body.min_z + body.max_z) * 0.5, body.max_x - body.min_x, h, body.max_z - body.min_z)
 }
 
 // Draws the carried station: a see-through box the size of the station, its footprint on the counter, bright edges, and a
@@ -82,7 +83,7 @@ blueprint_draw :: proc(bp: ^carry.Blueprint) {
 	rlgl.DisableDepthMask()
 	rlgl.Begin(rlgl.QUADS)
 	blueprint_box_quads(b, fill)
-	blueprint_box_quads({b.x0, lab.COUNTER_HEIGHT, b.z0, b.x1, lab.COUNTER_HEIGHT + 0.006, b.z1}, foot)
+	blueprint_box_quads({b.x0, lab.COUNTER_HEIGHT + BLUEPRINT_LIFT, b.z0, b.x1, lab.COUNTER_HEIGHT + BLUEPRINT_LIFT + 0.006, b.z1}, foot)
 	t := BLUEPRINT_EDGE
 	for y in ([2]f32{b.y0, b.y1}) {
 		for z in ([2]f32{b.z0, b.z1} ) {

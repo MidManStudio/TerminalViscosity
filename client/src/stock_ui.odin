@@ -13,20 +13,22 @@ import "inventory"
 import "lab"
 import rl "vendor:raylib"
 
-STOCK_BAG :: 0 // the number of the bag and of the wall, in a drag
+STOCK_BAG :: 0 // the number of the bag, of the wall and of the bar, in a drag
 STOCK_WALL :: 1
-STOCK_CONTAINERS :: 2
+STOCK_HOTBAR :: 2
+STOCK_CONTAINERS :: 3
 STOCK_GAP :: f32(10)
 WALL_COLUMNS :: 5 // the ten mounts of the wall in two rows of five
 BAG_COLUMNS :: 4 // the twelve slots of the bag in three rows of four
 
 // The state of the screen: the drag that is going on, if any, the slot it began on, whether the hands are free to
-// carry a station, and the slot of the bag that was tapped to be carried, which the room takes and clears.
+// carry a station, and the slot of the bag or the bar that was tapped to be carried, which the room takes and clears.
 Stock_Ui :: struct {
-	drag:        dragdrop.Controller,
-	press:       [2]int, // the container and the slot that the drag began on
-	hands_free:  bool, // set by the room before each update: a station can be carried only with empty hands
-	carry_slot:  int, // the slot of the bag to carry, or -1
+	drag:            dragdrop.Controller,
+	press:           [2]int, // the container and the slot that the drag began on
+	hands_free:      bool, // set by the room before each update: a station can be carried only with empty hands
+	carry_slot:      int, // the slot to carry, or -1
+	carry_container: int, // and the container it is a slot of
 }
 
 stock_ui_init :: proc(ui: ^Stock_Ui) {
@@ -44,15 +46,21 @@ Slot_Ref :: struct {
 }
 
 stock_container :: proc(s: ^carry.Stock, container: int) -> ^inventory.Container {
-	if container == STOCK_WALL {
+	switch container {
+	case STOCK_WALL:
 		return &s.wall
+	case STOCK_HOTBAR:
+		return &s.hotbar
 	}
 	return &s.bag
 }
 
 stock_slot_count :: proc(container: int) -> int {
-	if container == STOCK_WALL {
+	switch container {
+	case STOCK_WALL:
 		return lab.DISPENSER_COUNT
+	case STOCK_HOTBAR:
+		return carry.HOTBAR_SIZE
 	}
 	return carry.BAG_SIZE
 }
@@ -81,13 +89,14 @@ draw_bag_button :: proc(w, h: f32, usable: bool) {
 }
 
 // Where a grid starts, how big its tiles are, and how many columns it has. The wall is on the left half of the panel and
-// the bag is on the right. Both are under the line of text that the book also has, and each has a label over it.
+// the bag is on the right. Both are under the line of text that the book also has, and each has a label over it, and
+// both end above the label of the bar, which is the bar of the screen drawn where it always is.
 stock_grid :: proc(w, h: f32, container: int) -> (x, y, tile: f32, cols: int) {
 	p := book_panel(w, h)
 	half := p.z * 0.5
 	width := half - 30
 	top := book_body_top(w, h) + f32(book_sub_font(h)) + 10
-	bottom := p.y + p.w - 20
+	bottom := min(p.y + p.w - 20, hotbar_rect(w, h).y - 16 - f32(book_sub_font(h)) - 6)
 	rows: int
 	if container == STOCK_WALL {
 		cols, rows = WALL_COLUMNS, (lab.DISPENSER_COUNT + WALL_COLUMNS - 1) / WALL_COLUMNS
@@ -104,6 +113,9 @@ stock_grid :: proc(w, h: f32, container: int) -> (x, y, tile: f32, cols: int) {
 }
 
 stock_slot_box :: proc(w, h: f32, container, slot: int) -> [4]f32 {
+	if container == STOCK_HOTBAR {
+		return hotbar_slot_rect(w, h, slot)
+	}
 	x, y, tile, cols := stock_grid(w, h, container)
 	return {x + f32(slot % cols) * (tile + STOCK_GAP), y + f32(slot / cols) * (tile + STOCK_GAP), tile, tile}
 }
@@ -129,10 +141,10 @@ stock_can_accept :: proc(data: rawptr, payload: dragdrop.Payload) -> bool {
 // Runs one frame of the screen. A press on a slot that holds something starts a drag, while it goes on the slot
 // under the pointer is the one the drag is over, and letting go over a slot that takes the stack moves it there.
 // Letting go anywhere else is a cancel. Letting go on the slot the drag began on is a tap, and a tap on a station of the
-// bag, with free hands, sets `carry_slot` so that the room carries it. Returns whether the contents of any of the
-// containers changed.
+// bag or the bar, with free hands, sets `carry_slot` and `carry_container` so that the room carries it. Returns
+// whether the contents of any of the containers changed.
 stock_update :: proc(ui: ^Stock_Ui, stock: ^carry.Stock, pointer: [2]f32, pressed, released: bool, w, h: f32) -> (changed: bool) {
-	bag_version, wall_version := stock.bag.version, stock.wall.version
+	bag_version, wall_version, bar_version := stock.bag.version, stock.wall.version, stock.hotbar.version
 	ui.carry_slot = -1
 	c, s, over := stock_slot_at(w, h, pointer)
 	if pressed && over && !dragdrop.is_dragging(&ui.drag) {
@@ -152,12 +164,15 @@ stock_update :: proc(ui: ^Stock_Ui, stock: ^carry.Stock, pointer: [2]f32, presse
 				inventory.move(stock_container(stock, int(payload.a)), int(payload.b), stock_container(stock, id / inventory.MAX_SLOTS), id % inventory.MAX_SLOTS)
 			}
 			tapped := over && c == ui.press[0] && s == ui.press[1]
-			if tapped && c == STOCK_BAG && ui.hands_free && stock.bag.slots[s].count > 0 && carry.item_station(stock.bag.slots[s].item) != .None {
-				ui.carry_slot = s
+			if tapped && ui.hands_free {
+				at := stock_container(stock, c)
+				if at.slots[s].count > 0 && carry.item_station(at.slots[s].item) != .None {
+					ui.carry_container, ui.carry_slot = c, s
+				}
 			}
 		}
 	}
-	return stock.bag.version != bag_version || stock.wall.version != wall_version
+	return stock.bag.version != bag_version || stock.wall.version != wall_version || stock.hotbar.version != bar_version
 }
 
 // What a dispenser is called and the color of its bottle: the compound in it, or grey and "empty".
@@ -213,7 +228,7 @@ draw_stock :: proc(w, h: f32, stock: ^carry.Stock, ui: ^Stock_Ui, pointer: [2]f3
 	draw_button(book_close_button(w, h), "close", {120, 30, 30, 235}, {255, 200, 200, 255}, rl.RAYWHITE)
 	close := book_close_button(w, h)
 	head_font := i32(max(f32(22), h * 0.06))
-	rl.DrawText("bag and bottle wall", i32(p.x) + 24, i32(close.y + (close.w - f32(head_font)) * 0.5), head_font, rl.RAYWHITE)
+	rl.DrawText("bag, bottle wall and bar", i32(p.x) + 24, i32(close.y + (close.w - f32(head_font)) * 0.5), head_font, rl.RAYWHITE)
 	rl.DrawText(hint, i32(p.x) + 24, i32(book_sub_y(w, h)), book_sub_font(h), {200, 212, 224, 255})
 
 	dragging := dragdrop.is_dragging(&ui.drag)
@@ -223,6 +238,10 @@ draw_stock :: proc(w, h: f32, stock: ^carry.Stock, ui: ^Stock_Ui, pointer: [2]f3
 		label: cstring = "bag"
 		if c == STOCK_WALL {
 			label = "bottle wall"
+		} else if c == STOCK_HOTBAR {
+			label = "bar"
+			first := hotbar_slot_rect(w, h, 0)
+			gx, gy = first.x, first.y
 		}
 		rl.DrawText(label, i32(gx), i32(gy) - i32(book_sub_font(h)) - 6, book_sub_font(h), {200, 212, 224, 255})
 		held := stock_container(stock, c)

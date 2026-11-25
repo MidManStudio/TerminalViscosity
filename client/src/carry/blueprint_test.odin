@@ -374,3 +374,181 @@ every_problem_has_its_own_words :: proc(t: ^testing.T) {
 	testing.expect_value(t, blueprint_words(.None), "put it down here")
 	testing.expect_value(t, blueprint_words(.Blocked_By_Vessel), "a vessel is in the way")
 }
+
+@(test)
+a_station_that_does_not_fit_the_counter_it_is_aimed_at_is_told_so :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	bp, _ := carried(props, .Ice_Bath)
+	bp.quarter = 1 // 0.86 deep, on a counter that is 0.7 deep
+	blueprint_aim(&bp, props, eye_at_counter(8, -7.6))
+	testing.expect_value(t, bp.problem, Blueprint_Problem.Too_Big)
+	testing.expect(t, !bp.ok, "not ok")
+	bp.quarter = 0
+	blueprint_aim(&bp, props, eye_at_counter(8, -7.6))
+	testing.expect(t, bp.ok, "turned the other way it fits")
+	// The west counter is 0.7 wide, and the bath is 0.86 wide as it is made.
+	blueprint_aim(&bp, props, view_toward({-10.4, 1.6, 0}, {-11.63, 1.1, 0}))
+	testing.expect_value(t, bp.problem, Blueprint_Problem.Too_Big)
+	bp.quarter = 1
+	blueprint_aim(&bp, props, view_toward({-10.4, 1.6, 0}, {-11.63, 1.1, 0}))
+	testing.expect(t, bp.ok, "and turned a quarter it fits")
+	// Over bare floor it is still not on a counter, and too far is still first.
+	blueprint_aim(&bp, props, view_toward({0, 1.6, 4.5}, {0, 1.1, 3.5}))
+	testing.expect_value(t, bp.problem, Blueprint_Problem.Off_Counter)
+	bp.quarter = 1
+	blueprint_aim(&bp, props, view_toward({8, 1.6, -4.0}, {8, 1.1, -7.6}))
+	testing.expect_value(t, bp.problem, Blueprint_Problem.Out_Of_Reach)
+}
+
+@(test)
+a_station_from_the_bar_goes_back_to_its_slot_of_the_bar :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	bag, bar: inventory.Container
+	inventory.container_init(&bag, BAG_SIZE)
+	inventory.container_init(&bar, HOTBAR_SIZE, {.Benchable})
+	inventory.put(&bar, 2, station_item(.Scale), 1)
+	bp: Blueprint
+	testing.expect(t, blueprint_take_from(&bp, props, &bar, 2, .Hotbar), "taken from the bar")
+	testing.expect_value(t, bp.origin, Blueprint_Origin.Hotbar)
+	testing.expect_value(t, bp.slot, 2)
+	testing.expect_value(t, bar.slots[2], inventory.Slot{})
+	testing.expect_value(t, blueprint_cancel(&bp, props, &bag, &bar), Cancel_Result.In_Bar)
+	testing.expect_value(t, bar.slots[2], inventory.Slot{{.Scale, 0}, 1})
+	testing.expect_value(t, inventory.count_of(&bag, station_item(.Scale)), 0)
+	// A slot that is taken in the meantime sends it to the bag, and then to another slot of the bar if the bag is full.
+	blueprint_take_from(&bp, props, &bar, 2, .Hotbar)
+	inventory.put(&bar, 2, station_item(.Hot_Plate), 1)
+	testing.expect_value(t, blueprint_cancel(&bp, props, &bag, &bar), Cancel_Result.In_Bag)
+	testing.expect_value(t, inventory.count_of(&bag, station_item(.Scale)), 1)
+	blueprint_take_from(&bp, props, &bag, 0, .Bag)
+	for i in 0 ..< BAG_SIZE {
+		inventory.put(&bag, i, {.Dispenser, 1}, 1)
+	}
+	testing.expect_value(t, blueprint_cancel(&bp, props, &bag, &bar), Cancel_Result.In_Bar)
+	testing.expect_value(t, inventory.count_of(&bar, station_item(.Scale)), 1)
+	// With no bar given, a station that came from the bar goes to the bag, and stays carried if the bag is full.
+	bp2: Blueprint
+	inventory.put(&bar, 5, station_item(.Ice_Bath), 1)
+	blueprint_take_from(&bp2, props, &bar, 5, .Hotbar)
+	testing.expect_value(t, blueprint_cancel(&bp2, props, &bag), Cancel_Result.No_Room)
+	testing.expect(t, bp2.active, "still carried")
+	testing.expect(t, !blueprint_take_from(&bp2, props, &bar, 3, .Hotbar), "one is carried already")
+}
+
+@(test)
+a_copy_is_stowed_in_the_slot_of_the_bar_that_is_pressed :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	bag, bar: inventory.Container
+	inventory.container_init(&bag, BAG_SIZE)
+	inventory.container_init(&bar, HOTBAR_SIZE, {.Benchable})
+	idle: Blueprint
+	testing.expect_value(t, blueprint_stow(&idle, &bag, &bar, 0), Cancel_Result.Nothing)
+	bp, _ := carried(props, .Scale)
+	testing.expect_value(t, blueprint_stow(&bp, &bag, &bar, 4), Cancel_Result.In_Bar)
+	testing.expect(t, !bp.active, "no longer carried")
+	testing.expect_value(t, bar.slots[4], inventory.Slot{{.Scale, 0}, 1})
+	// A slot that is taken sends it to the first free slot.
+	bp, _ = carried(props, .Hot_Plate)
+	testing.expect_value(t, blueprint_stow(&bp, &bag, &bar, 4), Cancel_Result.In_Bar)
+	testing.expect_value(t, bar.slots[0], inventory.Slot{{.Hot_Plate, 0}, 1})
+	// A slot that is not there sends it to the first free slot too.
+	bp, _ = carried(props, .Ice_Bath)
+	testing.expect_value(t, blueprint_stow(&bp, &bag, &bar, 99), Cancel_Result.In_Bar)
+	testing.expect_value(t, bar.slots[1], inventory.Slot{{.Ice_Bath, 0}, 1})
+	// A full bar sends it to the bag, and a full bag keeps it carried.
+	for i in 0 ..< HOTBAR_SIZE {
+		inventory.take(&bar, i, 1)
+		inventory.put(&bar, i, station_item(.Scale), 1)
+	}
+	bp, _ = carried(props, .Hot_Plate)
+	testing.expect_value(t, blueprint_stow(&bp, &bag, &bar, 0), Cancel_Result.In_Bag)
+	testing.expect_value(t, inventory.count_of(&bag, station_item(.Hot_Plate)), 1)
+	for i in 0 ..< BAG_SIZE {
+		inventory.take(&bag, i, 1)
+		inventory.put(&bag, i, {.Dispenser, 1}, 1)
+	}
+	bp, _ = carried(props, .Hot_Plate)
+	for i in 0 ..< BAG_SIZE {
+		inventory.take(&bag, i, 1)
+		inventory.put(&bag, i, {.Dispenser, 1}, 1)
+	}
+	testing.expect_value(t, blueprint_stow(&bp, &bag, &bar, 0), Cancel_Result.No_Room)
+	testing.expect(t, bp.active, "still carried")
+}
+
+@(test)
+a_point_of_the_screen_is_a_ray_through_the_view :: proc(t: ^testing.T) {
+	v := View{eye = {1, 2, 3}, right = {1, 0, 0}, up = {0, 1, 0}, back = {0, 0, 1}} // looking along -z
+	d := view_ray(v, 0, 0, 1, 1)
+	testing.expect(t, near(d.x, 0, 1e-5) && near(d.y, 0, 1e-5) && near(d.z, -1, 1e-5), "the middle of the screen is where the view looks")
+	d = view_ray(v, 1, 0, 1, 1) // the right edge of a view that is 90 degrees wide
+	testing.expect(t, near(d.x, 0.70710678, 1e-5) && near(d.y, 0, 1e-5) && near(d.z, -0.70710678, 1e-5), "the right edge is 45 degrees to the right")
+	d = view_ray(v, -1, 0, 1, 1)
+	testing.expect(t, near(d.x, -0.70710678, 1e-5), "and the left edge to the left")
+	d = view_ray(v, 0, 1, 1, 1)
+	testing.expect(t, near(d.y, 0.70710678, 1e-5) && near(d.z, -0.70710678, 1e-5) && near(d.x, 0, 1e-5), "the top edge is 45 degrees up")
+	d = view_ray(v, 1, 0, 0.5, 2) // twice as wide as high, and half as tall: the same width as the first
+	testing.expect(t, near(d.x, 0.70710678, 1e-5) && near(d.z, -0.70710678, 1e-5), "aspect widens the view sideways")
+	d = view_ray(v, 0, 1, 0.5, 2)
+	testing.expect(t, near(d.y, 0.4472136, 1e-5) && near(d.z, -0.8944272, 1e-5), "and the half height gives half as much up")
+	d = view_ray(v, 0.6, -0.3, 0.7, 1.8)
+	testing.expect(t, near(d.x * d.x + d.y * d.y + d.z * d.z, 1, 1e-5), "the direction is a unit vector")
+	turned := View{eye = {0, 0, 0}, right = {0, 0, 1}, up = {0, 1, 0}, back = {-1, 0, 0}} // looking along +x
+	d = view_ray(turned, 1, 0, 1, 1)
+	testing.expect(t, near(d.x, 0.70710678, 1e-5) && near(d.z, 0.70710678, 1e-5), "right is along the right of the view, wherever it looks")
+}
+
+@(test)
+aiming_along_a_ray_is_aiming_with_the_crosshair_or_at_any_other_point :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	bp, _ := carried(props, .Hot_Plate)
+	v := eye_at_counter(8, -7.6)
+	blueprint_aim(&bp, props, v)
+	by_view := bp
+	blueprint_aim_ray(&bp, props, v.eye, -v.back)
+	testing.expect_value(t, bp, by_view)
+	// A ray through another point of the counter puts the copy there.
+	d := Vec3{9.5 - v.eye.x, lab.COUNTER_HEIGHT - v.eye.y, -7.6 - v.eye.z}
+	blueprint_aim_ray(&bp, props, v.eye, d / sqrt_f32(dot(d, d)))
+	testing.expect(t, bp.ok && bp.x == f32(9.5) && bp.z == f32(-7.6), "at the point the ray goes through")
+	// And one that is too far is too far.
+	far := Vec3{0, -0.05, -0.99875}
+	blueprint_aim_ray(&bp, props, {8, 1.6, 0}, far)
+	testing.expect_value(t, bp.problem, Blueprint_Problem.Out_Of_Reach)
+	idle: Blueprint
+	blueprint_aim_ray(&idle, props, v.eye, -v.back)
+	testing.expect_value(t, idle, Blueprint{})
+}
+
+@(test)
+a_full_lab_is_said_before_a_station_that_is_too_big :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	bp, _ := carried(props, .Ice_Bath)
+	bp.quarter = 1
+	room := lab.MAX_PLACED - props.placed.count
+	for k in 0 ..< room {
+		lab.placed_add(&props.placed, {.Hot_Plate, f32(k) * 0.7, 0, 0})
+	}
+	blueprint_aim(&bp, props, eye_at_counter(8, -7.6)) // too big for the counter, and no room in the lab
+	testing.expect_value(t, bp.problem, Blueprint_Problem.Too_Many)
+}
+
+@(test)
+a_station_from_the_bag_does_not_go_to_the_bar_when_it_is_put_back :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	bag, bar: inventory.Container
+	inventory.container_init(&bag, BAG_SIZE)
+	inventory.container_init(&bar, HOTBAR_SIZE, {.Benchable})
+	inventory.put(&bag, 3, station_item(.Scale), 1)
+	bp: Blueprint
+	blueprint_take_from(&bp, props, &bag, 3, .Bag)
+	testing.expect_value(t, blueprint_cancel(&bp, props, &bag, &bar), Cancel_Result.In_Bag)
+	testing.expect_value(t, bag.slots[3], inventory.Slot{{.Scale, 0}, 1})
+	testing.expect_value(t, inventory.count_of(&bar, station_item(.Scale)), 0)
+}

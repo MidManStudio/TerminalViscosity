@@ -463,3 +463,23 @@ the_lab_has_room_for_as_many_stations_as_there_can_be :: proc(t: ^testing.T) {
 	add_apparatus(l2)
 	testing.expect_value(t, l2.box_count, before + 14)
 }
+
+@(test)
+a_point_is_on_a_counter_with_a_little_to_spare_past_its_edge :: proc(t: ^testing.T) {
+	testing.expect_value(t, zone_at(8, -7.6), 0) // the north counter
+	testing.expect_value(t, zone_at(0, 7.6), 1) // the south counter
+	testing.expect_value(t, zone_at(-11.6, 0), 2) // the west counter
+	testing.expect_value(t, zone_at(0, 0), 3) // the island
+	testing.expect_value(t, zone_at(11.63, 0), -1) // the counter of the bottle wall is no zone
+	testing.expect_value(t, zone_at(0, -4), -1) // the floor
+	testing.expect_value(t, zone_at(8, -7.25), 0) // 3 cm past the front edge is still on it
+	testing.expect_value(t, zone_at(8, -7.2), -1) // 8 cm is not
+	testing.expect_value(t, zone_at(-11.53, -7.6), 0) // and past the end of the counter
+	testing.expect_value(t, zone_at(-11.6, -7.6), -1) // the corner is on neither of the counters that meet there
+	testing.expect_value(t, zone_at(11.53, -7.6), 0) // 3 cm past the east end of the north counter
+	testing.expect_value(t, zone_at(11.6, -7.6), -1)
+	testing.expect_value(t, zone_at(8, -8.01), 0) // and 1 cm past the wall behind it
+	testing.expect_value(t, zone_at(8, -8.05), -1)
+	testing.expect_value(t, zone_at(5.03, 0), 3) // 3 cm past the end of the island
+	testing.expect_value(t, zone_at(5.1, 0), -1)
+}

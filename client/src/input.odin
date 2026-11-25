@@ -64,6 +64,16 @@ button_held :: proc(c: ^Controls, i: int) -> bool {
 	return c.held & (u32(1) << u32(i)) != 0
 }
 
+// Where the finger that holds button `i` is now, if one does. It is the position the finger had in the last update.
+button_finger :: proc(c: ^Controls, i: int) -> (pos: [2]f32, ok: bool) {
+	for sl in c.touch.slots {
+		if sl.used && sl.role == .Button && sl.button == i {
+			return sl.last, true
+		}
+	}
+	return {}, false
+}
+
 // Reads the pointers and updates the walking stick, the look and the buttons. `buttons` are boxes
 // (x, y, width, height) that a finger can hold without walking or looking; the fingers on the
 // ones in `aim_mask` (bit i for button i) turn the view too.

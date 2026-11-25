@@ -71,6 +71,8 @@ Room :: struct {
 	soap:        carry.Soap, // the soap by the sink
 	pickup:      carry.Pickup, // the station that the crosshair is on, which can be picked up
 	blueprint:   carry.Blueprint, // the station that is being carried, as a copy of itself, if one is
+	bar:         Bar_Press, // the finger that is on a slot of the bar, if one is
+	follow:      bool, // the copy follows that finger, which dragged it out of the bar, and not the crosshair
 	scale:       carry.Scale, // the scale on the north counter
 }
 
@@ -86,10 +88,11 @@ room_toast :: proc(room: ^Room, format: string, args: ..any) {
 room_reset :: proc(room: ^Room) {
 	if room.blueprint.active {
 		// A station that is carried is put back, and not lost, and the lab is built again with it where it is now.
-		if carry.blueprint_cancel(&room.blueprint, &room.props, &room.stock.bag) != .No_Room {
+		if carry.blueprint_cancel(&room.blueprint, &room.props, &room.stock.bag, &room.stock.hotbar) != .No_Room {
 			room_stock_changed(room)
 		}
 	}
+	room.bar, room.follow = {}, false
 	lab.player_init(&room.player, &room.layout)
 	carry.stream_clear(&room.stream)
 	speed := carry.flow_speed(&room.props) // a knock-out does not change the speed that was set
@@ -388,16 +391,97 @@ room_blueprint_place :: proc(room: ^Room) {
 // Puts the carried station back where it was picked up from, or into the bag if that place is not free.
 room_blueprint_cancel :: proc(room: ^Room) {
 	name := carry.station_name(room.blueprint.kind)
-	switch carry.blueprint_cancel(&room.blueprint, &room.props, &room.stock.bag) {
+	switch carry.blueprint_cancel(&room.blueprint, &room.props, &room.stock.bag, &room.stock.hotbar) {
 	case .Put_Back:
 		room_stock_changed(room)
 		room_toast(room, "%v is back where it was", name)
 	case .In_Bag:
 		room_stock_changed(room)
 		room_toast(room, "%v is in the bag", name)
+	case .In_Bar:
+		room_stock_changed(room)
+		room_toast(room, "%v is back in the bar", name)
 	case .No_Room:
-		room_toast(room, "no room in the bag: put the %v down on a counter", name)
+		room_toast(room, "no room in the bag or the bar: put the %v down on a counter", name)
 	case .Nothing:
+	}
+}
+
+// Puts the carried station in the bar, in slot `slot` if it is free.
+room_blueprint_stow :: proc(room: ^Room, slot: int) {
+	name := carry.station_name(room.blueprint.kind)
+	switch carry.blueprint_stow(&room.blueprint, &room.stock.bag, &room.stock.hotbar, slot) {
+	case .In_Bar:
+		room_stock_changed(room)
+		room_toast(room, "%v is in the bar", name)
+	case .In_Bag:
+		room_stock_changed(room)
+		room_toast(room, "the bar is full: %v is in the bag", name)
+	case .No_Room:
+		room_toast(room, "no room in the bar or the bag")
+	case .Put_Back, .Nothing:
+	}
+}
+
+// Takes the station of the slot of the bar that has a finger on it into the hands as a copy. With `follow` the copy
+// follows the finger, which has left the slot, and without it the copy follows the crosshair, which is what a tap does.
+room_bar_take :: proc(room: ^Room, follow: bool) {
+	slot := room.bar.slot
+	if room.props.held != -1 {
+		room.bar.active = false
+		room_toast(room, "hands are full")
+		return
+	}
+	name := carry.station_name(carry.item_station(room.stock.hotbar.slots[slot].item))
+	if !carry.blueprint_take_from(&room.blueprint, &room.props, &room.stock.hotbar, slot, .Hotbar) {
+		room.bar.active = false
+		return
+	}
+	room.follow = follow
+	if !follow {
+		room.bar.active = false
+		room_toast(room, "%v: aim at a counter and press place", name)
+	}
+}
+
+// The bar along the bottom of the screen, once a frame, when the screen of the bag is not open. A finger that lands on a
+// slot with a station in it is followed. If it lifts without leaving the slot that is a tap, and the station is carried on
+// the crosshair. If it leaves the slot the station is dragged out, and the copy follows the finger until it lifts. While
+// a station is carried on the crosshair, a press on a slot puts it away in the bar.
+room_bar_update :: proc(room: ^Room, w, h: f32) {
+	if room.blueprint.active {
+		if !room.follow {
+			for k in 0 ..< carry.HOTBAR_SIZE {
+				if button_pressed(&room.controls, HOTBAR_FIRST_BUTTON + k) {
+					room_blueprint_stow(room, k)
+					break
+				}
+			}
+		}
+		return
+	}
+	if !room.bar.active {
+		for k in 0 ..< carry.HOTBAR_SIZE {
+			if button_pressed(&room.controls, HOTBAR_FIRST_BUTTON + k) && room.stock.hotbar.slots[k].count > 0 {
+				room.bar = {
+					slot   = k,
+					active = true,
+				}
+				break
+			}
+		}
+	}
+	if !room.bar.active {
+		return
+	}
+	pos, held := button_finger(&room.controls, HOTBAR_FIRST_BUTTON + room.bar.slot)
+	switch {
+	case !held:
+		room.bar.active = false
+		room_bar_take(room, false)
+	case !inside(pos, hotbar_slot_rect(w, h, room.bar.slot)):
+		room.bar.last = pos
+		room_bar_take(room, true)
 	}
 }
 
@@ -448,7 +532,7 @@ room_unload :: proc(game: ^Game, state: rawptr) {
 	game.heat_strength = 0
 	loadout_save(game)
 	if room.blueprint.active {
-		carry.blueprint_cancel(&room.blueprint, &room.props, &room.stock.bag) // put back before the file is written
+		carry.blueprint_cancel(&room.blueprint, &room.props, &room.stock.bag, &room.stock.hotbar) // put back before the file is written
 	}
 	room_save_stock(room)
 	free(room.paint)
@@ -541,7 +625,8 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 			if stock_update(&room.stock_ui, &room.stock, pointer, pressed, rl.IsMouseButtonReleased(.LEFT), w, h) {
 				room_stock_changed(room)
 			}
-			if slot := room.stock_ui.carry_slot; slot != -1 && carry.blueprint_take_from_bag(&room.blueprint, &room.props, &room.stock.bag, slot) {
+			origin := room.stock_ui.carry_container == STOCK_HOTBAR ? carry.Blueprint_Origin.Hotbar : carry.Blueprint_Origin.Bag
+			if slot := room.stock_ui.carry_slot; slot != -1 && carry.blueprint_take_from(&room.blueprint, &room.props, stock_container(&room.stock, room.stock_ui.carry_container), slot, origin) {
 				// Carry the station: the screen closes, and the copy follows the crosshair. Nothing is saved while it is carried.
 				room.stock_open = false
 				controls_init(&room.controls, &pointers)
@@ -551,7 +636,14 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 		return
 	}
 
-	buttons := [10][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h), bench_button(w, h), pour_button(w, h), book_button(w, h), speed_button(w, h), arena_button(w, h), bag_button(w, h), pickup_button(w, h)}
+	base := [10][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h), bench_button(w, h), pour_button(w, h), book_button(w, h), speed_button(w, h), arena_button(w, h), bag_button(w, h), pickup_button(w, h)}
+	buttons: [HOTBAR_FIRST_BUTTON + carry.HOTBAR_SIZE][4]f32
+	for b, i in base {
+		buttons[i] = b
+	}
+	for b, i in hotbar_buttons(w, h) {
+		buttons[HOTBAR_FIRST_BUTTON + i] = b
+	}
 	controls_update(&room.controls, &pointers, w, h, buttons[:])
 	if button_pressed(&room.controls, 0) {
 		game_switch(game, .Balloon_Lab)
@@ -584,6 +676,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 		room_toast(room, "put the station down or put it back first")
 	} else if bag_pressed {
 		room.stock_open = true
+		room.bar = {}
 		return
 	}
 
@@ -662,17 +755,46 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	carry.loadout_aim(&game.loadout, &room.filler, &room.props, carry.view_of(&room.player))
 	carry.first_aid_aim(&room.first_aid, &room.props, carry.view_of(&room.player))
 	carry.soap_aim(&room.soap, &room.props, carry.view_of(&room.player))
+	room_bar_update(room, w, h)
+	carrying = room.blueprint.active
 	if carrying {
-		// The copy of the station follows the crosshair, and is put down, turned or put back by the buttons.
+		// The copy of the station follows the crosshair, or the finger that dragged it out of the bar, and is put down,
+		// turned or put back by the buttons. A finger that lifts puts the copy down where it last was if it can stand
+		// there and the finger was not over the bar, and puts it back otherwise.
 		room.pickup = {}
 		if rotate_pressed {
 			carry.blueprint_rotate(&room.blueprint)
 		}
-		carry.blueprint_aim(&room.blueprint, &room.props, carry.view_of(&room.player))
-		if grab_pressed {
+		lifted := false
+		if room.follow {
+			pos, held := button_finger(&room.controls, HOTBAR_FIRST_BUTTON + room.bar.slot)
+			if held {
+				room.bar.last = pos
+				view := carry.view_of(&room.player)
+				tan_half := math.tan(ROOM_FOV * 0.5 * math.RAD_PER_DEG)
+				dir := carry.view_ray(view, pos.x / w * 2 - 1, 1 - pos.y / h * 2, tan_half, w / h)
+				carry.blueprint_aim_ray(&room.blueprint, &room.props, view.eye, dir)
+			} else {
+				lifted = true
+			}
+		} else {
+			carry.blueprint_aim(&room.blueprint, &room.props, carry.view_of(&room.player))
+		}
+		switch {
+		case lifted:
+			if room.blueprint.ok && !inside(room.bar.last, hotbar_rect(w, h)) {
+				room_blueprint_place(room)
+			}
+			if room.blueprint.active {
+				room_blueprint_cancel(room)
+			}
+		case grab_pressed:
 			room_blueprint_place(room)
-		} else if cancel_pressed {
+		case cancel_pressed:
 			room_blueprint_cancel(room)
+		}
+		if !room.blueprint.active {
+			room.follow, room.bar = false, {}
 		}
 		grab_pressed = false
 	} else {
@@ -927,6 +1049,10 @@ room_draw_ui :: proc(game: ^Game, state: rawptr) {
 	draw_book_button(w, h)
 	draw_speed_button(w, h, carry.flow_speed(&room.props))
 	draw_arena_button(w, h)
+	draw_hotbar(w, h, &room.stock.hotbar, room.blueprint.active && !room.follow)
+	if room.follow {
+		rl.DrawCircleLines(i32(room.bar.last.x), i32(room.bar.last.y), 28, {60, 230, 215, 220})
+	}
 	draw_bag_button(w, h, !room.blueprint.active)
 	if room.blueprint.active {
 		draw_book_nav(pickup_button(w, h), "rotate", true)

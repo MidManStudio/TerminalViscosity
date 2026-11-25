@@ -24,8 +24,8 @@ stock_load :: proc(s: ^carry.Stock, placed: ^lab.Placed) {
 		return
 	}
 	defer delete(text)
-	names := [2]string{"bag", "wall"}
-	containers := [2]^inventory.Container{&s.bag, &s.wall}
+	names := [3]string{"bag", "wall", "hotbar"}
+	containers := [3]^inventory.Container{&s.bag, &s.wall, &s.hotbar}
 	n := inventory.deserialize(text, names[:], containers[:])
 	read, has_set, set_aside, set_aside_count := lab.placed_deserialize(text)
 	if has_set {
@@ -42,8 +42,8 @@ stock_load :: proc(s: ^carry.Stock, placed: ^lab.Placed) {
 // Writes the bag and the wall and where the stations stand, so they are as they were next time. It is called when
 // something is moved and when the lab is left, and a failure to write is a line of text and nothing more.
 stock_save :: proc(s: ^carry.Stock, placed: ^lab.Placed) {
-	names := [2]string{"bag", "wall"}
-	containers := [2]^inventory.Container{&s.bag, &s.wall}
+	names := [3]string{"bag", "wall", "hotbar"}
+	containers := [3]^inventory.Container{&s.bag, &s.wall, &s.hotbar}
 	stacks := inventory.serialize(names[:], containers[:])
 	defer delete(stacks)
 	stations := lab.placed_serialize(placed)

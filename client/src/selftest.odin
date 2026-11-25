@@ -709,7 +709,7 @@ selftest_book :: proc(failures: ^int) {
 	check(failures, book_press(5, {2, 2}, w, h) == 5 && book_press(0, {2, 2}, w, h) == 0, "a press on nothing turns nothing")
 }
 
-// Checks the screen of the bag and the bottle wall: on six screen shapes its close button and all 22 slots are on
+// Checks the screen of the bag, the bottle wall and the bar: on six screen shapes its close button and all 28 slots are on
 // the screen, inside the panel, none lies on another, and each slot is big enough to press with a thumb. Then the
 // drags, without a window: a stack is picked up, carried over a slot and dropped, and what may not move does not.
 selftest_stock :: proc(failures: ^int) {
@@ -726,7 +726,7 @@ selftest_stock :: proc(failures: ^int) {
 	for s in screens {
 		w, h := s.x, s.y
 		panel := book_panel(w, h)
-		boxes: [22 + 3][4]f32
+		boxes: [22 + 6 + 3][4]f32
 		n := 0
 		for c in 0 ..< STOCK_CONTAINERS {
 			for slot in 0 ..< stock_slot_count(c) {
@@ -771,10 +771,35 @@ selftest_stock :: proc(failures: ^int) {
 		if boxes_overlap(bag, arena_button(w, h)) || boxes_overlap(pick, arena_button(w, h)) || boxes_overlap(pick, bag) || !box_on_screen(pick, w, h) {
 			none_over = false
 		}
+		// The bar along the bottom of the lab is on the screen, at least 44 pixels across, and lies on none of the buttons.
+		lab_buttons := [10][4]f32{switch_button(w, h), grab_button(w, h), jump_button(w, h), bench_button(w, h), pour_button(w, h), book_button(w, h), speed_button(w, h), arena_button(w, h), bag, pick}
+		for slot_box, k in hotbar_buttons(w, h) {
+			if slot_box.z < 44 {
+				big_enough = false
+				fmt.printf("      %vx%v: slot %d of the bar is %v pixels across\n", w, h, k, slot_box.z)
+			}
+			if !box_on_screen(slot_box, w, h) {
+				all_on = false
+			}
+			for o, j in lab_buttons {
+				if boxes_overlap(slot_box, o) {
+					none_over = false
+					fmt.printf("      %vx%v: slot %d of the bar overlaps button %d of the lab\n", w, h, k, j)
+				}
+			}
+		}
 	}
-	check(failures, all_on, "every slot of the bag and the wall, and the close button, is on the screen, on every screen shape")
+	counts := true
+	probe: carry.Stock
+	carry.stock_init(&probe)
+	for c in 0 ..< STOCK_CONTAINERS {
+		counts &&= stock_slot_count(c) == stock_container(&probe, c).size
+	}
+	check(failures, counts, "the screen has a slot for every slot of the bag, the wall and the bar")
+	check(failures, hotbar_slot_size(640, 360) >= 44 && hotbar_slot_size(1600, 720) == 72, "a slot of the bar is a tenth of the height, and at least 44 pixels across even on a screen that is only 360 high")
+	check(failures, all_on, "every slot of the bag, the wall and the bar, and the close button, is on the screen, on every screen shape")
 	check(failures, all_in, "and inside the panel")
-	check(failures, none_over, "and none lies on another, nor do the bag and pick up buttons lie on another button")
+	check(failures, none_over, "and none lies on another, nor do the bag and pick up buttons lie on another button, nor the slots of the bar on any button of the lab")
 	check(failures, big_enough, "and every slot is at least 44 pixels across")
 
 	w, h := f32(1600), f32(720)
@@ -878,4 +903,55 @@ selftest_stock :: proc(failures: ^int) {
 	// With no drag going on a release is nothing.
 	changed = stock_update(&ui, &st, centre(w, h, STOCK_BAG, 0), false, true, w, h)
 	check(failures, !changed && ui.carry_slot == -1, "a release with no drag is not a tap")
+
+	// The bar: a station is dragged into it from the bag and out of it, a dispenser is not taken, and a tap on a station in it
+	// asks for the station to be carried.
+	bar: carry.Stock
+	carry.stock_init(&bar)
+	bui: Stock_Ui
+	stock_ui_init(&bui)
+	inventory.put(&bar.bag, 4, scale, 1)
+	inventory.put(&bar.bag, 5, ethanol, 1)
+	stock_update(&bui, &bar, centre(w, h, STOCK_BAG, 4), true, false, w, h)
+	stock_update(&bui, &bar, centre(w, h, STOCK_HOTBAR, 2), false, false, w, h)
+	check(failures, bui.drag.hover == STOCK_HOTBAR * inventory.MAX_SLOTS + 2 && bui.drag.hover_ok, "a station over a slot of the bar is taken")
+	changed = stock_update(&bui, &bar, centre(w, h, STOCK_HOTBAR, 2), false, true, w, h)
+	check(failures, changed && bar.hotbar.slots[2] == (inventory.Slot{scale, 1}) && bar.bag.slots[4].count == 0, "and letting go there puts it in the bar")
+	stock_update(&bui, &bar, centre(w, h, STOCK_BAG, 5), true, false, w, h)
+	stock_update(&bui, &bar, centre(w, h, STOCK_HOTBAR, 3), false, false, w, h)
+	check(failures, bui.drag.hover == STOCK_HOTBAR * inventory.MAX_SLOTS + 3 && !bui.drag.hover_ok, "a dispenser over a slot of the bar is not taken")
+	changed = stock_update(&bui, &bar, centre(w, h, STOCK_HOTBAR, 3), false, true, w, h)
+	check(failures, !changed && bar.hotbar.slots[3].count == 0 && bar.bag.slots[5].count == 1, "and letting go there leaves it in the bag")
+	bui.hands_free = true
+	stock_update(&bui, &bar, centre(w, h, STOCK_HOTBAR, 2), true, false, w, h)
+	changed = stock_update(&bui, &bar, centre(w, h, STOCK_HOTBAR, 2), false, true, w, h)
+	check(failures, !changed && bui.carry_slot == 2 && bui.carry_container == STOCK_HOTBAR, "a tap on a station of the bar asks for it to be carried")
+	bui.hands_free = false
+	stock_update(&bui, &bar, centre(w, h, STOCK_HOTBAR, 2), true, false, w, h)
+	changed = stock_update(&bui, &bar, centre(w, h, STOCK_HOTBAR, 2), false, true, w, h)
+	check(failures, !changed && bui.carry_slot == -1, "a tap on it with the hands full carries nothing")
+	stock_update(&bui, &bar, centre(w, h, STOCK_HOTBAR, 2), true, false, w, h)
+	stock_update(&bui, &bar, centre(w, h, STOCK_HOTBAR, 4), false, false, w, h)
+	changed = stock_update(&bui, &bar, centre(w, h, STOCK_HOTBAR, 4), false, true, w, h)
+	check(failures, changed && bar.hotbar.slots[4] == (inventory.Slot{scale, 1}) && bar.hotbar.slots[2].count == 0, "dragged along the bar it moves, and that alone is a change")
+	stock_update(&bui, &bar, centre(w, h, STOCK_HOTBAR, 4), true, false, w, h)
+	stock_update(&bui, &bar, centre(w, h, STOCK_BAG, 8), false, false, w, h)
+	changed = stock_update(&bui, &bar, centre(w, h, STOCK_BAG, 8), false, true, w, h)
+	check(failures, changed && bar.bag.slots[8] == (inventory.Slot{scale, 1}) && bar.hotbar.slots[4].count == 0 && bui.carry_slot == -1, "dragged back out of the bar into the bag it moves and is not carried")
+
+	// A point of the screen is on the slot it is in the middle of, and the gap between two slots is on none.
+	each_slot := true
+	for k in 0 ..< carry.HOTBAR_SIZE {
+		at := centre(w, h, STOCK_HOTBAR, k)
+		if i, ok := hotbar_slot_at(w, h, at); !ok || i != k {
+			each_slot = false
+		}
+		if hotbar_buttons(w, h)[k] != hotbar_slot_rect(w, h, k) {
+			each_slot = false
+		}
+	}
+	first := hotbar_slot_rect(w, h, 0)
+	_, in_gap := hotbar_slot_at(w, h, {first.x + first.z + 1, first.y + first.w * 0.5})
+	_, above := hotbar_slot_at(w, h, {first.x + first.z * 0.5, first.y - 2})
+	check(failures, each_slot && !in_gap && !above, "each slot of the bar is found by its middle, and the gap and the space over the bar are no slot")
 }

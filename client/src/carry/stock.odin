@@ -16,9 +16,12 @@ BAG_SIZE :: 12 // slots in the bag
 // the wall gives its tap, and one in the bag does not. A station is in the bag or it stands on a counter, and where it
 // stands is in `Props.placed`, not here.
 Stock :: struct {
-	bag:  inventory.Container,
-	wall: inventory.Container,
+	bag:    inventory.Container,
+	wall:   inventory.Container,
+	hotbar: inventory.Container, // the bar along the bottom of the screen: stations that can be dragged out and put down
 }
+
+HOTBAR_SIZE :: 6 // the slots of the bar
 
 // The wall as the lab starts: a dispenser of each of the chemicals the lab starts with except water, from the
 // first mount on, and the other mounts empty. It takes only things that can be mounted.
@@ -31,6 +34,7 @@ wall_default :: proc(wall: ^inventory.Container) {
 
 stock_init :: proc(s: ^Stock) {
 	inventory.container_init(&s.bag, BAG_SIZE)
+	inventory.container_init(&s.hotbar, HOTBAR_SIZE, {.Benchable})
 	wall_default(&s.wall)
 }
 
