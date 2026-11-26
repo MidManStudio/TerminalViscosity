@@ -484,6 +484,7 @@ a_bot_sidesteps_a_balloon_coming_at_it :: proc(t: ^testing.T) {
 		b, v := duel(8.5)
 		b.strafe_dir = strafe_dir
 		b.strafe_left = 100 // no change of mind in this step
+		b.dodge_chance, b.react_min, b.react_max = 1, 0, 0 // sees every balloon and moves at once
 		v.balloons[0] = balloon
 		v.balloon_count = 1
 		return world_move(bot_step(&b, &v, 0, STEP).input)
@@ -635,4 +636,288 @@ random_numbers_are_in_range_and_different :: proc(t: ^testing.T) {
 	first := bot_rand(&a)
 	testing.expect(t, a.rng != 0 && bot_rand(&a) != first, "seed 0 still gives different numbers")
 	testing.expect_value(t, bot_rand(&c), first)
+}
+
+TEST_WALK_SPEED :: f32(3.2) // tv_sim::WALK_SPEED_MS
+
+// A balloon of somebody else's, in the air 4 m north of a bot at the origin and heading straight
+// at it at 10 m/s, a little to its east.
+balloon_coming :: proc(id: u16) -> Flight {
+	return {id = id, owner = 1, pos = {0.3, 1.5, -4}, vel = {0, 0, 10}}
+}
+
+// Whether a step of the bot's walking is a sidestep out of the way of balloon_coming: the bot
+// circles at no more than BOT_CIRCLE * BOT_STICK across the line it faces, and a sidestep pushes
+// past that.
+sidestepping :: proc(b: ^Bot, v: ^Match_View) -> bool {
+	m := world_move(bot_step(b, v, 0, STEP).input)
+	return abs(m.x) > 0.8
+}
+
+// A bot at the origin whose random numbers start from `seed`, with balloon_coming (id 1) in the
+// air, and the match it sees. It has nothing to wait for and makes no aim error.
+dodger :: proc(seed: u32) -> (b: Bot, v: Match_View) {
+	b, v = duel(8.5)
+	b.rng = seed * 2654435761 | 1
+	v.balloons[0] = balloon_coming(1)
+	v.balloon_count = 1
+	return
+}
+
+// Throws one balloon a second at the bot `b` for `seconds`, each aimed by the bot's own solver at
+// where the bot is and where it is going, from `dist` metres away to the south. That is better
+// than a player aims. The balloons fly the way tv_sim flies them, and the bot walks the way
+// tv_sim lets it. `owner` is 1 for balloons the bot takes for a rival's and 0 for balloons it
+// takes for its own, which it lets pass. Gives the hits and the throws.
+thrown_at_bot :: proc(b: ^Bot, dist: f32, seconds: int, owner: u8 = 1) -> (hits, throws: int) {
+	thrower := Vec3{0, 0, dist}
+	pos, vel: Vec3
+	v := view_of(alive(0, 0, 0), alive(1, thrower.x, thrower.z))
+	flights: [8]Flight
+	flying: [8]bool
+	next_id := u16(1)
+	until_throw := f32(1)
+	for _ in 0 ..< seconds * 60 {
+		v.players[0].pos = pos
+		v.balloon_count = 0
+		for f, i in flights {
+			if flying[i] {
+				v.balloons[v.balloon_count] = f
+				v.balloon_count += 1
+			}
+		}
+		walk := world_move(bot_step(b, &v, 0, STEP).input)
+		vel = {walk.x * TEST_WALK_SPEED, 0, walk.y * TEST_WALK_SPEED}
+		pos += vel * STEP
+		until_throw -= STEP
+		if until_throw <= 0 {
+			until_throw = 1
+			yaw, pitch, speed, reaches := bot_aim(thrower, pos, vel, 1)
+			dir := look_dir({yaw = yaw, pitch = pitch})
+			for i in 0 ..< len(flights) {
+				if reaches && !flying[i] {
+					flights[i] = {id = next_id, owner = owner, pos = thrower + {0, 1.5, 0} + dir * 0.5, vel = dir * speed}
+					flying[i] = true
+					next_id += 1
+					throws += 1
+					break
+				}
+			}
+		}
+		for i in 0 ..< len(flights) {
+			if !flying[i] {
+				continue
+			}
+			flights[i].vel.y -= GRAVITY * STEP
+			flights[i].pos += flights[i].vel * STEP
+			at := flights[i].pos
+			dx, dz := at.x - pos.x, at.z - pos.z
+			if at.y <= 0 {
+				flying[i] = false
+			} else if dx * dx + dz * dz <= 0.4 * 0.4 && at.y <= 1.9 {
+				flying[i] = false
+				hits += 1
+			}
+		}
+	}
+	return
+}
+
+// The share of throws that hit, over twelve bots with different seeds.
+hit_share :: proc(dist: f32, chance: f32 = -1, owner: u8 = 1) -> f32 {
+	hits, throws := 0, 0
+	for seed in 1 ..= 12 {
+		b := bot_new(u32(seed) * 7919)
+		b.sloppy = 0
+		if chance >= 0 {
+			b.dodge_chance = chance
+			if chance == 1 {
+				b.react_min, b.react_max = 0, 0
+			}
+		}
+		h, n := thrown_at_bot(&b, dist, 40, owner)
+		hits += h
+		throws += n
+	}
+	return f32(hits) / f32(max(throws, 1))
+}
+
+@(test)
+a_bot_sees_some_balloons_and_not_others :: proc(t: ^testing.T) {
+	seen := 0
+	for seed in 1 ..= 400 {
+		b, v := dodger(u32(seed))
+		b.react_min, b.react_max = 0, 0
+		if sidestepping(&b, &v) {
+			seen += 1
+		}
+	}
+	testing.expectf(t, seen >= 140 && seen <= 180, "%v of 400 balloons were dodged at once, about 40 percent are seen", seen)
+	for seed in 1 ..= 50 {
+		b, v := dodger(u32(seed))
+		b.react_min, b.react_max = 0, 0
+		b.dodge_chance = 0
+		testing.expect(t, !sidestepping(&b, &v), "a bot that never sees a balloon never dodges it")
+		b, v = dodger(u32(seed))
+		b.react_min, b.react_max = 0, 0
+		b.dodge_chance = 1
+		testing.expect(t, sidestepping(&b, &v), "and one that always does, does")
+	}
+}
+
+@(test)
+a_bot_takes_a_moment_to_move_out_of_the_way :: proc(t: ^testing.T) {
+	b, v := dodger(7)
+	b.dodge_chance, b.react_min, b.react_max = 1, 0.3, 0.3
+	for i in 0 ..< 30 {
+		sidestepped := sidestepping(&b, &v)
+		elapsed := f32(i + 1) * STEP
+		testing.expectf(t, !(elapsed <= 0.25 && sidestepped), "it moved after %v s, before its reaction time", elapsed)
+		testing.expectf(t, !(elapsed >= 0.35 && !sidestepped), "it still had not moved after %v s", elapsed)
+	}
+	// Each balloon has its own reaction time between the least and the most.
+	first, last, varied := f32(9), f32(0), 0
+	for seed in 1 ..= 40 {
+		b, v = dodger(u32(seed))
+		b.dodge_chance, b.react_min, b.react_max = 1, 0.2, 0.4
+		started := f32(-1)
+		for i in 0 ..< 40 {
+			if sidestepping(&b, &v) {
+				started = f32(i + 1) * STEP
+				break
+			}
+		}
+		testing.expectf(t, started >= 0.2 - STEP && started <= 0.4 + STEP, "moved after %v s, between 0.2 and 0.4", started)
+		first, last = min(first, started), max(last, started)
+		if started > 0.2 + STEP && started < 0.4 - STEP {
+			varied += 1
+		}
+	}
+	testing.expectf(t, last - first > 0.1 && varied > 5, "the reaction times differ: %v to %v", first, last)
+}
+
+@(test)
+it_is_decided_once_whether_a_bot_sees_a_balloon :: proc(t: ^testing.T) {
+	saw, missed := 0, 0
+	for seed in 1 ..= 60 {
+		b, v := dodger(u32(seed))
+		b.react_min, b.react_max = 0, 0
+		first := sidestepping(&b, &v)
+		saw += first ? 1 : 0
+		missed += first ? 0 : 1
+		for _ in 0 ..< 90 {
+			testing.expect(t, sidestepping(&b, &v) == first, "a balloon a bot did not see is not seen a moment later, and one it saw is not lost")
+		}
+	}
+	testing.expect(t, saw > 10 && missed > 10, "both happen")
+}
+
+@(test)
+a_bot_sees_nothing_new_for_a_while_after_a_sidestep :: proc(t: ^testing.T) {
+	b, v := dodger(3)
+	b.dodge_chance, b.react_min, b.react_max = 1, 0, 0
+	testing.expect(t, sidestepping(&b, &v), "it dodges the first")
+	v.balloons[0] = balloon_coming(2)
+	testing.expect(t, !sidestepping(&b, &v), "and does not see the next one a step later")
+	v.balloon_count = 0
+	for _ in 0 ..< 58 {
+		bot_step(&b, &v, 0, STEP)
+	}
+	v.balloons[0] = balloon_coming(4)
+	v.balloon_count = 1
+	testing.expect(t, !sidestepping(&b, &v), "nor one a second after")
+	v.balloon_count = 0
+	for _ in 0 ..< 30 {
+		bot_step(&b, &v, 0, STEP)
+	}
+	testing.expect_value(t, b.rest, 0) // it counts down to nothing and stays there
+	v.balloons[0] = balloon_coming(5)
+	v.balloon_count = 1
+	testing.expect(t, sidestepping(&b, &v), "but sees the one after that, 1.5 s on")
+	testing.expect_value(t, b.rest, BOT_DODGE_REST)
+}
+
+@(test)
+the_bot_as_played_has_a_human_reaction :: proc(t: ^testing.T) {
+	b := bot_new(1)
+	testing.expectf(t, b.dodge_chance >= 0.3 && b.dodge_chance <= 0.5, "it sees %v of the balloons that come at it", b.dodge_chance)
+	testing.expectf(t, b.react_min >= 0.2 && b.react_max <= 0.5 && b.react_min < b.react_max, "it reacts in %v to %v s", b.react_min, b.react_max)
+	testing.expectf(t, BOT_DODGE_REST >= 1 && BOT_DODGE_REST <= 1.5, "it rests %v s after a sidestep", BOT_DODGE_REST)
+	testing.expect_value(t, b.aware_count, 0)
+	testing.expect_value(t, b.rest, 0)
+}
+
+@(test)
+a_bot_forgets_balloons_that_are_gone_and_keeps_its_list_in_order :: proc(t: ^testing.T) {
+	b, v := dodger(11)
+	b.dodge_chance, b.react_min, b.react_max = 1, 0.3, 0.3
+	for i in 0 ..< 3 {
+		v.balloons[i] = balloon_coming(u16(i + 1))
+		v.balloons[i].pos.z = -3 - f32(i)
+	}
+	v.balloon_count = 3
+	bot_step(&b, &v, 0, STEP)
+	testing.expect_value(t, b.aware_count, 3)
+	// The first goes. The other two are still there with what the bot worked out for them.
+	v.balloons[0], v.balloons[1] = v.balloons[1], v.balloons[2]
+	v.balloon_count = 2
+	bot_step(&b, &v, 0, STEP)
+	testing.expect_value(t, b.aware_count, 2)
+	for id in ([?]u16{2, 3}) {
+		known := bot_aware_of(&b, id)
+		testing.expectf(t, known != nil && known.id == id && near(known.wait, 0.3 - 2 * STEP, 0.0005) && known.sees, "balloon %v kept its own state: %v", id, known)
+	}
+	testing.expect_value(t, b.aware_count, 2)
+	// All gone: nothing is left over in the list.
+	v.balloon_count = 0
+	bot_step(&b, &v, 0, STEP)
+	testing.expect_value(t, b.aware_count, 0)
+	// More at once than it can follow: it follows BOT_AWARE of them and does not see the rest.
+	for i in 0 ..< 20 {
+		v.balloons[i] = balloon_coming(u16(i + 1))
+	}
+	v.balloon_count = 20
+	bot_step(&b, &v, 0, STEP)
+	testing.expect_value(t, b.aware_count, BOT_AWARE)
+	testing.expect(t, bot_aware_of(&b, 20) == nil, "a ninth balloon is not followed")
+	testing.expect_value(t, b.aware_count, BOT_AWARE)
+	// Knocked out, it starts afresh, rest included.
+	b.rest = 1
+	v.players[0].hp = 0
+	bot_step(&b, &v, 0, STEP)
+	testing.expect_value(t, b.aware_count, 0)
+	testing.expect_value(t, b.rest, 0)
+}
+
+@(test)
+a_player_who_aims_well_hits_the_bot_about_half_the_time :: proc(t: ^testing.T) {
+	for d in ([?]f32{5, 8, 11, 14}) {
+		share := hit_share(d)
+		testing.expectf(t, share >= 0.35 && share <= 0.65, "at %v m a thrower who aims as well as a bot does hit %v of the time, about half", d, share)
+	}
+	// Dodging is what makes the difference, and seeing every balloon at once makes it still more.
+	never, usual, always := hit_share(8, 0), hit_share(8), hit_share(8, 1)
+	testing.expectf(t, never - usual > 0.15, "a bot that never sees a balloon is hit %v of the time, one that does %v", never, usual)
+	testing.expectf(t, usual - always > 0.08, "one that sees them all is hit %v of the time", always)
+	// Balloons it takes for its own are none of its business.
+	own := hit_share(8, -1, 0)
+	testing.expectf(t, own > 0.65, "balloons of its own side hit it %v of the time", own)
+}
+
+@(test)
+a_bot_gives_the_same_dodges_for_the_same_seed :: proc(t: ^testing.T) {
+	play :: proc(seed: u32) -> (hits, throws: int) {
+		b := bot_new(seed)
+		b.sloppy = 0
+		return thrown_at_bot(&b, 8, 30)
+	}
+	h1, n1 := play(5)
+	h2, n2 := play(5)
+	testing.expect(t, h1 == h2 && n1 == n2, "the same seed is hit by the same throws")
+	differs := false
+	for seed in 6 ..= 12 {
+		h3, _ := play(u32(seed))
+		differs ||= h3 != h1
+	}
+	testing.expect(t, differs, "other seeds are not")
 }

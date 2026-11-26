@@ -26,6 +26,50 @@ What is built today is in `docs/ARCHITECTURE.md` and `client/docs/client.md`. Th
 
 **Open.** Every price. How an unlock is earned or paid for. What the broker pays and how it decides. What the other players do in the economy, and whether anything is shared between players.
 
+## The balloon fight
+
+**Locked.** The player carries a basket of balloons in the left hand and throws with the right. Throwing needs aim assist. There is no slide. Movement is stepping left, right, forward and back, in the manner of shadow boxing, because a jetpack is planned. The jetpack gives quick dashes on the ground and manoeuvres in the air. Special launchers for balloons are planned as well, a slingshot and a lancer gun. Dying must be much easier in the lab than in the arena: nothing heals by itself, toxic chemicals kill slowly, and the player has to go and heal up by hand.
+
+**Built.** In the arena: walking, jumping, a charged throw, hit points, knock-out and three bots. In the lab: hit points that come back by themselves after 4 s without a hit, at 8 a second (`health.odin`), and a first aid cabinet that restores full health at once, with a 30 s wait before it can be used again (`gear.odin`). The owner's rule above replaces the healing by itself, and it has not been changed yet.
+
+**Not built.** The basket, aim assist, the dash, the jetpack, the launchers, and the slow poison of the lab.
+
+## How a balloon bursts
+
+**Locked.** A balloon changes when it lands: some splash, some explode and some turn to gas, and what each does depends on its kind.
+
+- Splash kinds: regular; acidic, which melts the player on death; impact; exothermic, which sets the player on fire like a Molotov; endothermic, which freezes.
+- Exploder kinds: push back; toxic, which leaves fumes; endothermic, which strips the oxygen away; freeze.
+- Gas kinds: toxic; smoke; freeze; burn; one that makes a flood; one that confuses.
+
+**Built.** A burst carries a compound, a volatility from 0 to 1 and a radius. The three states and the kinds do not exist yet.
+
+**Proposed.** The mixture in the balloon decides both, so that the lab teaches the arena and nobody designs fifteen effects by hand: the volatility and the boiling point of the mixture decide whether it splashes, explodes or turns to gas, and the harm of its compounds decides the kind. This waits for the owner's yes.
+
+**Open.** What each status does per second and for how long, what each death looks like, and how fumes, fire and flood are drawn on a phone.
+
+## Bets and the money loop
+
+**Locked.** The balloon fight is a competition between labs. Before a match the players place bets of fixed amounts, against another team or one against one. The more is bet, the more is paid back, and a smaller bet pays less. The money loop is: make chemicals in the lab and sell them to companies, in bulk or as a fixed amount that a buyer asks for; buy more supplies; improve the lab and its productivity; later automate parts of it. Customising the lab guy is a maybe. Raw materials and chemicals are bought and used up, and what is left over becomes the balloons for the fights.
+
+**Proposed.** These are the gaps that were pointed out when the loop was described, and each waits for the owner's answer.
+
+- A won bet has to pay more than the same balloons would sell for, or fighting never pays.
+- A player with no money and no ammo needs a way back, such as cheap basic balloons that are always on offer, or the broker lending against later sales.
+- Buyers can ask for an amount at a purity by a time, so that selling is a goal and purity matters. The pages already carry purity bands, unlocks, temperatures and catalysts.
+- Bets come in fixed amounts, so they can double as brackets, with matches between labs of a similar tier.
+- The smallest loop to build first is one contract, one sale, one fight with one bet, then back to the lab.
+
+**Open.** Every amount, payout and price, what is lost on a defeat, and what automation does.
+
+## Bots and the training center
+
+**Locked.** Real multiplayer will use what Tower-Of-Babylon uses for networking. For now the arena has bots, and they will become a training center that helps the player get better at shooting. The bots have to be fair enough to hit, all the more once the jetpack exists.
+
+**Built.** A bot sees some of the balloons that come at it and not others, reacts late and rests after a sidestep (see `bot.odin` in `client/docs/client.md`). The numbers are first guesses and have not been tried against a person.
+
+**Open.** The levels of the training center, what it rewards, and how it is entered.
+
 ## The stations
 
 **Locked.** Already in the lab: glassware (beakers, conical flasks and other vessels), cold and hot baths, the balloon fill unit, the balloon disposal unit, the chemical dispensers, the drawing station, the balloon loadout rack.
@@ -108,6 +152,8 @@ What is built today is in `docs/ARCHITECTURE.md` and `client/docs/client.md`. Th
 - How multiplayer connects to the building and the economy.
 - The player character, which the owner will make by hand.
 - Combat beyond the assumptions in `docs/OPEN_DECISIONS.md`.
+- What each kind of balloon does per second, and what each kind of death looks like.
+- The numbers of bets, payouts, prices and contracts.
 
 ## Where the rest is
 

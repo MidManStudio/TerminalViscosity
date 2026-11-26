@@ -24,6 +24,11 @@ BOT_STRAFE_MAX :: f32(2.5)
 BOT_DODGE_RANGE :: f32(7) // a balloon coming at it from nearer than this along its path is dodged
 BOT_DODGE_WIDTH :: f32(1.8) // and only when its path passes this close to the bot
 BOT_DODGE :: f32(2) // how hard it sidesteps, more than anything else it wants
+BOT_DODGE_CHANCE :: f32(0.4) // the chance that it sees a balloon coming at it at all, decided once for each balloon
+BOT_REACT_MIN :: f32(0.25) // seconds between seeing a balloon and starting to move out of its way
+BOT_REACT_MAX :: f32(0.45)
+BOT_DODGE_REST :: f32(1.2) // seconds after it last sidestepped in which it sees no new balloon coming
+BOT_AWARE :: 8 // balloons it keeps track of at once
 BOT_WALL :: f32(16.5) // metres from the middle beyond which it steers back inward
 BOT_HOME :: f32(3) // with nobody to fight it goes back to within this of the middle
 BOT_JUMP_MIN :: f32(2.5)
@@ -46,6 +51,15 @@ BOT_HAND_REACH :: f32(0.5) // tv_sim's THROW_REACH_M: how far along the aim it s
 BOT_CHEST :: f32(1.1) // metres above the target's feet that it aims at
 GRAVITY :: f32(9.81) // tv_sim::GRAVITY
 
+// What a bot knows about one balloon that was heading its way. `sees` is whether it ever
+// noticed that balloon, which is decided once, when the balloon first comes at it, and `wait` is
+// how many seconds are left before it starts to move.
+Aware :: struct {
+	id:   u16,
+	sees: bool,
+	wait: f32,
+}
+
 // A stand-in for another player. It looks at the match like a client would, picks the nearest
 // player still standing, turns to face where a balloon has to be sent to meet them, keeps a
 // range at which it can throw and be thrown at, circles instead of standing still, sidesteps
@@ -57,6 +71,12 @@ Bot :: struct {
 	t:           f32, // seconds it has been going
 	rng:         u32, // its own random numbers, so that two runs of a match go the same way
 	sloppy:      f32, // how much aim error it makes, 1 as it is played and 0 for none
+	dodge_chance: f32, // the chance that it sees a balloon coming at it, BOT_DODGE_CHANCE as it is played, 1 to see every one
+	react_min:   f32, // the shortest and longest it takes to start moving once it has seen one
+	react_max:   f32,
+	rest:        f32, // seconds left in which it sees no new balloon, after a sidestep
+	aware:       [BOT_AWARE]Aware,
+	aware_count: int,
 	target:      int, // the id of the player it is after, or -1
 	seen:        f32, // seconds it has been after this target
 	have_last:   bool,
@@ -82,6 +102,9 @@ Bot_Act :: struct {
 bot_new :: proc(seed: u32) -> (b: Bot) {
 	b.rng = seed | 1 // xorshift never leaves 0
 	b.sloppy = 1
+	b.dodge_chance = BOT_DODGE_CHANCE
+	b.react_min = BOT_REACT_MIN
+	b.react_max = BOT_REACT_MAX
 	b.target = -1
 	b.strafe_dir = 1
 	b.throw_in = bot_between(&b, 1, 2)
@@ -169,10 +192,13 @@ bot_aim :: proc(from, target, vel: Vec3, lead: f32) -> (yaw, pitch, speed: f32, 
 // One step of `dt` seconds for the player `me` of `view`.
 bot_step :: proc(b: ^Bot, view: ^Match_View, me: u8, dt: f32) -> (act: Bot_Act) {
 	b.t += dt
+	b.rest = max(b.rest - dt, 0)
 	self, found := view_player(view, me)
 	if !found || knocked_out(self) {
 		b.target = -1
 		b.seen = 0
+		b.aware_count = 0
+		b.rest = 0
 		act.input = {
 			yaw = b.heading,
 		}
@@ -237,7 +263,7 @@ bot_step :: proc(b: ^Bot, view: ^Match_View, me: u8, dt: f32) -> (act: Bot_Act) 
 		b.strafe_left = bot_between(b, BOT_STRAFE_MIN, BOT_STRAFE_MAX)
 	}
 	wish := dir * radial + [2]f32{-dir.y, dir.x} * (b.strafe_dir * BOT_CIRCLE * (1 - abs(radial)))
-	wish += bot_dodge(b, view, me, self.pos)
+	wish += bot_dodge(b, view, me, self.pos, dt)
 	wish += bot_inward(self.pos)
 	wish = bot_limit(wish)
 
@@ -295,8 +321,13 @@ bot_jump :: proc(b: ^Bot, dt: f32) -> bool {
 
 // A push away from the paths of the balloons coming at the bot: for each one of somebody else's
 // that is still heading its way, close enough along its path, and passing close enough, a
-// sidestep across the path, to whichever side the bot is already on.
-bot_dodge :: proc(b: ^Bot, view: ^Match_View, me: u8, pos: Vec3) -> (push: [2]f32) {
+// sidestep across the path, to whichever side the bot is already on. The bot does not see every
+// balloon. When one first comes at it, it is decided once whether the bot sees it (`dodge_chance`,
+// and never within BOT_DODGE_REST of its last sidestep), and a balloon it sees is dodged only
+// after a reaction time between `react_min` and `react_max`. A balloon thrown from close by is
+// therefore past it before it moves, and one it did not see is not dodged at all.
+bot_dodge :: proc(b: ^Bot, view: ^Match_View, me: u8, pos: Vec3, dt: f32) -> (push: [2]f32) {
+	bot_forget(b, view)
 	for i in 0 ..< view.balloon_count {
 		f := view.balloons[i]
 		if f.owner == me {
@@ -315,6 +346,15 @@ bot_dodge :: proc(b: ^Bot, view: ^Match_View, me: u8, pos: Vec3) -> (push: [2]f3
 		if abs(side) > BOT_DODGE_WIDTH {
 			continue
 		}
+		known := bot_aware_of(b, f.id)
+		if known == nil {
+			continue
+		}
+		known.wait -= dt
+		if !known.sees || known.wait > 0 {
+			continue
+		}
+		b.rest = BOT_DODGE_REST
 		sign := side >= 0 ? f32(1) : f32(-1)
 		if abs(side) < 0.05 {
 			sign = b.strafe_dir
@@ -322,6 +362,49 @@ bot_dodge :: proc(b: ^Bot, view: ^Match_View, me: u8, pos: Vec3) -> (push: [2]f3
 		push += [2]f32{-f.vel.z, f.vel.x} / speed * (sign * BOT_DODGE)
 	}
 	return
+}
+
+// What the bot knows about the balloon with this id. A balloon it has not met before gets its
+// chance of being seen and its reaction time now. Nil when it is keeping track of as many as it
+// can, and then it does not see this one.
+bot_aware_of :: proc(b: ^Bot, id: u16) -> ^Aware {
+	for i in 0 ..< b.aware_count {
+		if b.aware[i].id == id {
+			return &b.aware[i]
+		}
+	}
+	if b.aware_count >= BOT_AWARE {
+		return nil
+	}
+	sees := b.rest <= 0 && bot_rand(b) < b.dodge_chance
+	b.aware[b.aware_count] = {
+		id   = id,
+		sees = sees,
+		wait = bot_between(b, b.react_min, b.react_max),
+	}
+	b.aware_count += 1
+	return &b.aware[b.aware_count - 1]
+}
+
+// Drops what the bot knew about balloons that have burst or gone, so that its list does not fill
+// up and an id that comes round again is a new balloon.
+bot_forget :: proc(b: ^Bot, view: ^Match_View) {
+	i := 0
+	for i < b.aware_count {
+		gone := true
+		for j in 0 ..< view.balloon_count {
+			if view.balloons[j].id == b.aware[i].id {
+				gone = false
+				break
+			}
+		}
+		if gone {
+			b.aware_count -= 1
+			b.aware[i] = b.aware[b.aware_count]
+		} else {
+			i += 1
+		}
+	}
 }
 
 // A push toward the middle that grows the farther out the bot is beyond BOT_WALL.
