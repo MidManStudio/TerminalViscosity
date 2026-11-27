@@ -80,6 +80,10 @@ station_item :: proc(kind: lab.Station_Kind) -> inventory.Item {
 		return {.Ice_Bath, 0}
 	case .Scale:
 		return {.Scale, 0}
+	case .Incinerator:
+		return {.Incinerator, 0}
+	case .Hood:
+		return {.Hood, 0}
 	case .None:
 	}
 	return {}
@@ -93,6 +97,10 @@ item_station :: proc(item: inventory.Item) -> lab.Station_Kind {
 		return .Ice_Bath
 	case .Scale:
 		return .Scale
+	case .Incinerator:
+		return .Incinerator
+	case .Hood:
+		return .Hood
 	}
 	return .None
 }
@@ -106,6 +114,10 @@ station_name :: proc(kind: lab.Station_Kind) -> string {
 		return "ice bath"
 	case .Scale:
 		return "scale"
+	case .Incinerator:
+		return "incinerator"
+	case .Hood:
+		return "fume hood"
 	case .None:
 	}
 	return ""
@@ -142,6 +154,28 @@ placed_from_bench_file :: proc(text: string) -> (p: lab.Placed, had_bench: bool)
 
 BENCH_SPOTS :: 6 // the spots of the bench of the files this reads
 
+// Brings back the stations of the lab as it starts that are nowhere: not standing in the lab and not in the bag, on
+// the wall or in the bar. A file from before a station could be moved does not have it, and a station is never lost,
+// so it comes back at the place it has when the lab starts, or into the bag if something stands there now. Gives how
+// many came back, which is none for a file that is complete.
+stock_restock :: proc(s: ^Stock, placed: ^lab.Placed) -> (brought: int) {
+	start := lab.default_placed()
+	for i in 0 ..< start.count {
+		pl := start.items[i]
+		item := station_item(pl.kind)
+		held := inventory.count_of(&s.bag, item) + inventory.count_of(&s.wall, item) + inventory.count_of(&s.hotbar, item)
+		if held > 0 || lab.placed_count_of(placed, pl.kind) > 0 {
+			continue
+		}
+		if lab.can_place(placed, pl.kind, pl.x, pl.z, pl.quarter) == .None && lab.placed_add(placed, pl) {
+			brought += 1
+		} else if inventory.add(&s.bag, item, 1) == 1 || inventory.add(&s.hotbar, item, 1) == 1 {
+			brought += 1
+		}
+	}
+	return
+}
+
 // The station that the crosshair is on, within reach, with nothing nearer, and which one it is in `Props.placed`.
 // `busy` is whether a vessel stands on it, which keeps it from being picked up.
 Pickup :: struct {
@@ -153,7 +187,7 @@ Pickup :: struct {
 // Whether vessel `pr` stands on the plate of the station: its middle is over it, and it rests on the counter or on
 // the plate, not above.
 prop_on_plate :: proc(pr: Prop, pl: lab.Placement) -> bool {
-	return lab.in_rect(lab.world_plate(pl), pr.pos.x, pr.pos.z) && pr.pos.y >= lab.COUNTER_HEIGHT - 0.01 && pr.pos.y <= lab.COUNTER_HEIGHT + lab.SCALE_PLATE_TOP + 0.01
+	return lab.station_has_plate(pl.kind) && lab.in_rect(lab.world_plate(pl), pr.pos.x, pr.pos.z) && pr.pos.y >= lab.COUNTER_HEIGHT - 0.01 && pr.pos.y <= lab.COUNTER_HEIGHT + lab.SCALE_PLATE_TOP + 0.01
 }
 
 // Whether any vessel that is not in the hands stands on the plate of the station.

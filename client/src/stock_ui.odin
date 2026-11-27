@@ -192,6 +192,10 @@ station_look :: proc(item: inventory.Item) -> (color: [4]u8, name: cstring) {
 		return {170, 214, 238, 255}, "ice bath"
 	case .Scale:
 		return {176, 186, 198, 255}, "scale"
+	case .Incinerator:
+		return {150, 84, 62, 255}, "incinerator"
+	case .Hood:
+		return {120, 156, 178, 255}, "fume hood"
 	}
 	return {70, 74, 80, 255}, ""
 }

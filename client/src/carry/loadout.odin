@@ -93,9 +93,15 @@ loadout_aim :: proc(lo: ^Loadout, f: ^Filler, props: ^Props, v: View) {
 			lo.spot, lo.spot_slot = .Slot, i
 		}
 	}
-	if t, hit := ray_box(v.eye, dir, lab.INCINERATOR_AIM_LOW, lab.INCINERATOR_AIM_HIGH); hit && t < best_t {
-		best_t = t
-		lo.spot, lo.spot_slot = .Burn, -1
+	for i in 0 ..< props.placed.count {
+		if props.placed.items[i].kind != .Incinerator {
+			continue
+		}
+		low, high := lab.station_aim_box(props.placed.items[i])
+		if t, hit := ray_box(v.eye, dir, low, high); hit && t < best_t {
+			best_t = t
+			lo.spot, lo.spot_slot = .Burn, -1
+		}
 	}
 	lo.spot_t = best_t
 	if lo.spot == .None || best_t > REACH || (props.aimed != -1 && best_t >= props.aimed_t) {

@@ -45,17 +45,19 @@ tap_nozzle :: proc(i: int) -> Vec3 {
 	return dispenser_nozzle(i)
 }
 
-// The floor of the fume hood and how high it reaches. A vessel whose middle is
-// inside this footprint and under the top is in the hood.
+// The fume hood, a station that stands on a counter like the hot plate and can be picked up. `HOOD` is the floor of it
+// round the middle of the station, with the glass toward +z as it is made, and a vessel whose middle is inside that
+// floor and under `HOOD_TOP`, a height over the floor of the room, is in the hood. It starts on the north counter at
+// (-6, -7.63).
 HOOD :: Rect {
-	min_x = -6.8,
-	min_z = -7.98,
-	max_x = -5.2,
-	max_z = -7.28,
+	min_x = -0.8,
+	min_z = -0.35,
+	max_x = 0.8,
+	max_z = 0.35,
 }
 HOOD_TOP :: f32(2.25)
 HOOD_GLASS_LOW :: f32(1.55) // the sash is raised, so the glass starts here and the hands go under it
-HOOD_GLASS_Z :: f32(-7.27)
+HOOD_GLASS_Z :: f32(0.345) // the glass stands on the front edge of the counter
 
 // The reaction oven on the north counter: a big box with four ports on top, each
 // taking one liquid, a window and lights on the front, and a spout off the right end
@@ -122,20 +124,20 @@ TABLET_H :: f32(0.26)
 TABLET_AIM_LOW :: Vec3{-11.99, 1.2, 1.15}
 TABLET_AIM_HIGH :: Vec3{-11.84, 1.52, 1.71}
 
-// The incinerator on the south counter, east of the loadout rack: a squat furnace with a
-// hopper on top, a glowing door in front, and a chimney. A balloon held over the hopper is
-// burned, which is how the player gets rid of one.
+// The incinerator, a station that stands on a counter like the hot plate and can be picked up: a squat furnace with
+// a hopper on top, a glowing door in front, and a chimney. A balloon held over the hopper is burned, which is how the
+// player gets rid of one. Everything here is round the middle of the station, with the door toward -z, as it is made.
+// It starts on the south counter, east of the loadout rack, at (10.5, 7.63).
 INCINERATOR :: Rect {
-	min_x = 10.2,
-	min_z = 7.42,
-	max_x = 10.8,
-	max_z = 7.84,
+	min_x = -0.3,
+	min_z = -0.21,
+	max_x = 0.3,
+	max_z = 0.21,
 }
 INCINERATOR_TOP :: f32(1.58) // the top of the body, where the hopper starts
-INCINERATOR_MOUTH :: Vec3{10.5, 1.68, 7.55} // the middle of the opening of the hopper
+INCINERATOR_MOUTH :: Vec3{0, 1.68, -0.08} // the middle of the opening of the hopper
 INCINERATOR_HOPPER :: f32(0.11) // half the width of the opening
-INCINERATOR_AIM_LOW :: Vec3{10.17, 1.12, 7.38} // the box the crosshair tests for it
-INCINERATOR_AIM_HIGH :: Vec3{10.83, 1.72, 7.88}
+INCINERATOR_VENT :: Vec3{0.18, 2.18, 0.11} // where the smoke leaves the chimney
 
 // The loadout rack on the south counter: a hook for each balloon of the loadout, a
 // light over each that shows what is on it. The balloons hang by their necks, as
@@ -171,13 +173,11 @@ add_apparatus :: proc(l: ^Layout) {
 // The same, with the stations that can be moved where `placed` has them.
 add_apparatus_with :: proc(l: ^Layout, placed: Placed) {
 	add_sink(l)
-	add_hood(l)
 	add_filler(l)
 	add_mixer(l)
 	add_placed(l, placed)
 	add_paint_station(l)
 	add_loadout_rack(l)
-	add_incinerator(l)
 	add_equipment(l)
 }
 
@@ -209,6 +209,17 @@ add_sink :: proc(l: ^Layout) {
 	add_box(l, {s.x, s.y + 0.22, s.z - 0.02}, {0.025, 0.02, 0.07}, {236, 238, 242, 255}, 0, 0.5)
 }
 
+// Where the glass of the hood at `pl` is and how big it is, as the middle and the size of a thin box. A quarter turn
+// swaps its width and its depth.
+hood_glass :: proc(pl: Placement) -> (center, size: Vec3) {
+	center = station_point(pl, {0, (HOOD_GLASS_LOW + HOOD_TOP) * 0.5, HOOD_GLASS_Z})
+	size = {HOOD.max_x - HOOD.min_x - 0.1, HOOD_TOP - HOOD_GLASS_LOW, 0.01}
+	if pl.quarter % 2 == 1 {
+		size = {size.z, size.y, size.x}
+	}
+	return
+}
+
 add_hood :: proc(l: ^Layout) {
 	h := HOOD
 	cx, cz := (h.min_x + h.max_x) * 0.5, (h.min_z + h.max_z) * 0.5
@@ -218,7 +229,7 @@ add_hood :: proc(l: ^Layout) {
 	add_box(l, {cx, mid, h.min_z + 0.02}, {w + 0.1, height, 0.04}, COLOR_PANEL, 0, 0.3)
 	add_box(l, {h.min_x - 0.025, mid, cz}, {0.05, height, d}, COLOR_PANEL, 0, 0.3)
 	add_box(l, {h.max_x + 0.025, mid, cz}, {0.05, height, d}, COLOR_PANEL, 0, 0.3)
-	add_box(l, {cx, HOOD_TOP + 0.04, cz}, {w + 0.1, 0.08, d + 0.02}, COLOR_METAL, 0, 0.4)
+	add_box(l, {cx, HOOD_TOP + 0.04, cz}, {w + 0.1, 0.08, d}, COLOR_METAL, 0, 0.4)
 	add_box(l, {cx, HOOD_TOP - 0.03, h.max_z - 0.02}, {w - 0.1, 0.025, 0.025}, COLOR_GLOW, 1)
 }
 
@@ -325,9 +336,14 @@ paint_cradle :: proc() -> Vec3 {
 	return {PAINT_CLAMP.x, PAINT_CLAMP.y - PAINT_DROP - PAINT_CRADLE_GAP, PAINT_CLAMP.z}
 }
 
-// Where the smoke leaves the chimney of the incinerator.
-incinerator_vent :: proc() -> Vec3 {
-	return {INCINERATOR.max_x - 0.12, 2.18, INCINERATOR.max_z - 0.1}
+// Where the smoke leaves the chimney of the incinerator that stands at `pl`, and the middle of the opening of its
+// hopper.
+incinerator_vent :: proc(pl: Placement) -> Vec3 {
+	return station_point(pl, INCINERATOR_VENT)
+}
+
+incinerator_mouth :: proc(pl: Placement) -> Vec3 {
+	return station_point(pl, INCINERATOR_MOUTH)
 }
 
 add_incinerator :: proc(l: ^Layout) {
@@ -359,7 +375,7 @@ add_incinerator :: proc(l: ^Layout) {
 	add_box(l, {cx, 1.52, b.min_z - 0.003}, {w - 0.1, 0.02, 0.008}, {210, 70, 30, 255}, 0.6)
 
 	// The chimney, at the back.
-	v := incinerator_vent()
+	v := INCINERATOR_VENT
 	add_box(l, {v.x, top + (v.y - 0.04 - top) * 0.5, v.z}, {0.14, v.y - 0.04 - top, 0.14}, COLOR_METAL, 0, 0.5)
 	add_box(l, {v.x, v.y - 0.02, v.z}, {0.2, 0.03, 0.2}, COLOR_STEEL, 0, 0.8)
 }

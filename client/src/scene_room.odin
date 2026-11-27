@@ -122,7 +122,7 @@ room_reset :: proc(room: ^Room) {
 // on the room, a knock to the view, and a wobble of the picture, smaller in the hood.
 room_react :: proc(room: ^Room, r: carry.Mix_Result) {
 	a, b, product := chem.compound_name(r.a), chem.compound_name(r.b), chem.compound_name(r.product)
-	open := carry.openness(r)
+	open := carry.openness(&room.props.placed, r)
 	floor := carry.support_height(&room.layout, r.at.x, r.at.z, 0.1)
 	color_a, color_b := chem.compound_color(r.a), chem.compound_color(r.b)
 	switch r.kind {
@@ -146,7 +146,7 @@ room_react :: proc(room: ^Room, r: carry.Mix_Result) {
 			room_toast(room, "BLAST! %v + %v", a, b)
 		}
 	}
-	carry.health_hurt(&room.health, carry.felt_damage(r))
+	carry.health_hurt(&room.health, carry.felt_damage(&room.props.placed, r))
 }
 
 // What went wrong in a reaction, in words, from the first step of it that had an event: a splash, fumes,
@@ -219,7 +219,9 @@ room_balloon_action :: proc(room: ^Room, lo: ^carry.Loadout, action: carry.Ballo
 room_burn :: proc(room: ^Room, item: carry.Item) {
 	item_mix := item.mix
 	color := chemistry.mix_color(&item_mix)
-	effects.blast(&room.fx, lab.INCINERATOR_MOUTH, 0.2, 0, color, color, lab.COUNTER_HEIGHT)
+	if pl, found := lab.placed_find(&room.props.placed, .Incinerator); found {
+		effects.blast(&room.fx, lab.incinerator_mouth(pl), 0.2, 0, color, color, lab.COUNTER_HEIGHT)
+	}
 	room.burn_timer = 2.5
 	room.burn_vent = 0
 	room_toast(room, "burned the balloon")
@@ -232,13 +234,17 @@ room_burn_effects :: proc(room: ^Room, dt: f32) {
 	}
 	room.burn_timer = max(room.burn_timer - dt, 0)
 	room.burn_vent += dt
-	vent := lab.incinerator_vent()
+	incinerator, standing := lab.placed_find(&room.props.placed, .Incinerator)
+	if !standing {
+		return // it has been picked up, and the smoke goes with it
+	}
+	vent := lab.incinerator_vent(incinerator)
 	for room.burn_vent >= 0.1 {
 		room.burn_vent -= 0.1
 		effects.vent(&room.fx, vent, {0.3, 0.28, 0.27})
 	}
 	eye := carry.view_of(&room.player).eye
-	d := eye - lab.INCINERATOR_MOUTH
+	d := eye - lab.incinerator_mouth(incinerator)
 	if d.x * d.x + d.y * d.y + d.z * d.z < 16 {
 		effects.rumble(&room.fx, 0.003)
 	}
@@ -946,7 +952,7 @@ room_draw :: proc(game: ^Game, state: rawptr) {
 	room.loadout_view.paint.view.art_turn = room.paint_turn
 	loadout_view_draw(&room.loadout_view, &game.loadout, camera.position, !room.painting)
 	props_draw_glass(&room.meshes, room.mesh.material, &room.props, camera.position)
-	stations_draw(&room.filler, &game.loadout)
+	stations_draw(&room.filler, &game.loadout, &room.props.placed)
 	tablet_draw(&room.loadout_view, &game.loadout)
 	oven_draw(&room.oven)
 	blueprint_draw(&room.blueprint)

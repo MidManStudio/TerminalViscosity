@@ -34,6 +34,8 @@ carried :: proc(props: ^Props, kind: lab.Station_Kind) -> (bp: Blueprint, bag: i
 picking_up_a_station_takes_it_off_the_counter_and_makes_it_the_copy :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
+	lab.placed_remove(&props.placed, 3) // the incinerator is on the south counter, and the hood has no place in these counts
+	lab.placed_remove(&props.placed, 3)
 	props.placed.items[1].quarter = 3 // the bath is turned
 	bp: Blueprint
 	testing.expect(t, blueprint_pick_up(&bp, props, 1), "picked up")
@@ -54,6 +56,8 @@ picking_up_a_station_takes_it_off_the_counter_and_makes_it_the_copy :: proc(t: ^
 a_station_is_not_picked_up_that_is_not_there_or_with_full_hands_or_while_one_is_carried :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
+	lab.placed_remove(&props.placed, 3) // the incinerator is on the south counter, and the hood has no place in these counts
+	lab.placed_remove(&props.placed, 3)
 	before := props.placed
 	bp: Blueprint
 	testing.expect(t, !blueprint_pick_up(&bp, props, -1), "no station -1")
@@ -184,7 +188,9 @@ the_copy_is_red_where_something_is_in_the_way_and_says_what :: proc(t: ^testing.
 	testing.expect(t, !bp.ok, "not ok at the sink")
 	blueprint_aim(&bp, props, eye_at_counter(-3.5, -7.63)) // on the hot plate
 	testing.expect_value(t, bp.problem, Blueprint_Problem.Blocked_By_Station)
-	blueprint_aim(&bp, props, eye_at_counter(-6.0, -7.63)) // in the fume hood
+	blueprint_aim(&bp, props, eye_at_counter(-6.0, -7.63)) // on the fume hood
+	testing.expect_value(t, bp.problem, Blueprint_Problem.Blocked_By_Station)
+	blueprint_aim(&bp, props, eye_at_counter(3.0, -7.63)) // in the oven
 	testing.expect_value(t, bp.problem, Blueprint_Problem.Blocked_By_Fixture)
 	blueprint_aim(&bp, props, eye_at_counter(8, -7.6))
 	testing.expect_value(t, bp.problem, Blueprint_Problem.None)
@@ -242,6 +248,8 @@ a_vessel_is_in_the_way_when_it_is_within_a_radius_of_the_footprint :: proc(t: ^t
 a_copy_that_can_stand_is_put_down_as_a_station_and_heats_there :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
+	lab.placed_remove(&props.placed, 3) // the incinerator is on the south counter, and the hood has no place in these counts
+	lab.placed_remove(&props.placed, 3)
 	bp: Blueprint
 	testing.expect(t, blueprint_pick_up(&bp, props, 0), "the hot plate")
 	blueprint_rotate(&bp)
@@ -288,6 +296,8 @@ a_copy_that_cannot_stand_is_not_put_down :: proc(t: ^testing.T) {
 a_copy_goes_back_where_it_was_picked_up_from_if_that_is_free :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
+	lab.placed_remove(&props.placed, 3) // the incinerator is on the south counter, and the hood has no place in these counts
+	lab.placed_remove(&props.placed, 3)
 	bag: inventory.Container
 	inventory.container_init(&bag, BAG_SIZE)
 	bp: Blueprint
@@ -308,6 +318,8 @@ a_copy_goes_back_where_it_was_picked_up_from_if_that_is_free :: proc(t: ^testing
 a_copy_goes_to_the_bag_if_where_it_was_is_not_free_any_more :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
+	lab.placed_remove(&props.placed, 3) // the incinerator is on the south counter, and the hood has no place in these counts
+	lab.placed_remove(&props.placed, 3)
 	bag: inventory.Container
 	inventory.container_init(&bag, BAG_SIZE)
 	bp: Blueprint
@@ -330,6 +342,8 @@ a_copy_goes_to_the_bag_if_where_it_was_is_not_free_any_more :: proc(t: ^testing.
 a_copy_from_the_bag_goes_back_to_its_slot_or_to_another_if_the_slot_is_taken :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
+	lab.placed_remove(&props.placed, 3) // the incinerator is on the south counter, and the hood has no place in these counts
+	lab.placed_remove(&props.placed, 3)
 	bp, bag := carried(props, .Scale)
 	testing.expect_value(t, blueprint_cancel(&bp, props, &bag), Cancel_Result.In_Bag)
 	testing.expect_value(t, bag.slots[3], inventory.Slot{{.Scale, 0}, 1})
@@ -345,6 +359,8 @@ a_copy_from_the_bag_goes_back_to_its_slot_or_to_another_if_the_slot_is_taken :: 
 a_copy_stays_carried_when_it_has_nowhere_to_go :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
+	lab.placed_remove(&props.placed, 3) // the incinerator is on the south counter, and the hood has no place in these counts
+	lab.placed_remove(&props.placed, 3)
 	bag: inventory.Container
 	inventory.container_init(&bag, BAG_SIZE)
 	bp: Blueprint
@@ -551,4 +567,105 @@ a_station_from_the_bag_does_not_go_to_the_bar_when_it_is_put_back :: proc(t: ^te
 	testing.expect_value(t, blueprint_cancel(&bp, props, &bag, &bar), Cancel_Result.In_Bag)
 	testing.expect_value(t, bag.slots[3], inventory.Slot{{.Scale, 0}, 1})
 	testing.expect_value(t, inventory.count_of(&bar, station_item(.Scale)), 0)
+}
+
+// The player's eye, 1.6 m up, 1.1 m from the south counter and looking at (x, z) on the counter top.
+eye_at_south_counter :: proc(x, z: f32) -> View {
+	return view_toward({x, 1.6, 6.6}, {x, lab.COUNTER_HEIGHT, z})
+}
+
+@(test)
+the_incinerator_is_picked_up_turned_and_put_down_on_the_south_counter :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	index := -1
+	for i in 0 ..< props.placed.count {
+		if props.placed.items[i].kind == .Incinerator {
+			index = i
+		}
+	}
+	testing.expect(t, index >= 0, "it stands where the lab starts it")
+	bp: Blueprint
+	testing.expect(t, blueprint_pick_up(&bp, props, index), "picked up")
+	testing.expect_value(t, bp.kind, lab.Station_Kind.Incinerator)
+	testing.expect_value(t, props.placed.count, 4)
+	_, standing := lab.placed_find(&props.placed, .Incinerator)
+	testing.expect(t, !standing, "it is off the counter while it is carried")
+	// Over the fill station it is red, and says why.
+	blueprint_aim(&bp, props, eye_at_south_counter(6, 7.63))
+	testing.expect(t, !bp.ok, "not on the fill station")
+	testing.expect_value(t, bp.problem, Blueprint_Problem.Blocked_By_Fixture)
+	// Turned a quarter and over the free counter between the fill station and the rack, it can be put down.
+	blueprint_rotate(&bp)
+	blueprint_aim(&bp, props, eye_at_south_counter(7.3, 7.63))
+	testing.expect(t, bp.ok, "ok between the fill station and the rack")
+	testing.expect(t, blueprint_place(&bp, props), "put down")
+	testing.expect_value(t, props.placed.count, 5)
+	pl, standing_now := lab.placed_find(&props.placed, .Incinerator)
+	testing.expect(t, standing_now, "it stands again")
+	testing.expect(t, near(pl.x, 7.3, 0.001) && near(pl.z, 7.65, 0.021) && pl.quarter == 1, "where it was put, turned a quarter")
+}
+
+@(test)
+a_vessel_in_the_middle_of_the_incinerator_does_not_keep_it_from_being_picked_up :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	pl, _ := lab.placed_find(&props.placed, .Incinerator)
+	props_add(props, l, .Flask, pl.x, pl.z, id(.Water), 300)
+	testing.expect(t, !station_busy(props, pl), "it has no plate, so nothing stands on it")
+	// The same vessel on a plate that has one is what keeps a station down.
+	hot, _ := lab.placed_find(&props.placed, .Hot_Plate)
+	props_add(props, l, .Flask, hot.x, hot.z, id(.Water), 300)
+	testing.expect(t, station_busy(props, hot), "a vessel on the hot plate does")
+}
+
+@(test)
+the_hood_is_picked_up_turned_and_put_down_on_the_west_counter_and_shields_there :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	index := -1
+	for i in 0 ..< props.placed.count {
+		if props.placed.items[i].kind == .Hood {
+			index = i
+		}
+	}
+	testing.expect(t, index >= 0, "it stands where the lab starts it")
+	bp: Blueprint
+	testing.expect(t, blueprint_pick_up(&bp, props, index), "picked up")
+	testing.expect_value(t, bp.kind, lab.Station_Kind.Hood)
+	testing.expect(t, !in_hood(&props.placed, {-6.0, 1.2, -7.63}), "there is no hood while it is carried")
+	blueprint_rotate(&bp)
+	blueprint_aim(&bp, props, view_toward({-10.4, 1.6, -1.5}, {-11.63, 1.1, -1.5}))
+	testing.expect(t, bp.ok, "ok on the west counter, clear of the sink and the paint station")
+	testing.expect(t, blueprint_place(&bp, props), "put down")
+	pl, standing := lab.placed_find(&props.placed, .Hood)
+	testing.expect(t, standing && near(pl.x, -11.63, 0.001) && near(pl.z, -1.5, 0.021) && pl.quarter == 1, "turned a quarter on the west counter")
+	testing.expect(t, in_hood(&props.placed, {pl.x, 1.2, pl.z}), "it shields where it stands")
+	testing.expect(t, !in_hood(&props.placed, {-6.0, 1.2, -7.63}), "and not where it stood")
+}
+
+@(test)
+a_vessel_in_the_hood_keeps_it_down_and_one_beside_it_does_not :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	hood, _ := lab.placed_find(&props.placed, .Hood)
+	props_add(props, l, .Flask, hood.x + 1.2, hood.z, id(.Water), 300) // on the counter past its side
+	testing.expect(t, !station_busy(props, hood), "a vessel beside it is no reason")
+	props_add(props, l, .Flask, hood.x, hood.z, id(.Water), 300)
+	testing.expect(t, station_busy(props, hood), "a vessel in it is")
+}
+
+@(test)
+the_copy_is_red_under_the_shelves_and_the_cabinet_for_the_tall_stations_only :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	bp, _ := carried(props, .Incinerator)
+	blueprint_aim(&bp, props, eye_at_south_counter(-6, 7.63))
+	testing.expect(t, !bp.ok, "not under the shelves")
+	testing.expect_value(t, bp.problem, Blueprint_Problem.Blocked_By_Fixture)
+	blueprint_aim(&bp, props, eye_at_south_counter(7.3, 7.63))
+	testing.expect(t, bp.ok, "but past the end of them it is")
+	low, _ := carried(props, .Scale)
+	blueprint_aim(&low, props, eye_at_south_counter(-6, 7.63))
+	testing.expect(t, low.ok, "a scale is low enough to stand under the shelves")
 }

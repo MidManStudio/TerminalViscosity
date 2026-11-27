@@ -11,11 +11,11 @@ import "core:strconv"
 import "core:strings"
 
 // The stations that can be picked up and put down again, and where they stand. A station is a hot plate, an ice
-// bath or a scale. It stands on a counter, at any place on it where there is room, turned a quarter at a time, and
+// bath, a scale, the incinerator or the fume hood. It stands on a counter, at any place on it where there is room, turned a quarter at a time, and
 // everything that depends on it, the heat of the plate, the cold of the bath, the weighing of the scale and the
 // height of its plate, reads where it stands and not a place that is fixed. Units are metres.
 
-MAX_PLACED :: 8 // the most stations that stand in the lab at once
+MAX_PLACED :: 12 // the most stations that stand in the lab at once
 PLACE_GRID :: f32(0.05) // a station is put on a grid of this size
 PLACE_EPS :: f32(1e-4) // how much two edges may differ and still touch
 
@@ -24,6 +24,8 @@ Station_Kind :: enum u8 {
 	Hot_Plate,
 	Ice_Bath,
 	Scale,
+	Incinerator,
+	Hood,
 }
 
 // One station standing: what it is, where the middle of it is, and how many quarter turns it has been turned from
@@ -49,14 +51,16 @@ Place_Problem :: enum u8 {
 	Blocked_By_Station,
 }
 
-// The stations as the lab starts: the hot plate, the ice bath and the scale on the north counter, where they have
-// always been. The scale stands at z -7.625 so that its plate is the old `SCALE_PLATE`.
+// The stations as the lab starts: the hot plate, the ice bath and the scale on the north counter, and the incinerator
+// on the south counter, and the fume hood on the north counter, where they have always been. The scale stands at z -7.625 so that its plate is the old `SCALE_PLATE`.
 default_placed :: proc() -> Placed {
 	p: Placed
 	p.items[0] = {.Hot_Plate, -3.5, -7.63, 0}
 	p.items[1] = {.Ice_Bath, -2.4, -7.63, 0}
 	p.items[2] = {.Scale, 0.0, -7.625, 0}
-	p.count = 3
+	p.items[3] = {.Incinerator, 10.5, 7.63, 0}
+	p.items[4] = {.Hood, -6.0, -7.63, 0}
+	p.count = 5
 	return p
 }
 
@@ -97,7 +101,9 @@ station_plate :: proc(kind: Station_Kind) -> Rect {
 		return {-0.4, -0.25, 0.4, 0.25}
 	case .Scale:
 		return {-0.2, -0.175, 0.2, 0.175}
-	case .None:
+	case .Hood:
+		return {-0.8, -0.35, 0.8, 0.35} // the floor inside it
+	case .Incinerator, .None: // no vessel stands on the incinerator
 	}
 	return {}
 }
@@ -112,6 +118,10 @@ station_body :: proc(kind: Station_Kind) -> Rect {
 		return {-0.43, -0.28, 0.43, 0.28}
 	case .Scale:
 		return {-0.26, -0.25, 0.26, 0.25}
+	case .Incinerator:
+		return {-0.32, -0.23, 0.32, 0.23}
+	case .Hood:
+		return {-0.85, -0.35, 0.85, 0.35} // the sides stand outside the floor
 	case .None:
 	}
 	return {}
@@ -126,9 +136,29 @@ station_height :: proc(kind: Station_Kind) -> f32 {
 		return 0.09
 	case .Scale:
 		return 0.22
+	case .Incinerator:
+		return 0.62
+	case .Hood:
+		return HOOD_TOP - COUNTER_HEIGHT
 	case .None:
 	}
 	return 0
+}
+
+// How high the highest part of a station reaches, in metres over the floor: what has to clear the things that hang over
+// the counters. The incinerator reaches the top of its chimney and the hood the top of its roof, which are over the
+// part that `station_height` gives, and that part is only what the crosshair is aimed at.
+station_top :: proc(kind: Station_Kind) -> f32 {
+	switch kind {
+	case .Incinerator:
+		return INCINERATOR_VENT.y + 0.04
+	case .Hood:
+		return HOOD_TOP + 0.08
+	case .Hot_Plate, .Ice_Bath, .Scale:
+		return COUNTER_HEIGHT + station_height(kind)
+	case .None:
+	}
+	return COUNTER_HEIGHT
 }
 
 // A rectangle turned about the origin by `quarter` quarter turns. It is still a rectangle with its sides along the
@@ -152,10 +182,43 @@ world_body :: proc(pl: Placement) -> Rect {
 	return shift_rect(turn_rect(station_body(pl.kind), pl.quarter), pl.x, pl.z)
 }
 
+// Whether a station of this kind has a plate that a vessel can stand on. The incinerator has none.
+station_has_plate :: proc(kind: Station_Kind) -> bool {
+	return kind != .None && kind != .Incinerator
+}
+
+// A point given round the middle of a station as it is made, with the display of the scale toward +z, is where it is
+// in the lab once the station stands at `pl`: turned the quarters it is turned, and moved to where it stands.
+station_point :: proc(pl: Placement, local: Vec3) -> Vec3 {
+	x, z := turn_xz(local.x, local.z, pl.quarter)
+	return {x + pl.x, local.y, z + pl.z}
+}
+
+// The first station of this kind that stands, and whether there is one.
+placed_find :: proc(p: ^Placed, kind: Station_Kind) -> (pl: Placement, found: bool) {
+	for i in 0 ..< p.count {
+		if p.items[i].kind == kind {
+			return p.items[i], true
+		}
+	}
+	return {}, false
+}
+
+// How many stations of this kind stand.
+placed_count_of :: proc(p: ^Placed, kind: Station_Kind) -> int {
+	n := 0
+	for i in 0 ..< p.count {
+		if p.items[i].kind == kind {
+			n += 1
+		}
+	}
+	return n
+}
+
 // Whether the point (x, z) is on the plate of a station of this kind, wherever one stands.
 on_station :: proc(p: ^Placed, kind: Station_Kind, x, z: f32) -> bool {
 	for i in 0 ..< p.count {
-		if p.items[i].kind == kind && in_rect(world_plate(p.items[i]), x, z) {
+		if p.items[i].kind == kind && station_has_plate(kind) && in_rect(world_plate(p.items[i]), x, z) {
 			return true
 		}
 	}
@@ -179,25 +242,23 @@ place_zones :: proc() -> [PLACE_ZONES]Rect {
 	return {a[COUNTER_NORTH], a[COUNTER_SOUTH], a[COUNTER_WEST], a[COUNTER_ISLAND]}
 }
 
-KEEPOUT_COUNT :: 7 + VIAL_RACK_COUNT
+KEEPOUT_COUNT :: 5 + VIAL_RACK_COUNT
 
 // The floor that the fixtures of the lab take up on the counters, with a hand's width to spare: the sink and its soap,
-// the fume hood, the oven with its spout and tray, the fill station, the paint station with its palette, tablet and
-// brushes, the incinerator, the loadout rack and the vial racks. What is on a wall and over the heads of the stations,
+// the oven with its spout and tray, the fill station, the paint station with its palette, tablet and
+// brushes, the loadout rack and the vial racks. What is on a wall and over the heads of the stations,
 // the first aid cabinet and the shelves, takes up no counter and is not here. A station may not be put inside any of
 // these.
 fixture_keepouts :: proc() -> [KEEPOUT_COUNT]Rect {
 	k: [KEEPOUT_COUNT]Rect
 	k[0] = {-12, SINK_BASIN.min_z - 0.1, SINK_BASIN.max_x + 0.1, SOAP_AT.z + 0.1}
-	k[1] = {HOOD.min_x - 0.1, HOOD.min_z, HOOD.max_x + 0.1, HOOD.max_z}
-	k[2] = {MIXER.min_x - 0.05, MIXER.min_z - 0.04, MIXER_SPOUT.x + MIXER_TRAY_RADIUS + 0.05, MIXER.max_z + 0.04}
-	k[3] = {FILLER_CLAMP.x - 0.25, 7.28, GAUGE_ORIGIN.x + 0.2, 7.98}
-	k[4] = {-11.98, TABLET_CENTER.z - TABLET_W * 0.5 - 0.1, -11.28, PAINT_CLAMP.z + 1.05 + 0.15}
-	k[5] = {INCINERATOR.min_x - 0.1, 7.28, INCINERATOR.max_x + 0.1, 7.98}
-	k[6] = {SLOT_FIRST_X - 0.35, 7.28, SLOT_FIRST_X + SLOT_SPACING * f32(LOADOUT_SLOTS - 1) + 0.35, 7.98}
+	k[1] = {MIXER.min_x - 0.05, MIXER.min_z - 0.04, MIXER_SPOUT.x + MIXER_TRAY_RADIUS + 0.05, MIXER.max_z + 0.04}
+	k[2] = {FILLER_CLAMP.x - 0.25, 7.28, GAUGE_ORIGIN.x + 0.2, 7.98}
+	k[3] = {-11.98, TABLET_CENTER.z - TABLET_W * 0.5 - 0.1, -11.28, PAINT_CLAMP.z + 1.05 + 0.15}
+	k[4] = {SLOT_FIRST_X - 0.35, 7.28, SLOT_FIRST_X + SLOT_SPACING * f32(LOADOUT_SLOTS - 1) + 0.35, 7.98}
 	racks := VIAL_RACKS
 	for r, i in racks {
-		k[7 + i] = {r.x - 0.25, r.z - 0.15, r.x + 0.25, r.z + 0.15}
+		k[5 + i] = {r.x - 0.25, r.z - 0.15, r.x + 0.25, r.z + 0.15}
 	}
 	return k
 }
@@ -210,6 +271,24 @@ rect_inside :: proc(outer, inner: Rect) -> bool {
 // Whether two rectangles share floor. Touching edges do not count.
 rects_intersect :: proc(a, b: Rect) -> bool {
 	return a.min_x < b.max_x - PLACE_EPS && b.min_x < a.max_x - PLACE_EPS && a.min_z < b.max_z - PLACE_EPS && b.min_z < a.max_z - PLACE_EPS
+}
+
+// Something that hangs over a counter: the floor under it, and how high its lowest part is over the floor. A station
+// whose highest part reaches above `bottom` may not stand where `area` is, and a lower one may stand under it.
+Overhead :: struct {
+	area:   Rect,
+	bottom: f32,
+}
+
+OVERHEAD_COUNT :: 2
+
+// What hangs over the counters: the first aid cabinet on the north wall, and the shelves along the south wall with the
+// bottles on them. The brackets of the shelves are the lowest part of them.
+overhead_keepouts :: proc() -> [OVERHEAD_COUNT]Overhead {
+	return {
+		{{FIRST_AID_AIM_LOW.x, FIRST_AID_AIM_LOW.z, FIRST_AID_AIM_HIGH.x, FIRST_AID_AIM_HIGH.z}, FIRST_AID_AIM_LOW.y},
+		{{SHELF_X0 - 0.25, SHELF_Z - SHELF_DEPTH * 0.5, SHELF_X1 + 0.25, SHELF_Z + SHELF_DEPTH * 0.5 + 0.1}, SHELF_HEIGHTS[0] - 0.2},
+	}
 }
 
 // Whether a station of `kind`, turned `quarter` quarters, with its middle at (x, z), may be put down: wholly on one
@@ -232,6 +311,12 @@ can_place :: proc(p: ^Placed, kind: Station_Kind, x, z: f32, quarter: u8) -> Pla
 	}
 	for keep in fixture_keepouts() {
 		if rects_intersect(keep, body) {
+			return .Blocked_By_Fixture
+		}
+	}
+	top := station_top(kind)
+	for over in overhead_keepouts() {
+		if top > over.bottom && rects_intersect(over.area, body) {
 			return .Blocked_By_Fixture
 		}
 	}
@@ -286,12 +371,24 @@ fit_to_zone :: proc(kind: Station_Kind, quarter: u8, x, z: f32) -> (fx, fz: f32,
 	}
 	zone := place_zones()[index]
 	body := turn_rect(station_body(kind), quarter)
-	lo_x, hi_x := grid_ceil(zone.min_x - body.min_x), grid_floor(zone.max_x - body.max_x)
-	lo_z, hi_z := grid_ceil(zone.min_z - body.min_z), grid_floor(zone.max_z - body.max_z)
-	if lo_x > hi_x || lo_z > hi_z {
-		return fx, fz, false
+	x_fits, z_fits: bool
+	fx, x_fits = fit_axis(zone.min_x - body.min_x, zone.max_x - body.max_x, fx)
+	fz, z_fits = fit_axis(zone.min_z - body.min_z, zone.max_z - body.max_z, fz)
+	return fx, fz, x_fits && z_fits
+}
+
+// One axis of `fit_to_zone`: the middle of the body may be anywhere from `lo` to `hi` for the body to be inside the
+// counter. The grid point nearest to `v` in that range is the answer. A body as deep as the counter has no room for
+// the grid, and then the one place it fits is the answer, in whole millimetres. False when it does not fit at all.
+fit_axis :: proc(lo, hi, v: f32) -> (f32, bool) {
+	if lo > hi + PLACE_EPS {
+		return v, false
 	}
-	return clamp(fx, lo_x, hi_x), clamp(fz, lo_z, hi_z), true
+	grid_lo, grid_hi := grid_ceil(lo), grid_floor(hi)
+	if grid_lo > grid_hi {
+		return math.round((lo + hi) * 0.5 * 1000) / 1000, true
+	}
+	return clamp(v, grid_lo, grid_hi), true
 }
 
 // ---- Writing and reading ----
@@ -356,6 +453,10 @@ add_placed :: proc(l: ^Layout, p: Placed) {
 			add_ice_bath(l, station_plate(.Ice_Bath))
 		case .Scale:
 			add_scale(l, station_plate(.Scale))
+		case .Incinerator:
+			add_incinerator(l)
+		case .Hood:
+			add_hood(l)
 		case .None:
 		}
 		l.xform = {}

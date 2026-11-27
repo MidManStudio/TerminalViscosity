@@ -22,7 +22,7 @@ rack_footprint :: proc(i: int) -> Rect {
 
 // The footprints of the other equipment of the lab that stands on the counters.
 other_footprints :: proc() -> [7]Rect {
-	return {SINK_BASIN, HOOD, MIXER, HOT_PLATE, ICE_BATH, INCINERATOR, {FILLER_CLAMP.x - 0.2, 7.3, FILLER_CLAMP.x + 0.2, 8}}
+	return {SINK_BASIN, world_body(starting_hood()), MIXER, HOT_PLATE, ICE_BATH, world_body({.Incinerator, 10.5, 7.63, 0}), {FILLER_CLAMP.x - 0.2, 7.3, FILLER_CLAMP.x + 0.2, 8}}
 }
 
 built_room :: proc() -> ^Layout {
@@ -108,7 +108,7 @@ the_cabinet_is_flat_on_the_north_wall_over_the_counter_and_away_from_the_hood ::
 	testing.expect(t, abs((c.z - 0.07) - (-ROOM_D * 0.5)) < 0.001, "its back is on the wall")
 	testing.expect(t, c.y - 0.3 > COUNTER_HEIGHT + 0.3, "over the counter, with room under it for what stands there")
 	testing.expect(t, c.y + 0.3 < ROOM_H, "under the ceiling")
-	testing.expect(t, c.x + 0.25 < HOOD.min_x - 0.2, "away from the hood")
+	testing.expect(t, c.x + 0.25 < world_plate(starting_hood()).min_x - 0.2, "away from the hood")
 	for o, k in other_footprints() {
 		testing.expectf(t, !(c.x + 0.25 > o.min_x - 0.1 && c.x - 0.25 < o.max_x + 0.1 && o.min_z < -7.0), "the cabinet is over piece %d", k)
 	}

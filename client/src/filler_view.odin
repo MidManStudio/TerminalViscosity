@@ -332,7 +332,7 @@ gauge_rgb :: proc(c: carry.Gauge_Color) -> [4]u8 {
 // The lights of the gauge beside the clamp, the lights over the hooks of the loadout rack, and the glass of the fume hood. Both
 // change from frame to frame, so they are drawn here and not with the room. Near the
 // limit the red lights blink, which says the balloon is about to go.
-stations_draw :: proc(f: ^carry.Filler, lo: ^carry.Loadout) {
+stations_draw :: proc(f: ^carry.Filler, lo: ^carry.Loadout, placed: ^lab.Placed) {
 	rlgl.DrawRenderBatchActive()
 	rlgl.DisableBackfaceCulling()
 	rlgl.Begin(rlgl.TRIANGLES)
@@ -361,10 +361,12 @@ stations_draw :: proc(f: ^carry.Filler, lo: ^carry.Loadout) {
 	// The glass comes last, blended, and writes no depth.
 	rlgl.DisableDepthMask()
 	rlgl.Begin(rlgl.TRIANGLES)
-	h := lab.HOOD
-	mid_x := (h.min_x + h.max_x) * 0.5
-	mid_y := (lab.HOOD_GLASS_LOW + lab.HOOD_TOP) * 0.5
-	draw_flat_box({mid_x, mid_y, lab.HOOD_GLASS_Z}, {h.max_x - h.min_x - 0.1, lab.HOOD_TOP - lab.HOOD_GLASS_LOW, 0.01}, {170, 215, 235, 46})
+	for i in 0 ..< placed.count {
+		if placed.items[i].kind == .Hood {
+			center, size := lab.hood_glass(placed.items[i])
+			draw_flat_box(center, size, {170, 215, 235, 46})
+		}
+	}
 	rlgl.End()
 	rlgl.DrawRenderBatchActive()
 	rlgl.EnableDepthMask()

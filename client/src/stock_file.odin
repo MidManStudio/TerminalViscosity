@@ -36,6 +36,9 @@ stock_load :: proc(s: ^carry.Stock, placed: ^lab.Placed) {
 	} else {
 		placed^, _ = carry.placed_from_bench_file(text)
 	}
+	if brought := carry.stock_restock(s, placed); brought > 0 {
+		fmt.eprintfln("stock: %d stations that the file did not have are back at their places", brought)
+	}
 	fmt.eprintfln("stock: %d stacks and %d stations read from %v", n, placed.count, STOCK_FILE)
 }
 

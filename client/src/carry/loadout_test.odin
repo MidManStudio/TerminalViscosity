@@ -44,8 +44,9 @@ the_crosshair_finds_the_paint_station_and_each_hook :: proc(t: ^testing.T) {
 		testing.expect_value(t, lo.spot_slot, i)
 	}
 
-	p.x, p.z = (lab.INCINERATOR.min_x + lab.INCINERATOR.max_x) * 0.5, 6.9
-	look_at(p, lab.INCINERATOR_MOUTH)
+	incinerator, _ := lab.placed_find(&props.placed, .Incinerator)
+	p.x, p.z = incinerator.x, 6.9
+	look_at(p, lab.incinerator_mouth(incinerator))
 	filler_aim(&f, props, view_of(p))
 	loadout_aim(&lo, &f, props, view_of(p))
 	testing.expect_value(t, lo.spot, Spot.Burn)
@@ -280,4 +281,54 @@ the_presets_are_what_the_server_needs_of_the_balloons_on_the_hooks :: proc(t: ^t
 	out, count = loadout_presets(&lo)
 	testing.expect_value(t, count, 3)
 	testing.expect_value(t, out[1].volume_ml, 1000)
+}
+
+@(test)
+the_incinerator_is_burned_in_wherever_it_stands :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	f := fresh_filler()
+	lo := new_loadout()
+	start, _ := lab.placed_find(&props.placed, .Incinerator)
+	aim_at :: proc(p: ^lab.Player, props: ^Props, f: ^Filler, lo: ^Loadout, at: Vec3, from_x: f32) {
+		p.x, p.z = from_x, at.z - 0.8
+		look_at(p, at)
+		filler_aim(f, props, view_of(p))
+		loadout_aim(lo, f, props, view_of(p))
+	}
+	aim_at(p, props, &f, &lo, lab.incinerator_mouth(start), start.x)
+	testing.expect_value(t, lo.spot, Spot.Burn)
+	// Moved along the counter to the free place between the fill station and the rack, the mouth is there.
+	for i in 0 ..< props.placed.count {
+		if props.placed.items[i].kind == .Incinerator {
+			props.placed.items[i].x = 7.3
+		}
+	}
+	moved, _ := lab.placed_find(&props.placed, .Incinerator)
+	aim_at(p, props, &f, &lo, lab.incinerator_mouth(moved), 7.3)
+	testing.expect_value(t, lo.spot, Spot.Burn)
+	testing.expect_value(t, lo.spot_slot, -1)
+	// And not where it stood.
+	aim_at(p, props, &f, &lo, lab.incinerator_mouth(start), start.x)
+	testing.expect_value(t, lo.spot, Spot.None)
+	// Turned about, the mouth is still the place to aim at.
+	for i in 0 ..< props.placed.count {
+		if props.placed.items[i].kind == .Incinerator {
+			props.placed.items[i].quarter = 2
+		}
+	}
+	turned, _ := lab.placed_find(&props.placed, .Incinerator)
+	aim_at(p, props, &f, &lo, lab.incinerator_mouth(turned), 7.3)
+	testing.expect_value(t, lo.spot, Spot.Burn)
+	// Taken off the counter, there is nothing to burn a balloon in anywhere.
+	for i in 0 ..< props.placed.count {
+		if props.placed.items[i].kind == .Incinerator {
+			lab.placed_remove(&props.placed, i)
+			break
+		}
+	}
+	aim_at(p, props, &f, &lo, lab.incinerator_mouth(moved), 7.3)
+	testing.expect_value(t, lo.spot, Spot.None)
+	aim_at(p, props, &f, &lo, lab.incinerator_mouth(start), start.x)
+	testing.expect_value(t, lo.spot, Spot.None)
 }

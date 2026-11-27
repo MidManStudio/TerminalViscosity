@@ -150,7 +150,8 @@ the_station_says_where_a_reaction_was :: proc(t: ^testing.T) {
 	fill_with(&f.mix, id(.Sulfuric_Acid), 100)
 	r := filler_take_drop(&f, id(.Water), 900, EYE)
 	testing.expect_value(t, r.mix.at, lab.filler_center())
-	testing.expect_value(t, shield_factor(r.mix.at), 1)
+	placed := lab.default_placed()
+	testing.expect_value(t, shield_factor(&placed, r.mix.at), 1)
 }
 
 // ---- aiming and pouring ----
@@ -301,30 +302,33 @@ the_drain_takes_what_falls_in_the_basin :: proc(t: ^testing.T) {
 
 @(test)
 the_hood_shields_what_is_inside_it :: proc(t: ^testing.T) {
-	h := lab.HOOD
+	p := lab.default_placed()
+	hood, _ := lab.placed_find(&p, .Hood)
+	h := lab.world_plate(hood)
 	inside := Vec3{(h.min_x + h.max_x) * 0.5, lab.COUNTER_HEIGHT + 0.1, (h.min_z + h.max_z) * 0.5}
-	testing.expect(t, in_hood(inside), "in the hood")
-	testing.expect_value(t, shield_factor(inside), HOOD_SHIELD)
-	testing.expect(t, !in_hood({inside.x, lab.HOOD_TOP + 0.2, inside.z}), "above it")
-	testing.expect(t, !in_hood({h.max_x + 0.3, inside.y, inside.z}), "beside it")
-	testing.expect_value(t, shield_factor({0, 1.2, 0}), 1)
+	testing.expect(t, in_hood(&p, inside), "in the hood")
+	testing.expect_value(t, shield_factor(&p, inside), HOOD_SHIELD)
+	testing.expect(t, !in_hood(&p, {inside.x, lab.HOOD_TOP + 0.2, inside.z}), "above it")
+	testing.expect(t, !in_hood(&p, {h.max_x + 0.3, inside.y, inside.z}), "beside it")
+	testing.expect_value(t, shield_factor(&p, {0, 1.2, 0}), 1)
 
 	r := Mix_Result {
 		damage = 80,
 		at     = inside,
 	}
-	testing.expect(t, abs(felt_damage(r) - 80 * HOOD_SHIELD) < 1e-4, "a fifth gets out")
-	testing.expect_value(t, openness(r), 0)
+	testing.expect(t, abs(felt_damage(&p, r) - 80 * HOOD_SHIELD) < 1e-4, "a fifth gets out")
+	testing.expect_value(t, openness(&p, r), 0)
 	r.at = {0, 1.2, 0}
-	testing.expect_value(t, felt_damage(r), 80)
-	testing.expect_value(t, openness(r), 1)
+	testing.expect_value(t, felt_damage(&p, r), 80)
+	testing.expect_value(t, openness(&p, r), 1)
 }
 
 @(test)
 a_blast_in_the_hood_hurts_less_than_the_same_blast_outside :: proc(t: ^testing.T) {
 	l, p, props := make_scene()
 	defer free_scene(l, p, props)
-	h := lab.HOOD
+	hood, _ := lab.placed_find(&props.placed, .Hood)
+	h := lab.world_plate(hood)
 	hx, hz := (h.min_x + h.max_x) * 0.5, (h.min_z + h.max_z) * 0.5
 	props_add(props, l, .Flask, hx, hz)
 	props_add(props, l, .Flask, 0, 0.4)
@@ -339,8 +343,42 @@ a_blast_in_the_hood_hurts_less_than_the_same_blast_outside :: proc(t: ^testing.T
 	testing.expect_value(t, a.kind, Mix_Kind.Blast)
 	testing.expect_value(t, b.kind, Mix_Kind.Blast)
 	testing.expect(t, abs(a.damage - b.damage) < 0.5, "the same force at the same distance")
-	testing.expect(t, felt_damage(a) < felt_damage(b) * 0.25, "but the hood takes most of it")
-	testing.expect(t, in_hood(a.at) && !in_hood(b.at), "and each says where it was")
+	testing.expect(t, felt_damage(&props.placed, a) < felt_damage(&props.placed, b) * 0.25, "but the hood takes most of it")
+	testing.expect(t, in_hood(&props.placed, a.at) && !in_hood(&props.placed, b.at), "and each says where it was")
+}
+
+@(test)
+the_hood_shields_where_it_stands_and_not_where_it_stood :: proc(t: ^testing.T) {
+	p := lab.default_placed()
+	old := Vec3{-6.0, 1.2, -7.63}
+	testing.expect(t, in_hood(&p, old), "in the hood where it starts")
+	for i in 0 ..< p.count {
+		if p.items[i].kind == .Hood {
+			p.items[i] = {.Hood, -1.0, -7.63, 0} // moved along the counter
+		}
+	}
+	testing.expect(t, !in_hood(&p, old), "not where it stood")
+	testing.expect(t, in_hood(&p, {-1.0, 1.2, -7.63}), "where it is")
+	testing.expect(t, in_hood(&p, {-1.7, 1.2, -7.5}) && !in_hood(&p, {-1.7, 1.2, -7.2}), "its floor is 1.6 m wide and 0.7 deep")
+	for i in 0 ..< p.count {
+		if p.items[i].kind == .Hood {
+			p.items[i] = {.Hood, -11.63, 0, 1} // turned a quarter, on the west counter
+		}
+	}
+	testing.expect(t, in_hood(&p, {-11.63, 1.2, 0.7}), "its length now runs along z")
+	testing.expect(t, !in_hood(&p, {-11.63, 1.2, 0.95}) && !in_hood(&p, {-11.1, 1.2, 0}), "and ends at 0.8 m from its middle")
+	testing.expect(t, !in_hood(&p, {-11.63, lab.HOOD_TOP + 0.1, 0.0}), "and has a roof")
+	testing.expect_value(t, shield_factor(&p, {-11.63, 1.2, 0.7}), HOOD_SHIELD)
+	// Picked up, there is no hood, and a blast is as open as anywhere.
+	for i in 0 ..< p.count {
+		if p.items[i].kind == .Hood {
+			lab.placed_remove(&p, i)
+			break
+		}
+	}
+	testing.expect(t, !in_hood(&p, {-11.63, 1.2, 0.7}), "no hood")
+	testing.expect_value(t, shield_factor(&p, {-11.63, 1.2, 0.7}), 1)
+	testing.expect_value(t, openness(&p, Mix_Result{at = {-11.63, 1.2, 0.7}}), 1)
 }
 
 // ---- the gauge ----

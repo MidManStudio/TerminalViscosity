@@ -52,10 +52,66 @@ the_sink_is_on_the_west_counter :: proc(t: ^testing.T) {
 the_hood_is_on_the_north_counter :: proc(t: ^testing.T) {
 	l := full_lab()
 	defer free(l)
-	testing.expect(t, counter_covers(l, HOOD), "the hood is on a counter")
-	testing.expect(t, HOOD.max_z < 0, "on the north side")
+	pl := starting_hood()
+	testing.expect_value(t, pl.kind, Station_Kind.Hood)
+	floor := world_plate(pl)
+	testing.expect(t, counter_covers(l, floor), "the hood is on a counter")
+	testing.expect(t, counter_covers(l, world_body(pl)), "and so are its sides")
+	testing.expect(t, floor.max_z < 0, "on the north side")
+	testing.expect(t, placed_rect_close(floor, {-6.8, -7.98, -5.2, -7.28}), "where it has always stood")
 	testing.expect(t, HOOD_GLASS_LOW > COUNTER_HEIGHT + 0.3, "there is a gap under the glass for the hands")
-	testing.expect(t, HOOD_GLASS_Z > HOOD.max_z, "and the glass is at the front")
+	testing.expect(t, HOOD_GLASS_Z > HOOD.max_z - 0.02 && HOOD_GLASS_Z + 0.005 <= station_body(.Hood).max_z, "and the glass is at the front, inside the body")
+}
+
+// The hood as the lab starts.
+starting_hood :: proc() -> Placement {
+	p := default_placed()
+	pl, _ := placed_find(&p, .Hood)
+	return pl
+}
+
+@(test)
+the_glass_of_the_hood_goes_round_with_it :: proc(t: ^testing.T) {
+	at := Placement{.Hood, 5, 3, 0}
+	want_center := [4]Vec3{{5, 1.9, 3.345}, {4.655, 1.9, 3}, {5, 1.9, 2.655}, {5.345, 1.9, 3}}
+	want_size := [4]Vec3{{1.5, 0.7, 0.01}, {0.01, 0.7, 1.5}, {1.5, 0.7, 0.01}, {0.01, 0.7, 1.5}}
+	for q in 0 ..< 4 {
+		at.quarter = u8(q)
+		c, s := hood_glass(at)
+		testing.expectf(t, vec_close(c, want_center[q]), "turned %d, the glass is at %v", q, c)
+		testing.expectf(t, vec_close(s, want_size[q]), "turned %d, the glass is %v", q, s)
+		body := world_body(at)
+		testing.expectf(t, c.x - s.x * 0.5 >= body.min_x - 0.0001 && c.x + s.x * 0.5 <= body.max_x + 0.0001 && c.z - s.z * 0.5 >= body.min_z - 0.0001 && c.z + s.z * 0.5 <= body.max_z + 0.0001, "turned %d, the glass is inside the body", q)
+	}
+}
+
+@(test)
+the_hoods_boxes_are_all_inside_its_body_however_it_is_turned :: proc(t: ^testing.T) {
+	l := new(Layout)
+	defer free(l)
+	add_hood(l)
+	testing.expect_value(t, l.box_count, 5) // back, two sides, roof, light
+	body := station_body(.Hood)
+	for i in 0 ..< l.box_count {
+		b := l.boxes[i]
+		testing.expectf(t, b.center.x - b.size.x * 0.5 >= body.min_x - 0.0001 && b.center.x + b.size.x * 0.5 <= body.max_x + 0.0001, "box %d is across the hood", i)
+		testing.expectf(t, b.center.z - b.size.z * 0.5 >= body.min_z - 0.0001 && b.center.z + b.size.z * 0.5 <= body.max_z + 0.0001, "box %d is along it", i)
+		testing.expectf(t, b.center.y - b.size.y * 0.5 >= COUNTER_HEIGHT - 0.001 && b.center.y + b.size.y * 0.5 <= station_top(.Hood) + 0.001, "box %d is between the counter and the top", i)
+	}
+	for q in 0 ..< 4 {
+		pl := Placement{.Hood, 5, 3, u8(q)}
+		built := new(Layout)
+		p: Placed
+		placed_add(&p, pl)
+		add_placed(built, p)
+		testing.expect_value(t, built.box_count, 5)
+		world := world_body(pl)
+		for i in 0 ..< built.box_count {
+			b := built.boxes[i]
+			testing.expectf(t, b.center.x - b.size.x * 0.5 >= world.min_x - 0.0001 && b.center.x + b.size.x * 0.5 <= world.max_x + 0.0001 && b.center.z - b.size.z * 0.5 >= world.min_z - 0.0001 && b.center.z + b.size.z * 0.5 <= world.max_z + 0.0001, "turned %d, box %d is outside the body", q, i)
+		}
+		free(built)
+	}
 }
 
 @(test)
@@ -87,7 +143,7 @@ the_gauge_lights_stack_upward_beside_the_funnel :: proc(t: ^testing.T) {
 
 @(test)
 the_workstations_do_not_overlap :: proc(t: ^testing.T) {
-	testing.expect(t, !in_rect(HOOD, SINK_BASIN.min_x, SINK_BASIN.min_z), "sink and hood")
+	testing.expect(t, !in_rect(world_plate(starting_hood()), SINK_BASIN.min_x, SINK_BASIN.min_z), "sink and hood")
 	testing.expect(t, in_rect(SINK_BASIN, (SINK_BASIN.min_x + SINK_BASIN.max_x) * 0.5, (SINK_BASIN.min_z + SINK_BASIN.max_z) * 0.5), "the middle of the basin is in it")
 	testing.expect(t, !in_rect(SINK_BASIN, 0, 0), "and the middle of the room is not")
 }
@@ -98,7 +154,7 @@ the_oven_is_on_the_north_counter_beside_the_hood :: proc(t: ^testing.T) {
 	defer free(l)
 	testing.expect(t, counter_covers(l, MIXER), "the oven is on a counter")
 	testing.expect(t, MIXER.max_z < 0, "on the north side")
-	testing.expect(t, MIXER.min_x > HOOD.max_x + 0.5, "clear of the hood")
+	testing.expect(t, MIXER.min_x > world_body(starting_hood()).max_x + 0.5, "clear of the hood")
 	testing.expect(t, MIXER_TOP - COUNTER_HEIGHT < 0.6, "low enough to pour into from eye height")
 }
 
@@ -152,7 +208,7 @@ the_hot_plate_and_the_ice_bath_are_on_the_north_counter_apart_from_everything_el
 	testing.expect(t, counter_covers(l, HOT_PLATE), "the plate is on a counter")
 	testing.expect(t, counter_covers(l, ICE_BATH), "the bath is on a counter")
 	testing.expect(t, !overlap(HOT_PLATE, ICE_BATH), "not on each other")
-	for other in ([]Rect{HOOD, MIXER}) {
+	for other in ([]Rect{world_body(starting_hood()), MIXER}) {
 		testing.expect(t, !overlap(HOT_PLATE, other) && !overlap(ICE_BATH, other), "clear of the hood and the oven")
 	}
 	testing.expect(t, HOT_PLATE.max_z < 0 && ICE_BATH.max_z < 0, "on the north side")
@@ -294,56 +350,101 @@ box_overlap :: proc(a_lo, a_hi, b_lo, b_hi: Vec3) -> bool {
 	return a_lo.x < b_hi.x && b_lo.x < a_hi.x && a_lo.y < b_hi.y && b_lo.y < a_hi.y && a_lo.z < b_hi.z && b_lo.z < a_hi.z
 }
 
+vec_close :: proc(a, b: Vec3) -> bool {
+	return abs(a.x - b.x) < 0.0005 && abs(a.y - b.y) < 0.0005 && abs(a.z - b.z) < 0.0005
+}
+
+// The incinerator as the lab starts, from the stations that stand.
+starting_incinerator :: proc() -> Placement {
+	p := default_placed()
+	pl, _ := placed_find(&p, .Incinerator)
+	return pl
+}
+
 @(test)
-the_incinerator_is_on_the_south_counter_clear_of_the_other_stations :: proc(t: ^testing.T) {
+the_incinerator_starts_on_the_south_counter_clear_of_the_other_stations :: proc(t: ^testing.T) {
 	l := full_lab()
 	defer free(l)
-	testing.expect(t, counter_covers(l, INCINERATOR), "it stands on the counter")
-	testing.expect(t, INCINERATOR.min_z > 0 && INCINERATOR.max_z < ROOM_D * 0.5, "on the south side")
+	pl := starting_incinerator()
+	testing.expect_value(t, pl.kind, Station_Kind.Incinerator)
+	body := world_body(pl)
+	testing.expect(t, counter_covers(l, body), "it stands on the counter")
+	testing.expect(t, body.min_z > 0 && body.max_z < ROOM_D * 0.5, "on the south side")
 	// Clear of the fill station and every hook of the rack, by their aim boxes and their boards.
-	testing.expect(t, !box_overlap(INCINERATOR_AIM_LOW, INCINERATOR_AIM_HIGH, FILLER_AIM_LOW, FILLER_AIM_HIGH), "not on the fill station")
+	aim_low, aim_high := station_aim_box(pl)
+	testing.expect(t, !box_overlap(aim_low, aim_high, FILLER_AIM_LOW, FILLER_AIM_HIGH), "not on the fill station")
 	for i in 0 ..< LOADOUT_SLOTS {
 		low, high := slot_aim(i)
-		testing.expectf(t, !box_overlap(INCINERATOR_AIM_LOW, INCINERATOR_AIM_HIGH, low, high), "not on hook %d", i + 1)
+		testing.expectf(t, !box_overlap(aim_low, aim_high, low, high), "not on hook %d", i + 1)
 	}
 	last := slot_clamp(LOADOUT_SLOTS - 1).x
-	testing.expect(t, INCINERATOR.min_x > last + 0.14 + 0.3, "a hand's width or more past the last hook")
-	testing.expect(t, INCINERATOR.max_x < ROOM_W * 0.5 - 0.7, "and short of the bottle wall counter")
+	testing.expect(t, body.min_x > last + 0.14 + 0.3, "a hand's width or more past the last hook")
+	testing.expect(t, body.max_x < ROOM_W * 0.5 - 0.7, "and short of the bottle wall counter")
 }
 
 @(test)
 the_mouth_of_the_incinerator_is_in_its_aim_box_and_over_its_body :: proc(t: ^testing.T) {
-	m := INCINERATOR_MOUTH
-	lo, hi := INCINERATOR_AIM_LOW, INCINERATOR_AIM_HIGH
-	testing.expect(t, m.x > lo.x && m.x < hi.x && m.y > lo.y && m.y < hi.y && m.z > lo.z && m.z < hi.z, "the mouth is in the box the crosshair tests")
-	testing.expect(t, m.x - INCINERATOR_HOPPER > INCINERATOR.min_x && m.x + INCINERATOR_HOPPER < INCINERATOR.max_x, "over the body, across")
-	testing.expect(t, m.z - INCINERATOR_HOPPER > INCINERATOR.min_z && m.z + INCINERATOR_HOPPER < INCINERATOR.max_z, "and along")
-	testing.expect(t, m.y > INCINERATOR_TOP && m.y - INCINERATOR_TOP < 0.2, "the hopper stands a hand's depth over the body")
-	testing.expect(t, lo.y >= COUNTER_HEIGHT, "the aim box starts on the counter")
+	for q in 0 ..< 4 {
+		pl := Placement{.Incinerator, 3, -2, u8(q)}
+		m := incinerator_mouth(pl)
+		lo, hi := station_aim_box(pl)
+		testing.expectf(t, m.x > lo.x && m.x < hi.x && m.y > lo.y && m.y < hi.y && m.z > lo.z && m.z < hi.z, "turned %d, the mouth is in the box the crosshair tests", q)
+		body := shift_rect(turn_rect(INCINERATOR, u8(q)), pl.x, pl.z)
+		testing.expectf(t, m.x - INCINERATOR_HOPPER > body.min_x && m.x + INCINERATOR_HOPPER < body.max_x, "turned %d, over the body, across", q)
+		testing.expectf(t, m.z - INCINERATOR_HOPPER > body.min_z && m.z + INCINERATOR_HOPPER < body.max_z, "and along", q)
+		testing.expectf(t, lo.y >= COUNTER_HEIGHT, "turned %d, the aim box starts on the counter", q)
+	}
+	testing.expect(t, INCINERATOR_MOUTH.y > INCINERATOR_TOP && INCINERATOR_MOUTH.y - INCINERATOR_TOP < 0.2, "the hopper stands a hand's depth over the body")
+	// It has always been here.
+	testing.expect(t, vec_close(incinerator_mouth(starting_incinerator()), {10.5, 1.68, 7.55}), "the mouth where it was")
 }
 
 @(test)
-the_chimney_is_inside_the_room_and_over_the_back_of_the_body :: proc(t: ^testing.T) {
-	v := incinerator_vent()
+the_chimney_is_over_the_back_of_the_body_and_follows_the_station_round :: proc(t: ^testing.T) {
+	v := INCINERATOR_VENT
 	testing.expect(t, v.y < ROOM_H - 0.5, "well short of the ceiling")
 	testing.expect(t, v.x > INCINERATOR.min_x && v.x < INCINERATOR.max_x && v.z > INCINERATOR.min_z && v.z < INCINERATOR.max_z, "over the body")
 	testing.expect(t, v.z > INCINERATOR_MOUTH.z + INCINERATOR_HOPPER, "behind the hopper")
 	testing.expect(t, v.y > INCINERATOR_TOP + 0.3, "and clear above it, so the smoke does not start in the opening")
+	testing.expect(t, vec_close(incinerator_vent(starting_incinerator()), {10.68, 2.18, 7.74}), "the chimney where it was")
+	// Turned a quarter at a time, the mouth and the chimney go round the middle of the station.
+	at := Placement{.Incinerator, 5, 3, 0}
+	want_mouth := [4]Vec3{{5, 1.68, 2.92}, {5.08, 1.68, 3}, {5, 1.68, 3.08}, {4.92, 1.68, 3}}
+	want_vent := [4]Vec3{{5.18, 2.18, 3.11}, {4.89, 2.18, 3.18}, {4.82, 2.18, 2.89}, {5.11, 2.18, 2.82}}
+	for q in 0 ..< 4 {
+		at.quarter = u8(q)
+		testing.expectf(t, vec_close(incinerator_mouth(at), want_mouth[q]), "turned %d, the mouth is %v", q, incinerator_mouth(at))
+		testing.expectf(t, vec_close(incinerator_vent(at), want_vent[q]), "turned %d, the chimney is %v", q, incinerator_vent(at))
+	}
 }
 
 @(test)
-the_incinerators_boxes_are_all_in_place :: proc(t: ^testing.T) {
+the_incinerators_boxes_are_all_inside_its_body_however_it_is_turned :: proc(t: ^testing.T) {
 	l := new(Layout)
 	defer free(l)
-	build(l)
-	before := l.box_count
 	add_incinerator(l)
-	testing.expect_value(t, l.box_count, before + 12) // lip, body, four walls, fire, door, slit, stripe, chimney, cap
-	for i in before ..< l.box_count {
+	testing.expect_value(t, l.box_count, 12) // lip, body, four walls, fire, door, slit, stripe, chimney, cap
+	body := station_body(.Incinerator)
+	for i in 0 ..< l.box_count {
 		b := l.boxes[i]
-		testing.expectf(t, b.center.x - b.size.x * 0.5 >= INCINERATOR.min_x - 0.1 && b.center.x + b.size.x * 0.5 <= INCINERATOR.max_x + 0.1, "box %d is across the incinerator", i - before)
-		testing.expectf(t, b.center.y - b.size.y * 0.5 >= COUNTER_HEIGHT - 0.001, "box %d stands on the counter, not in it", i - before)
-		testing.expectf(t, b.center.z - b.size.z * 0.5 >= INCINERATOR.min_z - 0.03 && b.center.z + b.size.z * 0.5 <= INCINERATOR.max_z + 0.1, "box %d is along it", i - before)
+		testing.expectf(t, b.center.x - b.size.x * 0.5 >= body.min_x - 0.0001 && b.center.x + b.size.x * 0.5 <= body.max_x + 0.0001, "box %d is across the incinerator", i)
+		testing.expectf(t, b.center.y - b.size.y * 0.5 >= COUNTER_HEIGHT - 0.001, "box %d stands on the counter, not in it", i)
+		testing.expectf(t, b.center.z - b.size.z * 0.5 >= body.min_z - 0.0001 && b.center.z + b.size.z * 0.5 <= body.max_z + 0.0001, "box %d is along it", i)
+	}
+	// Built where it stands and turned, the same boxes are inside the body of the station there.
+	for q in 0 ..< 4 {
+		pl := Placement{.Incinerator, 5, 3, u8(q)}
+		built := new(Layout)
+		p: Placed
+		placed_add(&p, pl)
+		add_placed(built, p)
+		testing.expect_value(t, built.box_count, 12)
+		world := world_body(pl)
+		for i in 0 ..< built.box_count {
+			b := built.boxes[i]
+			testing.expectf(t, b.center.x - b.size.x * 0.5 >= world.min_x - 0.0001 && b.center.x + b.size.x * 0.5 <= world.max_x + 0.0001 && b.center.z - b.size.z * 0.5 >= world.min_z - 0.0001 && b.center.z + b.size.z * 0.5 <= world.max_z + 0.0001, "turned %d, box %d is outside the body", q, i)
+		}
+		free(built)
 	}
 }
 

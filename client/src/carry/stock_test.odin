@@ -323,7 +323,10 @@ a_file_from_before_stations_could_stand_anywhere_keeps_the_stations_where_its_be
 	text := bench_file({{}, {.Hot_Plate, 0}, {.Ice_Bath, 0}, {}, {.Scale, 0}, {}})
 	p, had := placed_from_bench_file(text)
 	testing.expect(t, had, "it had a bench")
-	testing.expect_value(t, p, lab.default_placed())
+	bench_stations := lab.default_placed()
+	lab.placed_remove(&bench_stations, 3) // the bench never had the incinerator or the hood, `stock_restock` brings those back
+	lab.placed_remove(&bench_stations, 3)
+	testing.expect_value(t, p, bench_stations)
 	// The plate moved to the first spot, the scale to the last, and the bath taken off.
 	text2 := bench_file({{.Hot_Plate, 0}, {}, {}, {}, {}, {.Scale, 0}})
 	p2, had2 := placed_from_bench_file(text2)
@@ -355,4 +358,91 @@ the_old_bench_reads_only_what_a_bench_could_hold :: proc(t: ^testing.T) {
 	testing.expect(t, had, "a bench")
 	testing.expect_value(t, p.count, 1)
 	testing.expect_value(t, p.items[0], lab.Placement{.Hot_Plate, -3.5, -7.63, 0})
+}
+
+@(test)
+a_station_that_is_nowhere_comes_back_at_its_place :: proc(t: ^testing.T) {
+	s: Stock
+	stock_init(&s)
+	placed := lab.default_placed()
+	lab.placed_remove(&placed, 3) // a file from before the incinerator and the hood could be moved
+	lab.placed_remove(&placed, 3)
+	testing.expect_value(t, stock_restock(&s, &placed), 2)
+	testing.expect_value(t, placed, lab.default_placed())
+	testing.expect_value(t, stock_restock(&s, &placed), 0) // nothing is missing now
+	testing.expect_value(t, placed, lab.default_placed())
+	// Nothing standing at all: every station of the lab as it starts is back, in the order it starts in.
+	empty: lab.Placed
+	testing.expect_value(t, stock_restock(&s, &empty), 5)
+	testing.expect_value(t, empty, lab.default_placed())
+}
+
+@(test)
+a_station_in_the_bag_or_the_bar_is_not_brought_back_as_well :: proc(t: ^testing.T) {
+	inc := station_item(.Incinerator)
+	for container in 0 ..< 2 {
+		s: Stock
+		stock_init(&s)
+		placed := lab.default_placed()
+		lab.placed_remove(&placed, 3)
+		box := container == 0 ? &s.bag : &s.hotbar
+		testing.expect_value(t, inventory.add(box, inc, 1), 1)
+		testing.expect_value(t, stock_restock(&s, &placed), 0)
+		testing.expect_value(t, placed.count, 4)
+		testing.expect_value(t, inventory.count_of(box, inc), 1)
+	}
+}
+
+@(test)
+a_station_whose_place_is_taken_comes_back_in_the_bag_or_the_bar_and_never_gets_lost :: proc(t: ^testing.T) {
+	inc := station_item(.Incinerator)
+	taken := lab.default_placed()
+	lab.placed_remove(&taken, 3)
+	lab.placed_add(&taken, {.Hot_Plate, 10.5, 7.63, 0}) // where the incinerator starts
+	s: Stock
+	stock_init(&s)
+	placed := taken
+	testing.expect_value(t, stock_restock(&s, &placed), 1)
+	testing.expect_value(t, placed, taken)
+	testing.expect_value(t, inventory.count_of(&s.bag, inc), 1)
+	// With the bag full it goes to the bar.
+	s2: Stock
+	stock_init(&s2)
+	for i in 0 ..< BAG_SIZE {
+		inventory.add(&s2.bag, inventory.Item{.Dispenser, u16(i + 1)}, 1)
+	}
+	placed = taken
+	testing.expect_value(t, stock_restock(&s2, &placed), 1)
+	testing.expect_value(t, inventory.count_of(&s2.bag, inc), 0)
+	testing.expect_value(t, inventory.count_of(&s2.hotbar, inc), 1)
+	// With the bar full as well there is nowhere, and nothing is changed.
+	s3: Stock
+	stock_init(&s3)
+	for i in 0 ..< BAG_SIZE {
+		inventory.add(&s3.bag, inventory.Item{.Dispenser, u16(i + 1)}, 1)
+	}
+	for _ in 0 ..< HOTBAR_SIZE {
+		inventory.add(&s3.hotbar, station_item(.Scale), 1)
+	}
+	placed = taken
+	testing.expect_value(t, stock_restock(&s3, &placed), 0)
+	testing.expect_value(t, placed, taken)
+}
+
+@(test)
+every_station_is_an_item_and_back :: proc(t: ^testing.T) {
+	for kind in lab.Station_Kind {
+		if kind == .None {
+			testing.expect_value(t, station_item(kind), inventory.Item{})
+			testing.expect_value(t, station_name(kind), "")
+			continue
+		}
+		item := station_item(kind)
+		testing.expectf(t, item.kind != .None, "%v is an item", kind)
+		testing.expect_value(t, item_station(item), kind)
+		testing.expectf(t, station_name(kind) != "", "%v has a name", kind)
+		testing.expectf(t, .Benchable in inventory.def_of(item.kind).tags, "%v goes in the bar", kind)
+	}
+	testing.expect_value(t, station_name(.Incinerator), "incinerator")
+	testing.expect_value(t, station_name(.Hood), "fume hood")
 }
