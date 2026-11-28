@@ -11,7 +11,7 @@ import "core:strconv"
 import "core:strings"
 
 // The stations that can be picked up and put down again, and where they stand. A station is a hot plate, an ice
-// bath, a scale, the incinerator or the fume hood. It stands on a counter, at any place on it where there is room, turned a quarter at a time, and
+// bath, a scale, the incinerator, the fume hood, the balloon filler or the reaction oven. It stands on a counter, at any place on it where there is room, turned a quarter at a time, and
 // everything that depends on it, the heat of the plate, the cold of the bath, the weighing of the scale and the
 // height of its plate, reads where it stands and not a place that is fixed. Units are metres.
 
@@ -26,6 +26,8 @@ Station_Kind :: enum u8 {
 	Scale,
 	Incinerator,
 	Hood,
+	Filler,
+	Oven,
 }
 
 // One station standing: what it is, where the middle of it is, and how many quarter turns it has been turned from
@@ -52,7 +54,8 @@ Place_Problem :: enum u8 {
 }
 
 // The stations as the lab starts: the hot plate, the ice bath and the scale on the north counter, and the incinerator
-// on the south counter, and the fume hood on the north counter, where they have always been. The scale stands at z -7.625 so that its plate is the old `SCALE_PLATE`.
+// on the south counter, the fume hood on the north counter, the balloon filler on the south counter and the reaction
+// oven on the north counter, where they have always been. The scale stands at z -7.625 so that its plate is the old `SCALE_PLATE`.
 default_placed :: proc() -> Placed {
 	p: Placed
 	p.items[0] = {.Hot_Plate, -3.5, -7.63, 0}
@@ -60,7 +63,9 @@ default_placed :: proc() -> Placed {
 	p.items[2] = {.Scale, 0.0, -7.625, 0}
 	p.items[3] = {.Incinerator, 10.5, 7.63, 0}
 	p.items[4] = {.Hood, -6.0, -7.63, 0}
-	p.count = 5
+	p.items[5] = FILLER_START
+	p.items[6] = OVEN_START
+	p.count = 7
 	return p
 }
 
@@ -103,7 +108,7 @@ station_plate :: proc(kind: Station_Kind) -> Rect {
 		return {-0.2, -0.175, 0.2, 0.175}
 	case .Hood:
 		return {-0.8, -0.35, 0.8, 0.35} // the floor inside it
-	case .Incinerator, .None: // no vessel stands on the incinerator
+	case .Incinerator, .Filler, .Oven, .None: // no vessel stands on these
 	}
 	return {}
 }
@@ -122,6 +127,10 @@ station_body :: proc(kind: Station_Kind) -> Rect {
 		return {-0.32, -0.23, 0.32, 0.23}
 	case .Hood:
 		return {-0.85, -0.35, 0.85, 0.35} // the sides stand outside the floor
+	case .Filler:
+		return {-0.25, -0.26, 0.4, 0.25} // the base plate, the pole, the arm and the gauge, with room for the balloon
+	case .Oven:
+		return {-0.8, -0.31, 1.14, 0.32} // the box, and the spout over its tray off the right end
 	case .None:
 	}
 	return {}
@@ -140,6 +149,10 @@ station_height :: proc(kind: Station_Kind) -> f32 {
 		return 0.62
 	case .Hood:
 		return HOOD_TOP - COUNTER_HEIGHT
+	case .Filler:
+		return 0.64
+	case .Oven:
+		return 0.6
 	case .None:
 	}
 	return 0
@@ -154,6 +167,10 @@ station_top :: proc(kind: Station_Kind) -> f32 {
 		return INCINERATOR_VENT.y + 0.04
 	case .Hood:
 		return HOOD_TOP + 0.08
+	case .Filler:
+		return 1.75
+	case .Oven:
+		return 1.7
 	case .Hot_Plate, .Ice_Bath, .Scale:
 		return COUNTER_HEIGHT + station_height(kind)
 	case .None:
@@ -184,14 +201,53 @@ world_body :: proc(pl: Placement) -> Rect {
 
 // Whether a station of this kind has a plate that a vessel can stand on. The incinerator has none.
 station_has_plate :: proc(kind: Station_Kind) -> bool {
-	return kind != .None && kind != .Incinerator
+	return kind == .Hot_Plate || kind == .Ice_Bath || kind == .Scale || kind == .Hood
 }
 
 // A point given round the middle of a station as it is made, with the display of the scale toward +z, is where it is
 // in the lab once the station stands at `pl`: turned the quarters it is turned, and moved to where it stands.
 station_point :: proc(pl: Placement, local: Vec3) -> Vec3 {
-	x, z := turn_xz(local.x, local.z, pl.quarter)
+	ox, oz := station_origin(pl.kind)
+	x, z := turn_xz(local.x - ox, local.z - oz, pl.quarter)
 	return {x + pl.x, local.y, z + pl.z}
+}
+
+// The place a station is made at, which the numbers of its geometry are given round: the middle of the station for
+// the ones that were made to be moved, and the place where the lab starts it for the filler and the oven, whose
+// constants were written as places in the lab. A placement turns the station about this point and puts it where the
+// placement says, so that a station at the place it starts is where the constants say.
+station_origin :: proc(kind: Station_Kind) -> (x, z: f32) {
+	switch kind {
+	case .Filler:
+		return FILLER_START.x, FILLER_START.z
+	case .Oven:
+		return OVEN_START.x, OVEN_START.z
+	case .Hot_Plate, .Ice_Bath, .Scale, .Incinerator, .Hood, .None:
+	}
+	return 0, 0
+}
+
+// The other way: a point of the lab, as it is for a station standing at `pl`, given as it would be for the station
+// as it is made. What a station does with the world is worked out in that frame.
+station_to_start :: proc(pl: Placement, world: Vec3) -> Vec3 {
+	ox, oz := station_origin(pl.kind)
+	x, z := turn_xz(world.x - pl.x, world.z - pl.z, (4 - pl.quarter % 4) % 4)
+	return {x + ox, world.y, z + oz}
+}
+
+// A direction turned the same way: the turn and no move.
+station_dir_to_start :: proc(pl: Placement, dir: Vec3) -> Vec3 {
+	x, z := turn_xz(dir.x, dir.z, (4 - pl.quarter % 4) % 4)
+	return {x, dir.y, z}
+}
+
+// The size of a flat thing that faces the way the station was made, as it is for a station turned `quarter` quarters:
+// a quarter turn swaps its width and its depth.
+station_size :: proc(pl: Placement, size: Vec3) -> Vec3 {
+	if pl.quarter % 2 == 1 {
+		return {size.z, size.y, size.x}
+	}
+	return size
 }
 
 // The first station of this kind that stands, and whether there is one.
@@ -242,23 +298,21 @@ place_zones :: proc() -> [PLACE_ZONES]Rect {
 	return {a[COUNTER_NORTH], a[COUNTER_SOUTH], a[COUNTER_WEST], a[COUNTER_ISLAND]}
 }
 
-KEEPOUT_COUNT :: 5 + VIAL_RACK_COUNT
+KEEPOUT_COUNT :: 3 + VIAL_RACK_COUNT
 
 // The floor that the fixtures of the lab take up on the counters, with a hand's width to spare: the sink and its soap,
-// the oven with its spout and tray, the fill station, the paint station with its palette, tablet and
+// the paint station with its palette, tablet and
 // brushes, the loadout rack and the vial racks. What is on a wall and over the heads of the stations,
 // the first aid cabinet and the shelves, takes up no counter and is not here. A station may not be put inside any of
 // these.
 fixture_keepouts :: proc() -> [KEEPOUT_COUNT]Rect {
 	k: [KEEPOUT_COUNT]Rect
 	k[0] = {-12, SINK_BASIN.min_z - 0.1, SINK_BASIN.max_x + 0.1, SOAP_AT.z + 0.1}
-	k[1] = {MIXER.min_x - 0.05, MIXER.min_z - 0.04, MIXER_SPOUT.x + MIXER_TRAY_RADIUS + 0.05, MIXER.max_z + 0.04}
-	k[2] = {FILLER_CLAMP.x - 0.25, 7.28, GAUGE_ORIGIN.x + 0.2, 7.98}
-	k[3] = {-11.98, TABLET_CENTER.z - TABLET_W * 0.5 - 0.1, -11.28, PAINT_CLAMP.z + 1.05 + 0.15}
-	k[4] = {SLOT_FIRST_X - 0.35, 7.28, SLOT_FIRST_X + SLOT_SPACING * f32(LOADOUT_SLOTS - 1) + 0.35, 7.98}
+	k[1] = {-11.98, TABLET_CENTER.z - TABLET_W * 0.5 - 0.1, -11.28, PAINT_CLAMP.z + 1.05 + 0.15}
+	k[2] = {SLOT_FIRST_X - 0.35, 7.28, SLOT_FIRST_X + SLOT_SPACING * f32(LOADOUT_SLOTS - 1) + 0.35, 7.98}
 	racks := VIAL_RACKS
 	for r, i in racks {
-		k[5 + i] = {r.x - 0.25, r.z - 0.15, r.x + 0.25, r.z + 0.15}
+		k[3 + i] = {r.x - 0.25, r.z - 0.15, r.x + 0.25, r.z + 0.15}
 	}
 	return k
 }
@@ -445,7 +499,11 @@ placed_deserialize :: proc(text: string) -> (p: Placed, found: bool, rejected: [
 add_placed :: proc(l: ^Layout, p: Placed) {
 	for i in 0 ..< p.count {
 		pl := p.items[i]
-		l.xform = {true, pl.x, pl.z, pl.quarter}
+		// The station is made at its origin, so that it is turned about that, and the move that goes with the turn is
+		// where it stands less where its origin goes.
+		ox, oz := station_origin(pl.kind)
+		tx, tz := turn_xz(ox, oz, pl.quarter)
+		l.xform = {true, pl.x - tx, pl.z - tz, pl.quarter}
 		switch pl.kind {
 		case .Hot_Plate:
 			add_hot_plate(l, station_plate(.Hot_Plate))
@@ -457,6 +515,10 @@ add_placed :: proc(l: ^Layout, p: Placed) {
 			add_incinerator(l)
 		case .Hood:
 			add_hood(l)
+		case .Filler:
+			add_filler(l)
+		case .Oven:
+			add_mixer(l)
 		case .None:
 		}
 		l.xform = {}

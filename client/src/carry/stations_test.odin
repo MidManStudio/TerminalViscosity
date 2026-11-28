@@ -7,6 +7,7 @@ package carry
 
 import "../chem"
 import "../chemistry"
+import "../inventory"
 import "../lab"
 import "core:testing"
 
@@ -239,7 +240,7 @@ a_pour_into_the_funnel_fills_the_balloon :: proc(t: ^testing.T) {
 		filler_aim(&f, s.props, view_of(s.p))
 		filler_update(&f, dt)
 		if filler_pour_ready(&f, s.props) {
-			pour_flow_to(s.props, s.st, s.l, dt, filler_mouth(), true)
+			pour_flow_to(s.props, s.st, s.l, dt, filler_mouth(&f), true)
 		} else {
 			pour_flow(s.props, s.st, s.l, dt)
 		}
@@ -469,7 +470,7 @@ pour_into_funnel :: proc(speed: f32, ml: f32) -> (frames: int, delivered: f32) {
 		update(s.props, s.l, s.p, dt)
 		filler_aim(&f, s.props, view_of(s.p))
 		if filler_pour_ready(&f, s.props) {
-			pour_flow_to(s.props, s.st, s.l, dt, filler_mouth(), true)
+			pour_flow_to(s.props, s.st, s.l, dt, filler_mouth(&f), true)
 		} else {
 			pour_flow(s.props, s.st, s.l, dt)
 		}
@@ -615,4 +616,133 @@ a_faster_tap_fills_sooner :: proc(t: ^testing.T) {
 	testing.expectf(t, slow > 100, "normal gave %v", slow)
 	testing.expectf(t, fast > slow * 2.5, "four times faster gave %v against %v", fast, slow)
 	testing.expect(t, fast + air <= 110 * 4 * 1.5 + 4 * DROP_ML, "and nothing was made from nothing")
+}
+
+// ---- the filler where it stands ----
+
+// The filler turned so that it looks east, on the counter at the south end, as it stands when it has been moved.
+moved_filler :: proc() -> Filler {
+	f := fresh_filler()
+	f.at = lab.Placement{.Filler, -2.0, 7.55, 1}
+	return f
+}
+
+// Puts one drop of water into the air at `at` in a stream of its own, so that the place of the first drop does not
+// decide where the others may be, and gives how much of it the filler took.
+filler_takes_a_drop_at :: proc(t: ^testing.T, f: ^Filler, at: Vec3) -> f32 {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	testing.expect(t, stream_spawn_ml(s.st, s.l, at, {}, id(.Water), 50, 1, 5), "the drop is in the air")
+	events: [MAX_EVENTS]Fill_Result
+	before := ml_of(&f.mix)
+	filler_capture(s.st, f, EYE, &events)
+	return ml_of(&f.mix) - before
+}
+
+@(test)
+a_filler_that_has_been_moved_catches_drops_at_its_new_funnel_and_not_the_old :: proc(t: ^testing.T) {
+	f := moved_filler()
+	m, old := lab.filler_mouth_at(f.at), lab.FILLER_MOUTH
+	testing.expect_value(t, filler_takes_a_drop_at(t, &f, {m.x, m.y - 0.05, m.z}), f32(50))
+	testing.expect_value(t, filler_takes_a_drop_at(t, &f, {old.x, old.y - 0.05, old.z}), f32(0))
+	// A reaction in the balloon is where the balloon is, wherever the station stands.
+	f2 := moved_filler()
+	fill_with(&f2.mix, id(.Sulfuric_Acid), 100)
+	r := filler_take_drop(&f2, id(.Water), 900, EYE)
+	testing.expect_value(t, r.mix.at, lab.filler_center_at(f2.at))
+	// A filler that has been picked up takes nothing in, wherever the drop is.
+	f.standing = false
+	testing.expect_value(t, filler_takes_a_drop_at(t, &f, {m.x, m.y - 0.05, m.z}), f32(0))
+	// One that starts takes them where it starts.
+	g := fresh_filler()
+	testing.expect_value(t, g.at, lab.FILLER_START)
+	testing.expect(t, g.standing, "a new one stands")
+	testing.expect_value(t, filler_takes_a_drop_at(t, &g, {old.x, old.y - 0.05, old.z}), f32(50))
+}
+
+@(test)
+a_filler_that_has_been_moved_is_aimed_at_where_it_stands_and_pours_over_its_mouth :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	f := moved_filler()
+	target := lab.station_point(f.at, {6.0, 1.5, 7.45}) // the middle of the box the crosshair tests
+	view := view_toward(target + Vec3{1.0, 0.1, 0}, target)
+	testing.expect(t, filler_aim(&f, props, view), "looking at the new place from the east")
+	mouth := filler_mouth(&f)
+	m := lab.filler_mouth_at(f.at)
+	testing.expect(t, mouth.x == m.x && mouth.z == m.z && abs(mouth.y - (m.y + 0.03)) < 0.0001, "the pour is aimed just over the funnel")
+	testing.expect(t, !filler_aim(&f, props, view_toward({6.0, 1.6, 6.5}, {6.0, 1.5, 7.45})), "nothing at the old place")
+	f.standing = false
+	testing.expect(t, !filler_aim(&f, props, view), "nothing once it is picked up")
+}
+
+@(test)
+the_filler_is_found_among_the_stations_and_keeps_its_balloon_when_it_is_picked_up :: proc(t: ^testing.T) {
+	placed := lab.default_placed()
+	f := fresh_filler()
+	fill_with(&f.mix, id(.Water), 300)
+	filler_sync(&f, &placed)
+	testing.expect(t, f.standing && f.at == lab.FILLER_START, "it stands where it starts")
+	for i in 0 ..< placed.count {
+		if placed.items[i].kind == .Filler {
+			placed.items[i] = {.Filler, -2.0, 7.55, 1}
+		}
+	}
+	filler_sync(&f, &placed)
+	testing.expect_value(t, f.at, lab.Placement{.Filler, -2.0, 7.55, 1})
+	for i in 0 ..< placed.count {
+		if placed.items[i].kind == .Filler {
+			lab.placed_remove(&placed, i)
+			break
+		}
+	}
+	filler_sync(&f, &placed)
+	testing.expect(t, !f.standing, "picked up")
+	testing.expect(t, f.present && ml_of(&f.mix) == 300, "the balloon goes with it, with what is in it")
+	lab.placed_add(&placed, {.Filler, 6.0, 7.63, 0})
+	filler_sync(&f, &placed)
+	testing.expect(t, f.standing && ml_of(&f.mix) == 300, "put down again with its balloon")
+}
+
+@(test)
+the_filler_and_the_oven_are_picked_up_and_put_down_as_blueprints :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	for kind in ([?]lab.Station_Kind{.Filler, .Oven}) {
+		index := -1
+		for i in 0 ..< props.placed.count {
+			if props.placed.items[i].kind == kind {
+				index = i
+			}
+		}
+		testing.expectf(t, index >= 0, "%v stands where the lab starts it", kind)
+		bp: Blueprint
+		testing.expectf(t, blueprint_pick_up(&bp, props, index), "%v picked up", kind)
+		testing.expect_value(t, bp.kind, kind)
+		_, standing := lab.placed_find(&props.placed, kind)
+		testing.expectf(t, !standing, "%v is off the counter while it is carried", kind)
+		// Cancelled, it goes back where it stood.
+		bag: inventory.Container
+		inventory.container_init(&bag, BAG_SIZE)
+		testing.expect_value(t, blueprint_cancel(&bp, props, &bag), Cancel_Result.Put_Back)
+		_, back := lab.placed_find(&props.placed, kind)
+		testing.expectf(t, back, "%v is back on the counter", kind)
+	}
+	// Carried to another counter and put down, each moves there, and its mouth with it.
+	bp: Blueprint
+	index := -1
+	for i in 0 ..< props.placed.count {
+		if props.placed.items[i].kind == .Filler {
+			index = i
+		}
+	}
+	blueprint_pick_up(&bp, props, index)
+	blueprint_aim(&bp, props, view_toward({-2.0, 1.6, 6.6}, {-2.0, lab.COUNTER_HEIGHT, 7.63}))
+	testing.expect(t, bp.ok, "the filler may stand past the end of the shelves")
+	testing.expect(t, blueprint_place(&bp, props), "put down")
+	f := fresh_filler()
+	filler_sync(&f, &props.placed)
+	testing.expect(t, f.standing && abs(f.at.x - -2.0) < 0.001, "the filler follows")
+	m := lab.filler_mouth_at(f.at)
+	testing.expect(t, abs(m.x - f.at.x) < 0.001 && abs(m.z - (f.at.z - 0.18)) < 0.001, "and its mouth is where it stands, 18 cm in front of the middle")
 }

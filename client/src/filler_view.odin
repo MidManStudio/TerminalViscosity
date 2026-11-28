@@ -190,10 +190,10 @@ balloon_tint :: proc(m: ^chemistry.Mixture) -> Vec3 {
 
 // Draws the balloon at the clamp, in the color of what it holds.
 filler_view_draw :: proc(fv: ^Filler_View, f: ^carry.Filler, eye: Vec3) {
-	if !f.present {
+	if !f.present || !f.standing {
 		return
 	}
-	body_draw(&fv.body, lab.FILLER_CLAMP, eye, balloon_tint(&f.mix))
+	body_draw(&fv.body, lab.filler_clamp_at(f.at), eye, balloon_tint(&f.mix))
 }
 
 // The balloons the player has apart from the one at the fill station: the one in the
@@ -340,11 +340,14 @@ stations_draw :: proc(f: ^carry.Filler, lo: ^carry.Loadout, placed: ^lab.Placed)
 	ratio := carry.fill_ratio(f)
 	blink := carry.strain(f) > 0.75 && i32(rl.GetTime() * 6) % 2 == 0
 	for i in 0 ..< lab.GAUGE_LIGHTS {
+		if !f.standing {
+			break
+		}
 		c := carry.gauge_color(ratio, i)
 		if blink && c == .Red {
 			c = .Off
 		}
-		draw_flat_box(lab.gauge_light(i), {0.07, 0.03, 0.012}, gauge_rgb(c))
+		draw_flat_box(lab.gauge_light_at(f.at, i), lab.station_size(f.at, {0.07, 0.03, 0.012}), gauge_rgb(c))
 	}
 	// A light over each hook of the loadout rack: the color of what hangs on it.
 	for i in 0 ..< carry.LOADOUT_SLOTS {

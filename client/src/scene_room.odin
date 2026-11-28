@@ -175,7 +175,7 @@ room_fill_event :: proc(room: ^Room, e: carry.Fill_Result) {
 		room_react(room, e.mix)
 	}
 	if e.popped {
-		at := lab.filler_center()
+		at := lab.filler_center_at(room.filler.at)
 		floor := carry.support_height(&room.layout, at.x, at.z, 0.1)
 		effects.pop(&room.fx, at, chem.compound_color(e.lost), 1, floor)
 		room_toast(room, "POP! the balloon was overfilled")
@@ -288,7 +288,7 @@ room_oven_event :: proc(room: ^Room, e: carry.Oven_Event) {
 	case .Refused:
 		room_toast(room, "port %d holds %v, a port takes one liquid", e.port + 1, chem.compound_name(e.compound))
 	case .Finished:
-		at := lab.mixer_vent()
+		at := lab.mixer_vent_at(room.oven.at)
 		floor := carry.support_height(&room.layout, at.x, at.z, 0.1)
 		color := chem.compound_color(e.compound)
 		name := chem.compound_name(e.compound)
@@ -308,12 +308,12 @@ room_oven_event :: proc(room: ^Room, e: carry.Oven_Event) {
 // While a run goes the oven puffs steam from its top a few times a second, tinted by
 // the first liquid in it, and the view rumbles a little when the player is near.
 room_oven_effects :: proc(room: ^Room, dt: f32) {
-	if room.oven.state != .Running {
+	if room.oven.state != .Running || !room.oven.standing {
 		room.vent_timer = 0
 		return
 	}
 	room.vent_timer += dt
-	vent := lab.mixer_vent()
+	vent := lab.mixer_vent_at(room.oven.at)
 	color := Vec3{0.8, 0.8, 0.85}
 	for p in room.oven.ports {
 		if p.ml > 0 {
@@ -560,6 +560,8 @@ inside :: proc(pointer: [2]f32, box: [4]f32) -> bool {
 
 room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	room := cast(^Room)state
+	carry.filler_sync(&room.filler, &room.props.placed)
+	carry.oven_sync(&room.oven, &room.props.placed)
 	w, h := f32(game.screen_w), f32(game.screen_h)
 
 	pointers: Pointers
@@ -866,7 +868,7 @@ room_update :: proc(game: ^Game, state: rawptr, dt: f32) {
 	} else if pour_down && room.spout_rest != -1 {
 		carry.oven_flow(&room.oven, &room.stream, &room.layout, dt, carry.oven_rest_mouth(&room.props, room.spout_rest), speed)
 	} else if carry.filler_pour_ready(&room.filler, &room.props) {
-		carry.pour_flow_to(&room.props, &room.stream, &room.layout, dt, carry.filler_mouth(), true)
+		carry.pour_flow_to(&room.props, &room.stream, &room.layout, dt, carry.filler_mouth(&room.filler), true)
 	} else if carry.oven_pour_ready(&room.oven, &room.props) {
 		carry.pour_flow_to(&room.props, &room.stream, &room.layout, dt, carry.oven_mouth(&room.oven), true)
 	} else {

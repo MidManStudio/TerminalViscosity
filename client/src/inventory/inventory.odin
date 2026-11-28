@@ -20,6 +20,8 @@ Item_Kind :: enum u8 {
 	Scale     = 4,
 	Incinerator = 5,
 	Hood      = 6,
+	Filler    = 7,
+	Oven      = 8,
 }
 
 // What an item is. A container takes only the items that have all the tags it asks for.
@@ -51,7 +53,7 @@ def_of :: proc(kind: Item_Kind) -> Item_Def {
 	#partial switch kind {
 	case .Dispenser:
 		return {1, {.Mountable}}
-	case .Hot_Plate, .Ice_Bath, .Scale, .Incinerator, .Hood:
+	case .Hot_Plate, .Ice_Bath, .Scale, .Incinerator, .Hood, .Filler, .Oven:
 		return {1, {.Benchable}}
 	}
 	return {0, {}}

@@ -42,18 +42,21 @@ mix_light :: proc(m: ^chemistry.Mixture, capacity: f32) -> [4]u8 {
 // ten lights that fills while a run goes, a light for the product in the tank, and a
 // glow in the window while it runs. The window pulses so the oven looks busy.
 oven_draw :: proc(o: ^carry.Oven) {
+	if !o.standing {
+		return
+	}
 	rlgl.DrawRenderBatchActive()
 	rlgl.DisableBackfaceCulling()
 	rlgl.Begin(rlgl.TRIANGLES)
 
 	for i in 0 ..< lab.MIXER_PORTS {
 		p := o.ports[i]
-		draw_flat_box(lab.mixer_port_light(i), {0.14, 0.05, 0.012}, liquid_light(p.compound, p.ml, carry.PORT_CAPACITY))
+		draw_flat_box(lab.mixer_port_light_at(o.at, i), lab.station_size(o.at, {0.14, 0.05, 0.012}), liquid_light(p.compound, p.ml, carry.PORT_CAPACITY))
 	}
-	draw_flat_box(lab.mixer_tank_light(), {0.14, 0.18, 0.012}, mix_light(&o.tank, carry.TANK_CAPACITY * 0.5))
+	draw_flat_box(lab.mixer_tank_light_at(o.at), lab.station_size(o.at, {0.14, 0.18, 0.012}), mix_light(&o.tank, carry.TANK_CAPACITY * 0.5))
 	// A light at the tip of the spout, in the color of the product, while there is some.
 	if carry.ml_of(&o.tank) > 0 {
-		draw_flat_box(lab.mixer_spout_light(), {0.035, 0.035, 0.035}, liquid_light(carry.main_of(&o.tank), 1, 1))
+		draw_flat_box(lab.mixer_spout_light_at(o.at), {0.035, 0.035, 0.035}, liquid_light(carry.main_of(&o.tank), 1, 1))
 	}
 
 	running := o.state == .Running
@@ -61,7 +64,7 @@ oven_draw :: proc(o: ^carry.Oven) {
 		pulse := 0.65 + 0.35 * f32(rl.GetTime() * 7 - f64(i32(rl.GetTime() * 7))) // a sawtooth, cheap and busy
 		glow := [4]u8{u8(255 * pulse), u8(140 * pulse), u8(40 * pulse), 255}
 		w := lab.MIXER
-		draw_flat_box({(w.min_x + w.max_x) * 0.5 - 0.1, 1.24, w.max_z + 0.008}, {0.98, 0.16, 0.004}, glow)
+		draw_flat_box(lab.station_point(o.at, {(w.min_x + w.max_x) * 0.5 - 0.1, 1.24, w.max_z + 0.008}), lab.station_size(o.at, {0.98, 0.16, 0.004}), glow)
 	}
 	progress := carry.oven_progress(o)
 	for i in 0 ..< lab.MIXER_PROGRESS_LIGHTS {
@@ -70,7 +73,7 @@ oven_draw :: proc(o: ^carry.Oven) {
 		if !running {
 			color = OVEN_OFF
 		}
-		draw_flat_box(lab.mixer_progress_light(i), {0.07, 0.07, 0.012}, color)
+		draw_flat_box(lab.mixer_progress_light_at(o.at, i), lab.station_size(o.at, {0.07, 0.07, 0.012}), color)
 	}
 
 	rlgl.End()

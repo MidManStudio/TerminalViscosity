@@ -425,3 +425,143 @@ the_spout_fills_a_vessel_standing_on_the_tray :: proc(t: ^testing.T) {
 	testing.expectf(t, ml_of(&s.props.items[0].mix) > 280, "the vessel on the tray holds %v ml", ml_of(&s.props.items[0].mix))
 	testing.expect_value(t, ml_of(&o.tank), 0)
 }
+
+// ---- the oven where it stands ----
+
+// The oven turned so that its front looks east, on the west counter, as it stands when it has been moved there.
+moved_oven :: proc() -> Oven {
+	o: Oven
+	oven_init(&o)
+	o.at = lab.Placement{.Oven, -11.63, -1.5, 3}
+	return o
+}
+
+// Puts one drop of ethanol into the air at `at` in a stream of its own, so that the place of the first drop does not
+// decide where the others may be, and gives how much of it the ports took.
+oven_takes_a_drop_at :: proc(t: ^testing.T, o: ^Oven, at: Vec3) -> f32 {
+	s := pour_scene()
+	defer free_pour_scene(s)
+	testing.expect(t, stream_spawn_ml(s.st, s.l, at, {}, id(.Ethanol), 3.375), "the drop is in the air")
+	events: [MAX_EVENTS]Oven_Event
+	total :: proc(o: ^Oven) -> f32 {
+		sum := f32(0)
+		for port in o.ports {
+			sum += port.ml
+		}
+		return sum
+	}
+	before := total(o)
+	oven_capture(s.st, o, &events)
+	return total(o) - before
+}
+
+@(test)
+an_oven_that_has_been_moved_takes_drops_at_its_new_ports_and_not_the_old :: proc(t: ^testing.T) {
+	o := moved_oven()
+	for i in 0 ..< lab.MIXER_PORTS {
+		m := lab.mixer_port_at(o.at, i)
+		testing.expect_value(t, oven_takes_a_drop_at(t, &o, {m.x, m.y + 0.1, m.z}), f32(3.375))
+		testing.expect_value(t, o.ports[i].ml, f32(3.375))
+	}
+	// Over where the ports were made, there is nothing now.
+	testing.expect_value(t, oven_takes_a_drop_at(t, &o, over_port(2, 0.1)), f32(0))
+	// An oven that has been picked up takes nothing, wherever the drop is.
+	o.standing = false
+	m := lab.mixer_port_at(o.at, 1)
+	testing.expect_value(t, oven_takes_a_drop_at(t, &o, {m.x, m.y + 0.1, m.z}), f32(0))
+	// And one that starts takes them where it starts.
+	g: Oven
+	oven_init(&g)
+	testing.expect_value(t, g.at, lab.OVEN_START)
+	testing.expect(t, g.standing, "a new one stands")
+	testing.expect_value(t, oven_takes_a_drop_at(t, &g, over_port(0, 0.1)), f32(3.375))
+}
+
+@(test)
+an_oven_that_has_been_moved_is_aimed_at_where_it_stands_and_says_which_port :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	o := moved_oven()
+	for port in 0 ..< lab.MIXER_PORTS {
+		m := lab.mixer_port_at(o.at, port)
+		view := view_toward({-10.4, 1.6, m.z}, {m.x, 1.3, m.z})
+		testing.expectf(t, oven_aim(&o, props, view), "looking at port %d from the east", port)
+		testing.expect_value(t, o.aimed_port, port)
+		mouth := oven_mouth(&o)
+		testing.expectf(t, abs(mouth.x - m.x) < 0.001 && abs(mouth.z - m.z) < 0.001 && mouth.y > m.y, "the pour is aimed over port %d", port)
+	}
+	// Not where it was made.
+	testing.expect(t, !oven_aim(&o, props, view_toward({3.0, 1.6, -6.6}, {3.0, 1.3, -7.63})), "nothing at the old place")
+	// Not when it does not stand.
+	o.standing = false
+	m := lab.mixer_port_at(o.at, 1)
+	testing.expect(t, !oven_aim(&o, props, view_toward({-10.4, 1.6, m.z}, {m.x, 1.3, m.z})), "nothing where it stood once it is gone")
+}
+
+@(test)
+the_spout_of_a_moved_oven_fills_a_vessel_under_it_or_standing_on_its_tray :: proc(t: ^testing.T) {
+	l, p, props := make_scene()
+	defer free_scene(l, p, props)
+	props_add(props, l, .Beaker, 0, 0)
+	props.held = 0
+	o := moved_oven()
+	fill_with(&o.tank, id(.Ethyl_Acetate), 100)
+	n := lab.mixer_spout_at(o.at)
+	testing.expect(t, abs(n.x - -11.63) < 0.001 && abs(n.z - (-1.5 + 1.02 * -1)) < 0.001 || abs(n.z - (-1.5 + 1.02)) < 0.001, "the spout is off the end of the oven")
+	under := n.y - 0.2 - kind_dims(.Beaker).height
+	props.items[0].pos = {n.x, under, n.z}
+	testing.expect(t, oven_spout_under(&o, props), "under the new spout")
+	props.items[0].pos = {lab.MIXER_SPOUT.x, under, lab.MIXER_SPOUT.z}
+	testing.expect(t, !oven_spout_under(&o, props), "not under the old one")
+	// Standing on the tray, not held.
+	props.held = -1
+	props.items[0].pos = {n.x, lab.COUNTER_HEIGHT + 0.01, n.z}
+	testing.expect_value(t, oven_rest_under(&o, props), 0)
+	props.items[0].pos = {lab.MIXER_SPOUT.x, lab.COUNTER_HEIGHT + 0.01, lab.MIXER_SPOUT.z}
+	testing.expect_value(t, oven_rest_under(&o, props), -1)
+	// The product leaves the spout of the oven where it stands.
+	s := pour_scene()
+	defer free_pour_scene(s)
+	oven_flow(&o, s.st, s.l, 0.1, n + Vec3{0, -0.5, 0}, 1)
+	testing.expect(t, s.st.sim.count > 0, "a drop left the spout")
+	first := stream_position(s.st, 0)
+	testing.expect(t, abs(first.x - n.x) < 0.1 && abs(first.z - n.z) < 0.1 && abs(first.y - n.y) < 0.1, "at the tip of the new spout")
+	// An oven that has been picked up has no spout.
+	o.standing = false
+	props.items[0].pos = {n.x, lab.COUNTER_HEIGHT + 0.01, n.z}
+	testing.expect_value(t, oven_rest_under(&o, props), -1)
+	props.held = 0
+	props.items[0].pos = {n.x, under, n.z}
+	testing.expect(t, !oven_spout_under(&o, props), "and nothing under it")
+}
+
+@(test)
+the_oven_is_found_among_the_stations_and_keeps_what_is_in_it_when_it_is_picked_up :: proc(t: ^testing.T) {
+	placed := lab.default_placed()
+	o: Oven
+	oven_init(&o)
+	o.ports[1] = port(.Ethanol, 40)
+	fill_with(&o.tank, id(.Ethyl_Acetate), 100)
+	oven_sync(&o, &placed)
+	testing.expect(t, o.standing && o.at == lab.OVEN_START, "it stands where it starts")
+	for i in 0 ..< placed.count {
+		if placed.items[i].kind == .Oven {
+			placed.items[i] = {.Oven, -11.63, -1.5, 3}
+		}
+	}
+	oven_sync(&o, &placed)
+	testing.expect_value(t, o.at, lab.Placement{.Oven, -11.63, -1.5, 3})
+	for i in 0 ..< placed.count {
+		if placed.items[i].kind == .Oven {
+			lab.placed_remove(&placed, i)
+			break
+		}
+	}
+	oven_sync(&o, &placed)
+	testing.expect(t, !o.standing, "picked up")
+	testing.expect_value(t, o.ports[1].ml, f32(40))
+	testing.expect_value(t, ml_of(&o.tank), f32(100))
+	lab.placed_add(&placed, {.Oven, 3.0, -7.63, 0})
+	oven_sync(&o, &placed)
+	testing.expect(t, o.standing && o.ports[1].ml == 40 && ml_of(&o.tank) == 100, "put down again with what it held")
+}

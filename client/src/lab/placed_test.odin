@@ -28,16 +28,18 @@ placed_lab_without_stations :: proc() -> ^Layout {
 @(test)
 the_stations_start_where_they_have_always_stood :: proc(t: ^testing.T) {
 	p := default_placed()
-	testing.expect_value(t, p.count, 5)
+	testing.expect_value(t, p.count, 7)
 	testing.expect_value(t, p.items[0].kind, Station_Kind.Hot_Plate)
 	testing.expect_value(t, p.items[1].kind, Station_Kind.Ice_Bath)
 	testing.expect_value(t, p.items[2].kind, Station_Kind.Scale)
 	testing.expect_value(t, p.items[3], Placement{.Incinerator, 10.5, 7.63, 0})
 	testing.expect_value(t, p.items[4], Placement{.Hood, -6.0, -7.63, 0})
+	testing.expect_value(t, p.items[5], Placement{.Filler, 6.0, 7.63, 0})
+	testing.expect_value(t, p.items[6], Placement{.Oven, 3.0, -7.63, 0})
 	testing.expect(t, placed_rect_close(world_plate(p.items[0]), HOT_PLATE), "the hot plate is where HOT_PLATE is")
 	testing.expect(t, placed_rect_close(world_plate(p.items[1]), ICE_BATH), "the ice bath is where ICE_BATH is")
 	testing.expect(t, placed_rect_close(world_plate(p.items[2]), SCALE_PLATE), "the scale plate is where SCALE_PLATE is")
-	for i in 5 ..< MAX_PLACED {
+	for i in 7 ..< MAX_PLACED {
 		testing.expect_value(t, p.items[i], Placement{})
 	}
 }
@@ -57,20 +59,23 @@ the_starting_stations_can_all_stand_where_they_start :: proc(t: ^testing.T) {
 @(test)
 a_station_added_or_taken_away_leaves_the_rest_in_order_and_the_slot_clear :: proc(t: ^testing.T) {
 	p := default_placed()
+	n := p.count
 	gone := placed_remove(&p, 1)
 	testing.expect_value(t, gone.kind, Station_Kind.Ice_Bath)
-	testing.expect_value(t, p.count, 4)
+	testing.expect_value(t, p.count, n - 1)
 	testing.expect_value(t, p.items[0].kind, Station_Kind.Hot_Plate)
 	testing.expect_value(t, p.items[1].kind, Station_Kind.Scale)
 	testing.expect_value(t, p.items[2].kind, Station_Kind.Incinerator)
 	testing.expect_value(t, p.items[3].kind, Station_Kind.Hood)
-	testing.expect_value(t, p.items[4], Placement{}) // the place that was the last is clear
-	testing.expect_value(t, placed_remove(&p, 4), Placement{}) // there is no station 4 now
+	testing.expect_value(t, p.items[4].kind, Station_Kind.Filler)
+	testing.expect_value(t, p.items[5].kind, Station_Kind.Oven)
+	testing.expect_value(t, p.items[n - 1], Placement{}) // the place that was the last is clear
+	testing.expect_value(t, placed_remove(&p, n - 1), Placement{}) // there is no station there now
 	testing.expect_value(t, placed_remove(&p, -1), Placement{})
-	testing.expect_value(t, p.count, 4)
+	testing.expect_value(t, p.count, n - 1)
 	testing.expect(t, !placed_add(&p, {.None, 0, 0, 0}), "a station of no kind is not added")
-	testing.expect_value(t, p.count, 4)
-	for i in 4 ..< MAX_PLACED {
+	testing.expect_value(t, p.count, n - 1)
+	for i in n - 1 ..< MAX_PLACED {
 		testing.expect(t, placed_add(&p, {.Hot_Plate, f32(i), 0, 0}), "room for it")
 	}
 	testing.expect_value(t, p.count, MAX_PLACED)
@@ -178,9 +183,6 @@ a_station_is_in_the_way_of_each_fixture :: proc(t: ^testing.T) {
 	cases := [?]Case {
 		{-11.63, -4.2, "the sink"},
 		{-11.63, -3.6, "the soap"},
-		{3.0, -7.63, "the oven"},
-		{4.1, -7.63, "the tray under the spout of the oven"},
-		{6.0, 7.63, "the fill station"},
 		{-11.63, 2.0, "the paint station"},
 		{-11.63, 1.3, "the tablet"},
 		{-11.63, 3.0, "the brushes"},
@@ -192,6 +194,12 @@ a_station_is_in_the_way_of_each_fixture :: proc(t: ^testing.T) {
 	}
 	for c in cases {
 		testing.expectf(t, can_place(&p, .Hot_Plate, c.x, c.z, 0) == .Blocked_By_Fixture, "%v is in the way", c.what)
+	}
+	// The oven with its spout and tray, and the fill station, are stations now, and are in the way as stations are.
+	stations := [?]Case{{3.0, -7.63, "the oven"}, {4.1, -7.63, "the tray under the spout of the oven"}, {6.0, 7.63, "the fill station"}}
+	d := default_placed()
+	for c in stations {
+		testing.expectf(t, can_place(&d, .Hot_Plate, c.x, c.z, 0) == .Blocked_By_Station, "%v is a station, and in the way", c.what)
 	}
 	// Clear of each, a hand's width away, it may stand.
 	testing.expect_value(t, can_place(&p, .Hot_Plate, 4.5, -7.63, 0), Place_Problem.None) // past the tray of the oven
@@ -336,7 +344,7 @@ the_stations_are_written_and_read_back_as_they_were :: proc(t: ^testing.T) {
 	d := default_placed()
 	text := placed_serialize(&d)
 	defer delete(text)
-	testing.expect_value(t, text, "placedset 5\nplaced 1 -3500 -7630 0\nplaced 2 -2400 -7630 0\nplaced 3 0 -7625 0\nplaced 4 10500 7630 0\nplaced 5 -6000 -7630 0\n")
+	testing.expect_value(t, text, "placedset 7\nplaced 1 -3500 -7630 0\nplaced 2 -2400 -7630 0\nplaced 3 0 -7625 0\nplaced 4 10500 7630 0\nplaced 5 -6000 -7630 0\nplaced 6 6000 7630 0\nplaced 7 3000 -7630 0\n")
 	back, found, _, rejected := placed_deserialize(text)
 	testing.expect(t, found, "there was a placedset line")
 	testing.expect_value(t, rejected, 0)
@@ -380,7 +388,7 @@ lines_that_are_no_stations_are_dropped_and_lines_that_cannot_stand_are_kept_asid
 		"placed 1 8000 -7630 0\n", // a good one
 		"placed 1 8100 -7630 0\n", // on top of it
 		"placed 2 0 3000 0\n", // on the floor
-		"placed 3 3000 -7630 0\n", // in the oven
+		"placed 3 -11630 1800 0\n", // at the paint station
 	}, context.temp_allocator)
 	p, found, set_aside, rejected := placed_deserialize(text)
 	testing.expect(t, found, "found")
@@ -389,7 +397,7 @@ lines_that_are_no_stations_are_dropped_and_lines_that_cannot_stand_are_kept_asid
 	testing.expect_value(t, rejected, 3)
 	testing.expect_value(t, set_aside[0], Placement{.Hot_Plate, 8.1, -7.63, 0})
 	testing.expect_value(t, set_aside[1], Placement{.Ice_Bath, 0, 3, 0})
-	testing.expect_value(t, set_aside[2], Placement{.Scale, 3, -7.63, 0})
+	testing.expect_value(t, set_aside[2], Placement{.Scale, -11.63, 1.8, 0})
 	testing.expect_value(t, set_aside[3], Placement{})
 }
 
@@ -417,7 +425,7 @@ each_station_is_built_where_it_stands_and_turned_as_it_is_turned :: proc(t: ^tes
 	l := new(Layout)
 	defer free(l)
 	add_placed(l, default_placed())
-	testing.expect_value(t, l.box_count, 31) // the plate 2, the bath 8, the scale 4, the incinerator 12 and the hood 5
+	testing.expect_value(t, l.box_count, 64) // the plate 2, the bath 8, the scale 4, the incinerator 12, the hood 5, the filler and the oven 33
 	testing.expect(t, !l.xform.on, "the transform is off again afterwards")
 	plate := l.boxes[0]
 	testing.expect(t, placed_close(plate.center.x, -3.5) && placed_close(plate.center.y, 1.12) && placed_close(plate.center.z, -7.63), "the hot plate is where it stood")
@@ -458,12 +466,12 @@ the_lab_has_room_for_as_many_stations_as_there_can_be :: proc(t: ^testing.T) {
 	add_placed(l, p)
 	testing.expect_value(t, l.box_count, before + 8 * MAX_PLACED)
 	testing.expect(t, l.box_count < MAX_BOXES, "none of them was dropped for want of room")
-	// The lab as `add_apparatus` makes it has the five stations that it starts with, 31 boxes of them.
+	// The lab as `add_apparatus` makes it has the seven stations that it starts with, 64 boxes of them.
 	l2 := new(Layout)
 	defer free(l2)
 	build(l2)
 	add_apparatus(l2)
-	testing.expect_value(t, l2.box_count, before + 31)
+	testing.expect_value(t, l2.box_count, before + 64)
 }
 
 @(test)
@@ -496,7 +504,7 @@ the_incinerator_stands_on_a_counter_where_there_is_room_and_nowhere_else :: proc
 	testing.expect_value(t, can_place(&p, .Incinerator, 6.0, -7.63, 0), Place_Problem.None)
 	// Not on the floor, not on the fill station, and not on the station that is there.
 	testing.expect_value(t, can_place(&p, .Incinerator, 7.3, 4.0, 0), Place_Problem.Off_Counter)
-	testing.expect_value(t, can_place(&p, .Incinerator, 6.0, 7.63, 0), Place_Problem.Blocked_By_Fixture)
+	testing.expect_value(t, can_place(&p, .Incinerator, 6.0, 7.63, 0), Place_Problem.Blocked_By_Station)
 	testing.expect_value(t, can_place(&p, .Incinerator, 10.5, 7.63, 0), Place_Problem.Blocked_By_Station)
 	// Where the incinerator stands, nothing else may, and a hot plate beside it, a hand's width off, may.
 	testing.expect_value(t, can_place(&p, .Hot_Plate, 10.5, 7.63, 0), Place_Problem.Blocked_By_Station)
@@ -650,4 +658,61 @@ one_axis_of_a_fit_is_the_grid_in_the_range_or_the_middle_of_a_range_without_a_gr
 	testing.expect(t, ok && near_f(v, -7.63), "a hair short is still a fit")
 	v, ok = fit_axis(-7.62, -7.64, -7.6) // 2 cm too big
 	testing.expect(t, !ok && near_f(v, -7.6), "too big, and the point is given back")
+}
+
+@(test)
+the_filler_and_the_oven_are_tall_stations_without_a_plate_that_stand_where_there_is_room :: proc(t: ^testing.T) {
+	testing.expect(t, !station_has_plate(.Filler) && !station_has_plate(.Oven), "no vessel stands on either")
+	testing.expect(t, abs(station_top(.Filler) - 1.75) < 0.001 && abs(station_top(.Oven) - 1.7) < 0.001, "heights")
+	p := default_placed()
+	for i := p.count - 1; i >= 0; i -= 1 {
+		if p.items[i].kind == .Filler || p.items[i].kind == .Oven {
+			placed_remove(&p, i) // both are picked up
+		}
+	}
+	// Back where they started.
+	testing.expect_value(t, can_place(&p, .Filler, 6.0, 7.63, 0), Place_Problem.None)
+	testing.expect_value(t, can_place(&p, .Oven, 3.0, -7.63, 0), Place_Problem.None)
+	// Past the end of the shelves, and on the west counter turned so that the front looks east.
+	testing.expect_value(t, can_place(&p, .Filler, -2.0, 7.63, 0), Place_Problem.None)
+	testing.expect_value(t, can_place(&p, .Oven, -11.63, -1.5, 3), Place_Problem.None)
+	testing.expect_value(t, can_place(&p, .Oven, -11.63, -1.5, 0), Place_Problem.Off_Counter) // not turned it is wider than the counter is deep
+	// Under the shelves and the cabinet neither may stand, as the hood may not.
+	testing.expect_value(t, can_place(&p, .Filler, -6.0, 7.63, 0), Place_Problem.Blocked_By_Fixture)
+	testing.expect_value(t, can_place(&p, .Oven, -8.2, -7.63, 0), Place_Problem.Blocked_By_Fixture)
+	testing.expect_value(t, can_place(&p, .Filler, -8.2, -7.63, 0), Place_Problem.Blocked_By_Fixture)
+	// Not on the loadout rack or the paint station, which stay where they are.
+	testing.expect_value(t, can_place(&p, .Filler, 8.8, 7.63, 0), Place_Problem.Blocked_By_Fixture)
+	testing.expect_value(t, can_place(&p, .Oven, -11.63, 2.0, 3), Place_Problem.Blocked_By_Fixture)
+	// Where the oven stands, with its spout and tray, nothing else may, and a hand's width past the tray it may.
+	d := default_placed()
+	testing.expect_value(t, can_place(&d, .Hot_Plate, 4.1, -7.63, 0), Place_Problem.Blocked_By_Station)
+	testing.expect_value(t, can_place(&d, .Hot_Plate, 4.5, -7.63, 0), Place_Problem.None)
+	testing.expect_value(t, can_place(&d, .Hot_Plate, 6.3, 7.63, 0), Place_Problem.Blocked_By_Station) // the gauge of the filler
+	testing.expect_value(t, can_place(&d, .Hot_Plate, 7.0, 7.63, 0), Place_Problem.None)
+}
+
+@(test)
+the_filler_and_the_oven_are_written_and_read_back_turned :: proc(t: ^testing.T) {
+	p: Placed
+	placed_add(&p, {.Filler, -2.0, 7.55, 1})
+	placed_add(&p, {.Oven, -11.63, -1.5, 3})
+	text := placed_serialize(&p)
+	defer delete(text)
+	testing.expect_value(t, text, "placedset 2\nplaced 6 -2000 7550 1\nplaced 7 -11630 -1500 3\n")
+	back, found, _, rejected := placed_deserialize(text)
+	testing.expect(t, found && rejected == 0, "read with nothing set aside")
+	testing.expect_value(t, back.items[0], Placement{.Filler, -2.0, 7.55, 1})
+	testing.expect_value(t, back.items[1], Placement{.Oven, -11.63, -1.5, 3})
+}
+
+@(test)
+the_aim_box_of_a_station_stands_from_the_counter_to_the_height_of_the_station :: proc(t: ^testing.T) {
+	kinds := [?]Station_Kind{.Filler, .Oven, .Hood, .Incinerator}
+	heights := [?]f32{0.64, 0.6, 1.15, 0.62}
+	for kind, i in kinds {
+		testing.expectf(t, abs(station_height(kind) - heights[i]) < 0.001, "%v is %v high", kind, station_height(kind))
+		low, high := station_aim_box(Placement{kind, 3, 4, 0})
+		testing.expectf(t, low.y == COUNTER_HEIGHT && abs(high.y - (COUNTER_HEIGHT + heights[i])) < 0.001, "the aim box of %v", kind)
+	}
 }

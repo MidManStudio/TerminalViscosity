@@ -512,3 +512,100 @@ the_soap_stands_on_the_counter_beside_the_basin_within_its_aim_box :: proc(t: ^t
 	testing.expect(t, SOAP_AIM_LOW.z < s.z && s.z < SOAP_AIM_HIGH.z, "and along")
 	testing.expect(t, SOAP_AIM_LOW.y <= s.y && SOAP_AIM_HIGH.y > s.y + 0.2, "and the box covers the bottle and its pump")
 }
+
+// ---- the filler and the oven, made to be moved ----
+
+// Whether every box of a station built at `pl` is inside its body, and between the counter and its top.
+boxes_inside_body :: proc(t: ^testing.T, pl: Placement, want: int) {
+	l := new(Layout)
+	defer free(l)
+	p: Placed
+	placed_add(&p, pl)
+	add_placed(l, p)
+	testing.expectf(t, l.box_count == want, "%v turned %d has %d boxes, not %d", pl.kind, pl.quarter, l.box_count, want)
+	body := world_body(pl)
+	for i in 0 ..< l.box_count {
+		b := l.boxes[i]
+		inside := b.center.x - b.size.x * 0.5 >= body.min_x - 0.0001 && b.center.x + b.size.x * 0.5 <= body.max_x + 0.0001 && b.center.z - b.size.z * 0.5 >= body.min_z - 0.0001 && b.center.z + b.size.z * 0.5 <= body.max_z + 0.0001
+		testing.expectf(t, inside, "%v turned %d: box %d is outside the body", pl.kind, pl.quarter, i)
+		testing.expectf(t, b.center.y - b.size.y * 0.5 >= COUNTER_HEIGHT - 0.001 && b.center.y + b.size.y * 0.5 <= station_top(pl.kind) + 0.001, "%v turned %d: box %d is not between the counter and the top", pl.kind, pl.quarter, i)
+	}
+}
+
+@(test)
+the_boxes_of_the_filler_and_the_oven_are_inside_their_bodies_as_they_start_and_at_every_turn :: proc(t: ^testing.T) {
+	boxes_inside_body(t, FILLER_START, 12)
+	boxes_inside_body(t, OVEN_START, 21)
+	for q in 0 ..< 4 {
+		boxes_inside_body(t, {.Filler, -2.0, 7.55, u8(q)}, 12)
+		boxes_inside_body(t, {.Oven, -11.63, -1.5, u8(q)}, 21)
+	}
+}
+
+@(test)
+the_filler_and_the_oven_start_on_their_counters_where_they_have_always_stood :: proc(t: ^testing.T) {
+	l := full_lab()
+	defer free(l)
+	testing.expect(t, counter_covers(l, world_body(FILLER_START)), "the filler is on the south counter")
+	testing.expect(t, counter_covers(l, world_body(OVEN_START)), "the oven is on the north counter")
+	testing.expect(t, world_body(FILLER_START).min_z > 0 && world_body(OVEN_START).max_z < 0, "one on each side")
+	// A station at the place it starts is where its constants say.
+	for p in ([?]Vec3{FILLER_CLAMP, FILLER_MOUTH, GAUGE_ORIGIN, MIXER_SPOUT, mixer_port(2)}) {
+		testing.expect(t, vec_close(station_point(FILLER_START, p), p) && vec_close(station_point(OVEN_START, p), p), "the start is the identity")
+	}
+	testing.expect(t, vec_close(filler_mouth_at(FILLER_START), FILLER_MOUTH) && vec_close(mixer_spout_at(OVEN_START), MIXER_SPOUT), "mouth and spout")
+	testing.expect(t, vec_close(filler_center_at(FILLER_START), filler_center()) && vec_close(mixer_vent_at(OVEN_START), mixer_vent()), "center and vent")
+	for i in 0 ..< MIXER_PORTS {
+		testing.expect(t, vec_close(mixer_port_at(OVEN_START, i), mixer_port(i)) && vec_close(mixer_port_light_at(OVEN_START, i), mixer_port_light(i)), "ports")
+	}
+	for i in 0 ..< MIXER_PROGRESS_LIGHTS {
+		testing.expect(t, vec_close(mixer_progress_light_at(OVEN_START, i), mixer_progress_light(i)), "progress lights")
+	}
+	for i in 0 ..< GAUGE_LIGHTS {
+		testing.expect(t, vec_close(gauge_light_at(FILLER_START, i), gauge_light(i)), "gauge lights")
+	}
+	testing.expect(t, vec_close(mixer_tank_light_at(OVEN_START), mixer_tank_light()) && vec_close(mixer_spout_light_at(OVEN_START), mixer_spout_light()) && vec_close(filler_clamp_at(FILLER_START), FILLER_CLAMP), "tank light, spout light, clamp")
+}
+
+@(test)
+the_parts_of_the_filler_and_the_oven_go_round_with_them :: proc(t: ^testing.T) {
+	f := Placement{.Filler, 5, 3, 0}
+	want_mouth := [4]Vec3{{5, 1.68, 2.82}, {5.18, 1.68, 3}, {5, 1.68, 3.18}, {4.82, 1.68, 3}}
+	want_light := [4]Vec3{{5.3, 1.28, 2.875}, {5.125, 1.28, 3.3}, {4.7, 1.28, 3.125}, {4.875, 1.28, 2.7}}
+	for q in 0 ..< 4 {
+		f.quarter = u8(q)
+		testing.expectf(t, vec_close(filler_mouth_at(f), want_mouth[q]), "turned %d, the mouth is %v", q, filler_mouth_at(f))
+		testing.expectf(t, vec_close(gauge_light_at(f, 0), want_light[q]), "turned %d, the first light is %v", q, gauge_light_at(f, 0))
+	}
+	o := Placement{.Oven, 5, 3, 0}
+	want_port0 := [4]Vec3{{4.4, 1.69, 3}, {5, 1.69, 2.4}, {5.6, 1.69, 3}, {5, 1.69, 3.6}}
+	want_port3 := [4]Vec3{{5.6, 1.69, 3}, {5, 1.69, 3.6}, {4.4, 1.69, 3}, {5, 1.69, 2.4}}
+	want_spout := [4]Vec3{{6.02, 1.45, 3}, {5, 1.45, 4.02}, {3.98, 1.45, 3}, {5, 1.45, 1.98}}
+	for q in 0 ..< 4 {
+		o.quarter = u8(q)
+		testing.expectf(t, vec_close(mixer_port_at(o, 0), want_port0[q]), "turned %d, port 1 is %v", q, mixer_port_at(o, 0))
+		testing.expectf(t, vec_close(mixer_port_at(o, 3), want_port3[q]), "turned %d, port 4 is %v", q, mixer_port_at(o, 3))
+		testing.expectf(t, vec_close(mixer_spout_at(o), want_spout[q]), "turned %d, the spout is %v", q, mixer_spout_at(o))
+	}
+	// A flat light keeps facing the way the station faces, so a quarter turn swaps its width and depth.
+	testing.expect(t, vec_close(station_size({.Oven, 0, 0, 0}, {0.14, 0.05, 0.012}), {0.14, 0.05, 0.012}), "not turned")
+	testing.expect(t, vec_close(station_size({.Oven, 0, 0, 1}, {0.14, 0.05, 0.012}), {0.012, 0.05, 0.14}), "turned a quarter")
+	testing.expect(t, vec_close(station_size({.Oven, 0, 0, 2}, {0.14, 0.05, 0.012}), {0.14, 0.05, 0.012}), "turned half")
+	testing.expect(t, vec_close(station_size({.Oven, 0, 0, 3}, {0.14, 0.05, 0.012}), {0.012, 0.05, 0.14}), "turned three quarters")
+}
+
+@(test)
+a_point_goes_to_a_station_and_back_for_every_kind_and_every_turn :: proc(t: ^testing.T) {
+	p := Vec3{7.1, 1.4, 2.2}
+	for kind in Station_Kind {
+		for q in 0 ..< 4 {
+			pl := Placement{kind, 3.3, -2.1, u8(q)}
+			back := station_to_start(pl, station_point(pl, p))
+			testing.expectf(t, vec_close(back, p), "%v turned %d: %v is not %v", kind, q, back, p)
+		}
+	}
+	// A direction is only turned, never moved, and what is up stays up.
+	testing.expect(t, vec_close(station_dir_to_start({.Oven, 9, 9, 1}, {1, 0.5, 0}), {0, 0.5, -1}), "a quarter turn sends +x to -z when it is turned back")
+	testing.expect(t, vec_close(station_dir_to_start({.Oven, 9, 9, 3}, {0, 0, 1}), {-1, 0, 0}), "and three quarters sends +z to -x")
+	testing.expect(t, vec_close(station_dir_to_start({.Oven, 9, 9, 0}, {0.3, -0.4, 0.5}), {0.3, -0.4, 0.5}), "not turned")
+}

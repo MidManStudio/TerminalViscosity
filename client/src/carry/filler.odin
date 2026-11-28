@@ -25,6 +25,8 @@ Filler :: struct {
 	generation: int,
 	aimed:      bool, // the crosshair is on the station, and nothing nearer
 	aimed_t:    f32,
+	at:         lab.Placement, // where the station stands. It carries its balloon with it when it is moved
+	standing:   bool, // whether it stands in the lab at all. A station that is picked up has nothing to aim at or fill
 }
 
 // What a drop into the balloon did: the meeting of liquids, if it started one, and
@@ -39,6 +41,17 @@ filler_init :: proc(f: ^Filler) {
 	f^ = {
 		present    = true,
 		generation = 1,
+		at         = lab.FILLER_START,
+		standing   = true,
+	}
+}
+
+// Takes where the station stands, or that it does not stand, from the stations of the lab.
+filler_sync :: proc(f: ^Filler, placed: ^lab.Placed) {
+	pl, found := lab.placed_find(placed, .Filler)
+	f.standing = found
+	if found {
+		f.at = pl
 	}
 }
 
@@ -69,7 +82,7 @@ filler_take_drop :: proc(f: ^Filler, compound: u16, ml: f32, eye: Vec3, drop_hea
 	if !f.present {
 		return {}
 	}
-	r := mix_into(&f.mix, BALLOON_POP_ML + DROP_ML, lab.filler_center(), eye, .Any, compound, ml, purity, drop_heat_c)
+	r := mix_into(&f.mix, BALLOON_POP_ML + DROP_ML, lab.filler_center_at(f.at), eye, .Any, compound, ml, purity, drop_heat_c)
 	out := Fill_Result {
 		mix = r,
 	}
@@ -105,9 +118,11 @@ filler_update :: proc(f: ^Filler, dt: f32) {
 // Whether the crosshair is on the station, within reach, and nearer than any
 // vessel it also points at.
 filler_aim :: proc(f: ^Filler, props: ^Props, v: View) -> bool {
-	t, hit := ray_box(v.eye, -v.back, lab.FILLER_AIM_LOW, lab.FILLER_AIM_HIGH)
+	// The station is worked out as it is made, so the line of sight is turned back to there.
+	eye, dir := lab.station_to_start(f.at, v.eye), lab.station_dir_to_start(f.at, -v.back)
+	t, hit := ray_box(eye, dir, lab.FILLER_AIM_LOW, lab.FILLER_AIM_HIGH)
 	f.aimed_t = t
-	f.aimed = hit && f.present && t <= REACH && (props.aimed == -1 || t < props.aimed_t)
+	f.aimed = hit && f.standing && f.present && t <= REACH && (props.aimed == -1 || t < props.aimed_t)
 	return f.aimed
 }
 
@@ -119,8 +134,8 @@ filler_pour_ready :: proc(f: ^Filler, props: ^Props) -> bool {
 
 // The point a pour is aimed at when the target is the station: just above the rim
 // of the funnel.
-filler_mouth :: proc() -> Vec3 {
-	return lab.FILLER_MOUTH + Vec3{0, 0.03, 0}
+filler_mouth :: proc(f: ^Filler) -> Vec3 {
+	return lab.filler_mouth_at(f.at) + Vec3{0, 0.03, 0}
 }
 
 // Lets the balloon take the drops that have fallen into the funnel: a drop inside
@@ -129,12 +144,12 @@ filler_mouth :: proc() -> Vec3 {
 // Returns how many.
 filler_capture :: proc(st: ^Stream, f: ^Filler, eye: Vec3, events: ^[MAX_EVENTS]Fill_Result) -> int {
 	n := 0
-	if !f.present {
+	if !f.present || !f.standing {
 		return 0
 	}
 	reach := lab.FILLER_FUNNEL_RADIUS + FILLER_CAPTURE_PAD
 	for i := st.sim.count - 1; i >= 0; i -= 1 {
-		w := stream_position(st, i)
+		w := lab.station_to_start(f.at, stream_position(st, i))
 		dx, dz := w.x - lab.FILLER_MOUTH.x, w.z - lab.FILLER_MOUTH.z
 		if dx * dx + dz * dz > reach * reach {
 			continue

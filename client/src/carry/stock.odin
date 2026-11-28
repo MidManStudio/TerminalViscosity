@@ -84,6 +84,10 @@ station_item :: proc(kind: lab.Station_Kind) -> inventory.Item {
 		return {.Incinerator, 0}
 	case .Hood:
 		return {.Hood, 0}
+	case .Filler:
+		return {.Filler, 0}
+	case .Oven:
+		return {.Oven, 0}
 	case .None:
 	}
 	return {}
@@ -101,6 +105,10 @@ item_station :: proc(item: inventory.Item) -> lab.Station_Kind {
 		return .Incinerator
 	case .Hood:
 		return .Hood
+	case .Filler:
+		return .Filler
+	case .Oven:
+		return .Oven
 	}
 	return .None
 }
@@ -118,6 +126,10 @@ station_name :: proc(kind: lab.Station_Kind) -> string {
 		return "incinerator"
 	case .Hood:
 		return "fume hood"
+	case .Filler:
+		return "balloon filler"
+	case .Oven:
+		return "reaction oven"
 	case .None:
 	}
 	return ""

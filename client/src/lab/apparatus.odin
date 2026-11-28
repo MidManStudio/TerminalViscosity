@@ -173,8 +173,6 @@ add_apparatus :: proc(l: ^Layout) {
 // The same, with the stations that can be moved where `placed` has them.
 add_apparatus_with :: proc(l: ^Layout, placed: Placed) {
 	add_sink(l)
-	add_filler(l)
-	add_mixer(l)
 	add_placed(l, placed)
 	add_paint_station(l)
 	add_loadout_rack(l)
@@ -463,4 +461,57 @@ gauge_light :: proc(i: int) -> Vec3 {
 
 in_rect :: proc(r: Rect, x, z: f32) -> bool {
 	return x >= r.min_x && x <= r.max_x && z >= r.min_z && z <= r.max_z
+}
+
+// ---- The filler and the oven where they stand ----
+//
+// The constants above, and the procs that follow them, say where the parts of the balloon filler and of the reaction
+// oven are when they stand where the lab starts them. They can be moved, and these say where the same parts are for a
+// placement: turned about the place they start at, and put where they stand.
+
+FILLER_START :: Placement{.Filler, 6.0, 7.63, 0}
+OVEN_START :: Placement{.Oven, 3.0, -7.63, 0}
+
+filler_clamp_at :: proc(pl: Placement) -> Vec3 {
+	return station_point(pl, FILLER_CLAMP)
+}
+
+filler_mouth_at :: proc(pl: Placement) -> Vec3 {
+	return station_point(pl, FILLER_MOUTH)
+}
+
+filler_center_at :: proc(pl: Placement) -> Vec3 {
+	return station_point(pl, filler_center())
+}
+
+gauge_light_at :: proc(pl: Placement, i: int) -> Vec3 {
+	return station_point(pl, gauge_light(i))
+}
+
+mixer_spout_at :: proc(pl: Placement) -> Vec3 {
+	return station_point(pl, MIXER_SPOUT)
+}
+
+mixer_port_at :: proc(pl: Placement, i: int) -> Vec3 {
+	return station_point(pl, mixer_port(i))
+}
+
+mixer_port_light_at :: proc(pl: Placement, i: int) -> Vec3 {
+	return station_point(pl, mixer_port_light(i))
+}
+
+mixer_progress_light_at :: proc(pl: Placement, i: int) -> Vec3 {
+	return station_point(pl, mixer_progress_light(i))
+}
+
+mixer_tank_light_at :: proc(pl: Placement) -> Vec3 {
+	return station_point(pl, mixer_tank_light())
+}
+
+mixer_spout_light_at :: proc(pl: Placement) -> Vec3 {
+	return station_point(pl, mixer_spout_light())
+}
+
+mixer_vent_at :: proc(pl: Placement) -> Vec3 {
+	return station_point(pl, mixer_vent())
 }

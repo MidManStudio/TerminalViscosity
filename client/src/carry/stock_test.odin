@@ -324,8 +324,7 @@ a_file_from_before_stations_could_stand_anywhere_keeps_the_stations_where_its_be
 	p, had := placed_from_bench_file(text)
 	testing.expect(t, had, "it had a bench")
 	bench_stations := lab.default_placed()
-	lab.placed_remove(&bench_stations, 3) // the bench never had the incinerator or the hood, `stock_restock` brings those back
-	lab.placed_remove(&bench_stations, 3)
+	only_plates(&bench_stations) // the bench never had the other stations, `stock_restock` brings those back
 	testing.expect_value(t, p, bench_stations)
 	// The plate moved to the first spot, the scale to the last, and the bath taken off.
 	text2 := bench_file({{.Hot_Plate, 0}, {}, {}, {}, {}, {.Scale, 0}})
@@ -365,15 +364,14 @@ a_station_that_is_nowhere_comes_back_at_its_place :: proc(t: ^testing.T) {
 	s: Stock
 	stock_init(&s)
 	placed := lab.default_placed()
-	lab.placed_remove(&placed, 3) // a file from before the incinerator and the hood could be moved
-	lab.placed_remove(&placed, 3)
-	testing.expect_value(t, stock_restock(&s, &placed), 2)
+	only_plates(&placed) // a file from before the other stations could be moved
+	testing.expect_value(t, stock_restock(&s, &placed), 4)
 	testing.expect_value(t, placed, lab.default_placed())
 	testing.expect_value(t, stock_restock(&s, &placed), 0) // nothing is missing now
 	testing.expect_value(t, placed, lab.default_placed())
 	// Nothing standing at all: every station of the lab as it starts is back, in the order it starts in.
 	empty: lab.Placed
-	testing.expect_value(t, stock_restock(&s, &empty), 5)
+	testing.expect_value(t, stock_restock(&s, &empty), 7)
 	testing.expect_value(t, empty, lab.default_placed())
 }
 
@@ -388,7 +386,7 @@ a_station_in_the_bag_or_the_bar_is_not_brought_back_as_well :: proc(t: ^testing.
 		box := container == 0 ? &s.bag : &s.hotbar
 		testing.expect_value(t, inventory.add(box, inc, 1), 1)
 		testing.expect_value(t, stock_restock(&s, &placed), 0)
-		testing.expect_value(t, placed.count, 4)
+		testing.expect_value(t, placed.count, 6)
 		testing.expect_value(t, inventory.count_of(box, inc), 1)
 	}
 }
@@ -445,4 +443,6 @@ every_station_is_an_item_and_back :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, station_name(.Incinerator), "incinerator")
 	testing.expect_value(t, station_name(.Hood), "fume hood")
+	testing.expect_value(t, station_name(.Filler), "balloon filler")
+	testing.expect_value(t, station_name(.Oven), "reaction oven")
 }

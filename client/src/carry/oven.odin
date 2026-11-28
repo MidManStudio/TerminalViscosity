@@ -42,6 +42,8 @@ Oven :: struct {
 	aimed:      bool, // the crosshair is on the oven, and nothing nearer
 	aimed_t:    f32,
 	aimed_port: int, // the port nearest where the crosshair is, or -1
+	at:         lab.Placement, // where the oven stands. It carries what is in it with it when it is moved
+	standing:   bool, // whether it stands in the lab at all. An oven that is picked up takes nothing in and gives nothing out
 }
 
 Oven_Event_Kind :: enum {
@@ -64,6 +66,17 @@ Oven_Event :: struct {
 oven_init :: proc(o: ^Oven) {
 	o^ = {
 		aimed_port = -1,
+		at         = lab.OVEN_START,
+		standing   = true,
+	}
+}
+
+// Takes where the oven stands, or that it does not stand, from the stations of the lab.
+oven_sync :: proc(o: ^Oven, placed: ^lab.Placed) {
+	pl, found := lab.placed_find(placed, .Oven)
+	o.standing = found
+	if found {
+		o.at = pl
 	}
 }
 
@@ -145,17 +158,18 @@ oven_update :: proc(o: ^Oven, dt: f32) -> Oven_Event {
 // Whether the crosshair is on the oven, within reach, and nearer than any vessel
 // it also points at, and which port is nearest where it points.
 oven_aim :: proc(o: ^Oven, props: ^Props, v: View) -> bool {
-	dir := -v.back
-	t, hit := ray_box(v.eye, dir, lab.MIXER_AIM_LOW, lab.MIXER_AIM_HIGH)
+	// The oven is worked out as it is made, so the line of sight is turned back to there.
+	eye, dir := lab.station_to_start(o.at, v.eye), lab.station_dir_to_start(o.at, -v.back)
+	t, hit := ray_box(eye, dir, lab.MIXER_AIM_LOW, lab.MIXER_AIM_HIGH)
 	o.aimed_t = t
-	o.aimed = hit && t <= REACH && (props.aimed == -1 || t < props.aimed_t)
+	o.aimed = hit && o.standing && t <= REACH && (props.aimed == -1 || t < props.aimed_t)
 	o.aimed_port = -1
 	if o.aimed {
 		// Which port the crosshair points at is where its line is over the funnels,
 		// not where it first meets the box, so follow it back to their depth.
-		x := v.eye.x + dir.x * t
+		x := eye.x + dir.x * t
 		if abs(dir.z) > 1e-3 {
-			x = v.eye.x + dir.x * ((lab.mixer_port(0).z - v.eye.z) / dir.z)
+			x = eye.x + dir.x * ((lab.mixer_port(0).z - eye.z) / dir.z)
 		}
 		i := int((x - lab.MIXER.min_x) / lab.MIXER_PORT_SPACING)
 		o.aimed_port = clamp(i, 0, lab.MIXER_PORTS - 1)
@@ -178,7 +192,7 @@ oven_run_ready :: proc(o: ^Oven, props: ^Props) -> bool {
 // The point a pour is aimed at when the target is the oven: just over the rim of the
 // funnel of the port nearest the crosshair.
 oven_mouth :: proc(o: ^Oven) -> Vec3 {
-	return lab.mixer_port(max(o.aimed_port, 0)) + Vec3{0, 0.03, 0}
+	return lab.mixer_port_at(o.at, max(o.aimed_port, 0)) + Vec3{0, 0.03, 0}
 }
 
 // Lets the ports take the drops that have fallen into their funnels. A port takes
@@ -187,12 +201,12 @@ oven_mouth :: proc(o: ^Oven) -> Vec3 {
 // a run is going the oven is shut and takes nothing. Returns how many events.
 oven_capture :: proc(st: ^Stream, o: ^Oven, events: ^[MAX_EVENTS]Oven_Event) -> int {
 	n := 0
-	if o.state != .Idle {
+	if o.state != .Idle || !o.standing {
 		return 0
 	}
 	reach := lab.MIXER_PORT_RADIUS + OVEN_CAPTURE_PAD
 	for i := st.sim.count - 1; i >= 0; i -= 1 {
-		w := stream_position(st, i)
+		w := lab.station_to_start(o.at, stream_position(st, i))
 		for k in 0 ..< lab.MIXER_PORTS {
 			mouth := lab.mixer_port(k)
 			dx, dz := w.x - mouth.x, w.z - mouth.z
@@ -231,14 +245,14 @@ oven_capture :: proc(st: ^Stream, o: ^Oven, events: ^[MAX_EVENTS]Oven_Event) -> 
 // same rule as a tap: upright, with room, within half a metre sideways, and not too
 // far over or under the tip, and there is product in the tank.
 oven_spout_under :: proc(o: ^Oven, props: ^Props) -> bool {
-	if props.held == -1 || ml_of(&o.tank) <= 0 {
+	if props.held == -1 || ml_of(&o.tank) <= 0 || !o.standing {
 		return false
 	}
 	pr := props.items[props.held]
 	if pr.tilt > 0.2 || ml_of(&pr.mix) >= capacity_ml(pr.kind) - 0.5 {
 		return false
 	}
-	n := lab.MIXER_SPOUT
+	n := lab.mixer_spout_at(o.at)
 	dx, dz := pr.pos.x - n.x, pr.pos.z - n.z
 	if dx * dx + dz * dz > TAP_ASSIST * TAP_ASSIST {
 		return false
@@ -250,10 +264,10 @@ oven_spout_under :: proc(o: ^Oven, props: ^Props) -> bool {
 // A vessel standing on the drip tray under the spout, or -1: not held, upright, with
 // room in it, and its middle on the tray. It is filled without being held.
 oven_rest_under :: proc(o: ^Oven, props: ^Props) -> int {
-	if ml_of(&o.tank) <= 0 {
+	if ml_of(&o.tank) <= 0 || !o.standing {
 		return -1
 	}
-	n := lab.MIXER_SPOUT
+	n := lab.mixer_spout_at(o.at)
 	for i in 0 ..< props.count {
 		pr := props.items[i]
 		if i == props.held || pr.tilt > 0.2 || ml_of(&pr.mix) >= capacity_ml(pr.kind) - 0.5 {
@@ -282,7 +296,7 @@ oven_flow :: proc(o: ^Oven, st: ^Stream, l: ^lab.Layout, dt: f32, mouth: Vec3, s
 	}
 	drop := DROP_ML * speed
 	o.flow_acc = min(o.flow_acc + OVEN_SPOUT_FLOW * speed * dt, 2 * drop)
-	nozzle := lab.MIXER_SPOUT
+	nozzle := lab.mixer_spout_at(o.at)
 	stream_mouth(st, nozzle)
 	vel := arc_to(nozzle, mouth)
 	for n in 0 ..< 2 {
